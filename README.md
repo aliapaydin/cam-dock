@@ -1,4 +1,4 @@
-# Cam Dock — v0.8.1
+# Cam Dock — v0.9.0
 
 Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebView2) ile yazıldı.
 
@@ -12,11 +12,10 @@ Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebVi
 | Sabitlenmiş uygulamalar + açık pencereler, gerçek ikonlar, tıkla öne getir/küçült | ✅ |
 | Başlat düğmesi (Başlat menüsünü açar) | ✅ |
 | Müzik: Spotify, YouTube, Apple Music… kapak, oynat/duraklat/ileri/geri; **birden çok oynatıcıda tekerlekle dikey kaydırma** | ✅ |
-| **Sistem kaynakları**: CPU, RAM, GPU, Disk çubukları | ✅ |
 | **Klasik taskbar hiç görünmez**: tüm ekranlarda boş bölgeyle kırpılır (görünmez, tıklamaları geçirir; Windows'la çekişme yok) | ✅ |
 | **Uygulama kataloğu**: Store sürümleri dahil tüm yüklü uygulamalar; bulunamayan sabitlemeler adıyla otomatik düzeltilir; Gözat ile dosya seçme | ✅ |
-| Ekran süresi (2 dk'dan uzun boşta kalınan süre sayılmaz) + saatlik çubuklar | ✅ |
-| **Piyasa ve haberler**: dolar, euro, gram altın (Truncgil) ve RSS haber başlıkları dönüşümlü kayar; habere tıklayınca tarayıcıda açılır | ✅ |
+| **Ekran süresi + kaynaklar** tek hücrede dönüşümlü (halka gösterge + canlı çizgi); tıklayınca **kullanım paneli**: saatlik ve 7 günlük sütunlar, uygulama halkası, CPU/RAM/GPU/Disk son 2 dk, sistem bilgisi | ✅ |
+| **Piyasa ve haberler**: dolar, euro, gram altın (Truncgil) ve RSS haber başlıkları dönüşümlü kayar; tıklayınca **haber ve piyasa paneli** (tüm kurlar/altın, alış-satış-değişim; Gündem, Ekonomi, Teknoloji, Spor… kategorileri; haberden tarayıcıya) | ✅ |
 | Tarih / saat | ✅ |
 | Tam ekran oyun/video açılınca dock'un kendini gizlemesi | ✅ |
 | **Ayarlar penceresi** (sağ tık → Ayarlar…): görünüm, dock/taskbar, ekranlar, uygulamalar, widget'lar | ✅ |
@@ -27,6 +26,7 @@ Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebVi
 | **Takvim paneli**: takvim hücresine tıkla; ay görünümü, hafta numaraları, Türkiye resmî tatilleri, yaklaşan tatiller | ✅ |
 | **Pencere önizlemeleri**: birden çok pencereli uygulamanın üstüne gelince canlı küçük resimler; tıkla öne getir, × ile kapat | ✅ |
 | **Kilit düğmesi**: kilitli = hep görünür, pencereler altına girmez; açık = otomatik gizle, pencereler tüm ekranı kaplar | ✅ |
+| Öndeki uygulamada yayılan dalga, açık uygulamalarda nefes alan nokta, tıklamada damla efekti | ✅ |
 | Simgeye tıkla: öndeyse küçült, tekrar tıkla eski konumuna getir; açık uygulamaların sırası sabit | ✅ |
 | Başlat menüsü, arama, hızlı ayarlar açıkken dock gizlenmez | ✅ |
 | **Sağ tık menüsü**: açık pencereler, yeni pencere, tarayıcılarda gizli/InPrivate pencere, yönetici olarak çalıştır, dosya konumu, sabitle/kaldır, pencereleri kapat | ✅ |

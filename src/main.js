@@ -71,15 +71,36 @@ function applyTheme() {
 // ---------------------------------------------------------------------------
 // Yerleşim: dock'un ölçüsü değişince pencereyi yeniden boyutlandır
 // ---------------------------------------------------------------------------
-let layoutQueued = false;
+// İlk açılışta dock, uygulama listesi ve simgeler gelmeden ölçülüp ortalanınca
+// sonradan genişleyip sağa taşık kalıyordu. İlk yerleşim içerik hazır olunca
+// yapılır; sonrakiler kısa bir gecikmeyle toplanır, aynı ölçü tekrar gönderilmez.
+let layoutReady = false;
+let layoutTimer = null;
+let lastSize = "";
+let firstAppsDone;
+const appsLoaded = new Promise((r) => (firstAppsDone = r));
+const pendingIcons = [];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function sendLayout() {
+  const r = dock.getBoundingClientRect();
+  const size = `${Math.ceil(r.width)}x${Math.ceil(r.height)}`;
+  if (size === lastSize) return;
+  lastSize = size;
+  invoke("layout_dock", { width: Math.ceil(r.width), height: Math.ceil(r.height) }).catch(console.error);
+}
 function queueLayout() {
-  if (layoutQueued) return;
-  layoutQueued = true;
-  requestAnimationFrame(() => {
-    layoutQueued = false;
-    const r = dock.getBoundingClientRect();
-    invoke("layout_dock", { width: Math.ceil(r.width), height: Math.ceil(r.height) }).catch(console.error);
-  });
+  if (!layoutReady) return;
+  clearTimeout(layoutTimer);
+  layoutTimer = setTimeout(sendLayout, 60);
+}
+async function firstLayout() {
+  await Promise.race([appsLoaded, sleep(2500)]);
+  await Promise.race([document.fonts?.ready, sleep(800)]);
+  await Promise.race([Promise.allSettled(pendingIcons), sleep(1200)]);
+  await sleep(120);
+  layoutReady = true;
+  sendLayout();
 }
 new ResizeObserver(queueLayout).observe(dock);
 
@@ -95,6 +116,7 @@ function iconFor(item) {
     iconCache.set(key, p);
     // Bulunamadıysa bir sonraki yenilemede (ör. pencere açılınca) tekrar dene.
     p.then((url) => { if (!url) setTimeout(() => iconCache.delete(key), 5000); });
+    if (!layoutReady) pendingIcons.push(p);
   }
   return iconCache.get(key);
 }
@@ -129,7 +151,7 @@ function appsWidget() {
 
   async function refresh() {
     let data;
-    try { data = await invoke("list_windows"); } catch { return; }
+    try { data = await invoke("list_windows"); } catch { firstAppsDone(); return; }
     const groups = new Map();
     const own = cfg.display?.apps_per_monitor
       ? data.windows.filter((w) => !info.monitor || w.monitor === info.monitor)
@@ -179,9 +201,10 @@ function appsWidget() {
     items = next;
     const activeKey = items.find((i) => i.wins.some((w) => w.hwnd === data.active))?.key || "";
     const sig = items.map((i) => `${i.key}:${i.wins.length}`).join("|") + "#" + activeKey;
-    if (sig === lastSig) return;
+    if (sig === lastSig) return firstAppsDone();
     lastSig = sig;
     render(data.active);
+    firstAppsDone();
   }
 
   function render(active) {
@@ -204,12 +227,16 @@ function appsWidget() {
         glyph.replaceWith(img);
       });
       if (item.wins.length) b.append($("span", "run"));
+      b.style.setProperty("--i", list.childElementCount);
 
       b.onclick = () => {
         clearTimeout(hoverTimer);
+        const sp = $("span", "splash");
+        b.append(sp);
+        setTimeout(() => sp.remove(), 650);
         if (!item.wins.length) return invoke("launch_app", { path: item.path, args: item.args });
         // Öndeyse küçült, küçültülmüşse eski konumuna getir, arkadaysa öne getir.
-        invoke("activate_app", { hwnds: item.wins.map((w) => w.hwnd) }).then(() => setTimeout(refresh, 150));
+        invoke("activate_app", { hwnds: item.wins.map((w) => w.hwnd) }).then(() => setTimeout(refresh, 300));
       };
       // Birden çok penceresi olan uygulamanın üstüne gelince tüm pencereleri göster.
       b.onmouseenter = () => {
@@ -339,77 +366,170 @@ function claudeWidget() {
   return c;
 }
 
+// Ekran süresi + sistem kaynakları: hücre ekran süresi → CPU → RAM → GPU →
+// Disk arasında döner (fare üstündeyken durur, tekerlekle elle geçilir);
+// tıklayınca üstte grafikli kullanım paneli açılır.
+const METRICS = [
+  { k: "cpu", name: "İşlemci", short: "CPU" },
+  { k: "ram", name: "Bellek", short: "RAM" },
+  { k: "gpu", name: "Ekran kartı", short: "GPU" },
+  { k: "disk", name: "Disk etkinliği", short: "Disk" },
+];
+const fmtDur = (secs) => {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  return h ? `${h}s ${m}dk` : `${m}dk`;
+};
+const ring = (pct, cls) => {
+  const r = 15, c = 2 * Math.PI * r;
+  const v = Math.max(0, Math.min(100, pct));
+  return `<svg class="ring ${cls}" viewBox="0 0 40 40" width="40" height="40" aria-hidden="true">
+    <circle cx="20" cy="20" r="${r}" class="ring-track"/>
+    <circle cx="20" cy="20" r="${r}" class="ring-val" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - v / 100)}"/>
+  </svg><b class="ring-num">${Math.round(v)}<small>%</small></b>`;
+};
+function sparkPath(vals, w, h) {
+  if (vals.length < 2) return { line: "", area: "" };
+  const step = w / (vals.length - 1);
+  const pts = vals.map((v, i) => [i * step, h - 1 - (Math.max(0, Math.min(100, v)) / 100) * (h - 2)]);
+  const line = pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join("");
+  return { line, area: `${line}L${w},${h}L0,${h}Z` };
+}
+
+let screenCell = null;
 function screenTimeWidget() {
-  const c = $("div", "cell w-screen");
-  c.style.paddingLeft = "12px";
-  c.innerHTML = `
-    <span style="color:var(--chart);display:flex">${ICON.clock}</span>
-    <span class="stack"><span class="t-sub">Ekran süresi</span><span class="t-big"></span></span>
-    <span class="bars" aria-hidden="true"></span>`;
-  const big = c.querySelector(".t-big");
-  const bars = c.querySelector(".bars");
-  every(30_000, async () => {
-    let st;
-    try { st = await invoke("screen_time"); } catch { return; }
-    const h = Math.floor(st.seconds / 3600);
-    const m = Math.floor((st.seconds % 3600) / 60);
-    big.textContent = h ? `${h}s ${m}dk` : `${m}dk`;
-    const now = new Date().getHours();
-    bars.replaceChildren();
-    for (let i = 6; i >= 0; i--) {
-      const hour = now - i;
-      const secs = hour >= 0 ? st.hours[hour] || 0 : 0;
-      const s = $("span", i === 0 ? "" : "dim");
-      s.style.height = `${Math.max(10, Math.min(100, (secs / 3600) * 100))}%`;
-      bars.append(s);
+  const c = $("button", "cell w-screen");
+  c.setAttribute("aria-label", "Ekran süresi ve sistem kaynakları — kullanım panelini aç");
+  c.innerHTML = `<div class="sv-view"></div><div class="sv-dots" aria-hidden="true"></div>`;
+  const view = c.querySelector(".sv-view");
+  const dots = c.querySelector(".sv-dots");
+  const hist = { cpu: [], ram: [], gpu: [], disk: [] };
+  let st = null;
+  let stats = null;
+  let idx = 0;
+  let paused = false;
+  let lastSwitch = Date.now();
+
+  const pages = () => ["screen", ...METRICS.filter((m) => !stats || stats[m.k] >= 0).map((m) => m.k)];
+
+  function build(page) {
+    const el = $("div", "sv-item");
+    el.dataset.page = page;
+    if (page === "screen") {
+      el.innerHTML = `
+        <span class="sv-icon">${ICON.clock}</span>
+        <span class="stack"><span class="t-sub">Ekran süresi</span><span class="t-big">–</span></span>
+        <span class="bars" aria-hidden="true"></span>`;
+    } else {
+      const m = METRICS.find((x) => x.k === page);
+      el.innerHTML = `
+        <span class="ring-wrap m-${m.k}"></span>
+        <span class="stack"><span class="t-sub">${m.name}</span><span class="t-strong sv-detail"></span></span>
+        <svg class="spark m-${m.k}" viewBox="0 0 58 30" width="58" height="30" preserveAspectRatio="none" aria-hidden="true"><path class="sp-area"/><path class="sp-line"/></svg>`;
     }
+    fill(el);
+    return el;
+  }
+
+  function fill(el) {
+    const page = el.dataset.page;
+    if (page === "screen") {
+      if (!st) return;
+      el.querySelector(".t-big").textContent = fmtDur(st.seconds);
+      const bars = el.querySelector(".bars");
+      const now = new Date().getHours();
+      bars.replaceChildren();
+      for (let i = 6; i >= 0; i--) {
+        const hour = now - i;
+        const secs = hour >= 0 ? st.hours[hour] || 0 : 0;
+        const s = $("span", i === 0 ? "" : "dim");
+        s.style.height = `${Math.max(10, Math.min(100, (secs / 3600) * 100))}%`;
+        bars.append(s);
+      }
+      return;
+    }
+    if (!stats) return;
+    const v = stats[page];
+    el.querySelector(".ring-wrap").innerHTML = ring(v, "m-" + page);
+    el.querySelector(".sv-detail").textContent =
+      page === "ram" ? `${stats.ram_used_gb.toFixed(1)} / ${stats.ram_total_gb.toFixed(0)} GB`
+      : page === "cpu" ? (v >= 75 ? "Yoğun" : v >= 40 ? "Orta" : "Rahat")
+      : page === "gpu" ? (v >= 60 ? "Yoğun" : v >= 15 ? "Çalışıyor" : "Boşta")
+      : (v >= 60 ? "Meşgul" : v >= 10 ? "Okuma/yazma" : "Sakin");
+    const { line, area } = sparkPath(hist[page], 58, 30);
+    el.querySelector(".sp-line").setAttribute("d", line);
+    el.querySelector(".sp-area").setAttribute("d", area);
+  }
+
+  function drawDots() {
+    const p = pages();
+    dots.replaceChildren(...p.map((_, i) => $("i", i === idx ? "on" : "")));
+  }
+
+  function go(next, dir = 1) {
+    const p = pages();
+    idx = ((next % p.length) + p.length) % p.length;
+    lastSwitch = Date.now();
+    const el = build(p[idx]);
+    const prev = view.lastElementChild;
+    if (prev) {
+      el.classList.add(dir > 0 ? "enter" : "enter-up");
+      view.append(el);
+      void el.offsetWidth;
+      el.classList.remove("enter", "enter-up");
+      prev.classList.add(dir > 0 ? "leave" : "leave-down");
+      setTimeout(() => prev.remove(), 450);
+    } else view.append(el);
+    drawDots();
+  }
+
+  c.onmouseenter = () => (paused = true);
+  c.onmouseleave = () => (paused = false);
+  c.onwheel = (e) => {
+    e.preventDefault();
+    if (Date.now() - lastSwitch < 250) return;
+    go(idx + (e.deltaY > 0 ? 1 : -1), e.deltaY > 0 ? 1 : -1);
+  };
+  c.onclick = async () => {
+    const r = c.getBoundingClientRect();
+    const res = await invoke("popover_open", { kind: "usage", key: "usage", anchor: r.left + r.width / 2, payload: null }).catch(() => "");
+    c.classList.toggle("active", res === "opened" || res === "open");
+  };
+
+  every(30_000, async () => {
+    try { st = await invoke("screen_time"); } catch { return; }
+    const cur = view.lastElementChild;
+    if (cur?.dataset.page === "screen") fill(cur);
   });
+  every(1500, whenVisible(async () => {
+    try { stats = await invoke("sys_stats"); } catch { return; }
+    for (const m of METRICS) {
+      hist[m.k].push(Math.max(0, stats[m.k]));
+      if (hist[m.k].length > 30) hist[m.k].shift();
+    }
+    const cur = view.lastElementChild;
+    if (cur && cur.dataset.page !== "screen") fill(cur);
+    c.title = `Ekran süresi ${st ? fmtDur(st.seconds) : "–"} · CPU %${Math.round(stats.cpu)} · RAM ${stats.ram_used_gb.toFixed(1)}/${stats.ram_total_gb.toFixed(0)} GB` +
+      (stats.gpu >= 0 ? ` · GPU %${Math.round(stats.gpu)}` : "") + (stats.disk >= 0 ? ` · Disk %${Math.round(stats.disk)}` : "") + "\nAyrıntılar için tıkla";
+  }));
+  // Ekran süresi biraz daha uzun kalır (8 sn), kaynaklar 4'er sn.
+  timers.push(setInterval(() => {
+    if (paused || !dockVisible) return;
+    const limit = pages()[idx] === "screen" ? 8000 : 4000;
+    if (Date.now() - lastSwitch >= limit) go(idx + 1);
+  }, 500));
+  go(0);
+  screenCell = c;
   return c;
 }
 
 // ---------------------------------------------------------------------------
 // Piyasa ve haberler: dolar, euro, gram altın ve haber başlıkları dönüşümlü
 // ---------------------------------------------------------------------------
-const MARKETS = {
-  USD: { name: "Dolar", pair: "USD/TRY", glyph: "$", bg: "#1E9E63" },
-  EUR: { name: "Euro", pair: "EUR/TRY", glyph: "€", bg: "#2F7BFF" },
-  GBP: { name: "Sterlin", pair: "GBP/TRY", glyph: "£", bg: "#7C5CFF" },
-  CHF: { name: "İsviçre frangı", pair: "CHF/TRY", glyph: "₣", bg: "#E5484D" },
-  "gram-altin": { name: "Gram altın", pair: "TL", glyph: "g", bg: "linear-gradient(135deg,#F6C744,#B7791F)" },
-  "ceyrek-altin": { name: "Çeyrek altın", pair: "TL", glyph: "¼", bg: "linear-gradient(135deg,#F6C744,#B7791F)" },
-};
-const NEWS_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h13v14H6a2 2 0 0 1-2-2z"/><path d="M17 9h3v8a2 2 0 0 1-2 2"/><path d="M8 9h5M8 13h5"/></svg>';
-
-const trNum = (s) => Number(String(s).replace(/[%\s]/g, "").replace(/\./g, "").replace(",", "."));
-const fmt2 = (n) => n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-function timeAgo(d) {
-  const m = Math.round((Date.now() - d) / 60000);
-  if (!isFinite(m) || m < 0) return "";
-  if (m < 1) return "şimdi";
-  if (m < 60) return `${m} dk önce`;
-  const h = Math.round(m / 60);
-  return h < 24 ? `${h} sa önce` : `${Math.round(h / 24)} gün önce`;
-}
-
-function parseFeed(xml, fallbackSource) {
-  const doc = new DOMParser().parseFromString(xml, "text/xml");
-  const txt = (el, sel) => el.querySelector(sel)?.textContent?.trim() || "";
-  const channel = txt(doc, "channel > title") || txt(doc, "feed > title") || fallbackSource;
-  const items = [...doc.querySelectorAll("item, entry")].map((it) => {
-    const source = txt(it, "source") || channel;
-    let title = txt(it, "title");
-    if (source && title.endsWith(` - ${source}`)) title = title.slice(0, -(source.length + 3));
-    const link = txt(it, "link") || it.querySelector("link")?.getAttribute("href") || "";
-    const date = new Date(txt(it, "pubDate") || txt(it, "published") || txt(it, "updated"));
-    return { kind: "news", title, link, source, date };
-  });
-  return items.filter((i) => i.title);
-}
-
+let tickerCell = null;
 function tickerWidget() {
   const t = cfg.ticker || { markets: ["USD", "EUR", "gram-altin"], news: true, feeds: [], interval_sec: 6, news_per_round: 3 };
-  const c = $("div", "cell ticker");
+  const c = $("button", "cell ticker");
   const view = $("div", "tk-view");
   c.append(view);
   let markets = [];
@@ -479,7 +599,7 @@ function tickerWidget() {
         <span class="stack"><span class="t-sub"></span><span class="t-news"></span></span>`;
       el.querySelector(".t-sub").textContent = item.source + ago;
       el.querySelector(".t-news").textContent = item.title;
-      el.title = `${item.title}\n${item.source}${ago}\nAçmak için tıkla`;
+      el.title = `${item.title}\n${item.source}${ago}\nTüm haberler için tıkla`;
     }
     return el;
   }
@@ -504,10 +624,16 @@ function tickerWidget() {
 
   c.onmouseenter = () => (paused = true);
   c.onmouseleave = () => (paused = false);
-  c.onclick = () => {
-    if (current?.kind === "news" && current.link) invoke("launch_app", { path: current.link });
-    else advance();
+  // Tıklayınca tarayıcıya gitmek yerine üstte haber ve piyasa paneli açılır.
+  c.onclick = async () => {
+    const r = c.getBoundingClientRect();
+    const res = await invoke("popover_open", {
+      kind: "news", key: "news", anchor: r.left + r.width / 2,
+      payload: { markets: t.markets, feeds: t.feeds, focus: current?.kind === "news" ? current.link : null },
+    }).catch(() => "");
+    c.classList.toggle("active", res === "opened" || res === "open");
   };
+  c.onwheel = (e) => { e.preventDefault(); advance(); };
 
   show(null);
   (async () => {
@@ -518,6 +644,7 @@ function tickerWidget() {
   timers.push(setInterval(() => !paused && advance(), Math.max(3, t.interval_sec || 6) * 1000));
   timers.push(setInterval(loadMarkets, 5 * 60_000));
   timers.push(setInterval(loadNews, 15 * 60_000));
+  tickerCell = c;
   return c;
 }
 
@@ -663,31 +790,6 @@ function mediaWidget() {
 // ---------------------------------------------------------------------------
 // Sistem kaynakları: CPU, RAM, GPU, Disk
 // ---------------------------------------------------------------------------
-function sysinfoWidget() {
-  const c = $("div", "cell w-sys");
-  const rows = [
-    ["cpu", "CPU"],
-    ["ram", "RAM"],
-    ["gpu", "GPU"],
-    ["disk", "Disk"],
-  ];
-  c.innerHTML = `<span class="sysgrid">${rows
-    .map(([k, l]) => `<span class="lbl">${l}</span><span class="track ${k}"><span></span></span><span class="val" data-k="${k}">–</span>`)
-    .join("")}</span>`;
-  const pct = (v) => (v < 0 ? "–" : `${Math.round(v)}%`);
-  every(1500, whenVisible(async () => {
-    let s;
-    try { s = await invoke("sys_stats"); } catch { return; }
-    for (const [k] of rows) {
-      const v = s[k];
-      c.querySelector(`.track.${k} > span`).style.width = `${Math.max(0, Math.min(100, v < 0 ? 0 : v))}%`;
-      c.querySelector(`.val[data-k="${k}"]`).textContent = pct(v);
-    }
-    c.title = `İşlemci %${Math.round(s.cpu)} · Bellek ${s.ram_used_gb.toFixed(1)} / ${s.ram_total_gb.toFixed(1)} GB · GPU ${pct(s.gpu)} · Disk ${pct(s.disk)}`;
-  }));
-  return c;
-}
-
 function clockWidget() {
   const c = $("div", "cell plain clock");
   c.innerHTML = `<span class="stack"><span class="t-big"></span><span class="t-sub"></span></span>`;
@@ -732,7 +834,6 @@ function systemWidget() {
 
 const WIDGETS = {
   system: systemWidget,
-  sysinfo: sysinfoWidget,
   lock: lockWidget,
   calendar: calendarWidget,
   mail: mailWidget,
@@ -762,6 +863,7 @@ async function init() {
   cfg = await invoke("get_config");
   applyTheme();
   render();
+  firstLayout();
 }
 
 dock.addEventListener("contextmenu", (e) => {
@@ -770,9 +872,12 @@ dock.addEventListener("contextmenu", (e) => {
 });
 
 // Ekran eklenip çıkarılınca ya da ayar değişince yeniden yerleş.
-listen("relayout", () => queueLayout());
+listen("relayout", () => { lastSize = ""; queueLayout(); });
 listen("dock-visibility", (e) => { dockVisible = !!e.payload; });
-listen("popover-closed", (e) => { if (e.payload === "calendar") calendarCell?.classList.remove("active"); });
+listen("popover-closed", (e) => {
+  const cell = { calendar: calendarCell, usage: screenCell, news: tickerCell }[e.payload];
+  cell?.classList.remove("active");
+});
 
 listen("config-changed", async () => {
   cfg = await invoke("get_config");
@@ -797,7 +902,7 @@ async function mockInvoke(cmd, args) {
         accent: "#2F7BFF",
         show_running: true,
         display: { mode: "primary", selected: [], apps_per_monitor: false },
-        widgets: (params.get("widgets") || "calendar,screentime,ticker,media,sysinfo,system,clock,lock").split(","),
+        widgets: (params.get("widgets") || "calendar,screentime,ticker,media,system,clock,lock").split(","),
         dock_locked: params.get("locked") !== "0",
         ticker: { markets: ["USD", "EUR", "gram-altin"], news: true, feeds: ["https://news.google.com/rss"], interval_sec: Number(params.get("iv") || 6), news_per_round: 3 },
         pinned_resolved: ["Dosya Gezgini", "Chrome", "VS Code", "Spotify", "Telegram"].map((n) => ({

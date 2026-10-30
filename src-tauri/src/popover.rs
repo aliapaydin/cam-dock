@@ -95,7 +95,7 @@ pub async fn popover_open(app: AppHandle, window: WebviewWindow, kind: String, k
         if let Some(o) = &p.open {
             if o.dock == dock && o.kind == kind && o.key == key {
                 drop(p);
-                if kind == "calendar" {
+                if kind != "windows" {
                     close(&app);
                     return Ok("closed".into());
                 }

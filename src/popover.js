@@ -52,9 +52,13 @@ async function show(s) {
   spec = s;
   panel.classList.remove("in");
   await applyTheme();
+  stopLive();
   panel.replaceChildren();
+  panel.dataset.kind = s.kind;
   if (s.kind === "calendar") renderCalendar();
   else if (s.kind === "tray") await renderTray();
+  else if (s.kind === "usage") await renderUsage();
+  else if (s.kind === "news") await renderNews(s.payload);
   else renderWindows(s.payload);
   relayout();
 }
@@ -66,6 +70,7 @@ listen("popover-in", (e) => {
   if (spec?.kind === "windows") setTimeout(sendThumbs, 260);
 });
 listen("popover-out", () => {
+  stopLive();
   panel.classList.remove("in");
   setTimeout(() => invoke("popover_hidden").catch(() => {}), 200);
 });
@@ -283,6 +288,322 @@ function drawSide() {
 }
 
 // ---------------------------------------------------------------------------
+// Ortak: grafik ipucu (fareyle üzerine gelince değer)
+// ---------------------------------------------------------------------------
+let tipEl = null;
+function bindTips(root) {
+  root.querySelectorAll("[data-tip]").forEach((n) => {
+    n.addEventListener("mouseenter", () => {
+      if (!tipEl) { tipEl = el("div", "tip"); document.body.append(tipEl); }
+      tipEl.innerHTML = n.dataset.tip;
+      const r = n.getBoundingClientRect();
+      tipEl.style.display = "block";
+      const tw = tipEl.offsetWidth, th = tipEl.offsetHeight;
+      const pr = panel.getBoundingClientRect();
+      const x = Math.max(pr.left + 6, Math.min(pr.right - tw - 6, r.left + r.width / 2 - tw / 2));
+      tipEl.style.left = `${x}px`;
+      tipEl.style.top = `${Math.max(pr.top + 4, r.top - th - 6)}px`;
+    });
+    n.addEventListener("mouseleave", () => { if (tipEl) tipEl.style.display = "none"; });
+  });
+}
+const hideTip = () => { if (tipEl) tipEl.style.display = "none"; };
+
+let liveTimer = null;
+function stopLive() { clearInterval(liveTimer); liveTimer = null; hideTip(); }
+
+// ---------------------------------------------------------------------------
+// Kullanım paneli: ekran süresi, uygulamalar, kaynaklar, sistem bilgisi
+// ---------------------------------------------------------------------------
+const RES = [
+  { k: "cpu", name: "İşlemci", cls: "m-cpu" },
+  { k: "ram", name: "Bellek", cls: "m-ram" },
+  { k: "gpu", name: "Ekran kartı", cls: "m-gpu" },
+  { k: "disk", name: "Disk etkinliği", cls: "m-disk" },
+];
+const dur = (secs) => {
+  const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
+  return h ? `${h} sa ${m} dk` : `${m} dk`;
+};
+const durShort = (secs) => {
+  const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
+  return h ? `${h}s${m ? " " + m + "dk" : ""}` : `${m}dk`;
+};
+const DAY_SHORT = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
+const pctTxt = (v) => (v < 0 ? "–" : `%${Math.round(v)}`);
+
+async function renderUsage() {
+  const d = await invoke("usage_data").catch(() => null);
+  if (!d) { panel.append(el("div", "tray-empty", "Kullanım verisi alınamadı.")); return; }
+  const st = d.screen;
+  const now = new Date();
+
+  // --- Ekran süresi: kahraman sayı + karşılaştırma
+  const past = (st.history || []).filter((h) => h.seconds > 0);
+  const avg = past.length ? past.reduce((a, h) => a + h.seconds, 0) / past.length : 0;
+  const delta = avg > 0 ? `Son 7 günün ortalaması <b>${dur(avg)}</b>` : "";
+  const peakH = st.hours.reduce((best, v, i) => (v > st.hours[best] ? i : best), 0);
+
+  // Saatlik sütunlar (00–23)
+  const maxH = Math.max(600, ...st.hours);
+  const hourCols = st.hours.map((v, i) => {
+    const cur = i === now.getHours();
+    const h = Math.round((v / maxH) * 100);
+    return `<span class="col${cur ? " cur" : ""}${i > now.getHours() ? " future" : ""}" data-tip="<b>${String(i).padStart(2, "0")}:00–${String(i + 1).padStart(2, "0")}:00</b><br>${dur(v)}"><i style="height:${Math.max(v ? 4 : 0, h)}%"></i></span>`;
+  }).join("");
+
+  // Son 7 gün (6 geçmiş + bugün)
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const dt = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+    const secs = i === 0 ? st.seconds : (st.history || []).find((h) => h.date === key)?.seconds || 0;
+    days.push({ dt, secs, today: i === 0 });
+  }
+  const maxD = Math.max(3600, ...days.map((x) => x.secs));
+  const weekCols = days.map((x) => `
+    <span class="col wk${x.today ? " cur" : ""}" data-tip="<b>${x.today ? "Bugün" : CAL.DAYNAMES[x.dt.getDay()]}</b>, ${x.dt.getDate()} ${CAL.MONTHS[x.dt.getMonth()]}<br>${dur(x.secs)}">
+      <em>${x.secs ? durShort(x.secs) : ""}</em><i style="height:${Math.max(x.secs ? 4 : 0, Math.round((x.secs / maxD) * 100))}%"></i><small>${x.today ? "Bugün" : DAY_SHORT[x.dt.getDay()]}</small>
+    </span>`).join("");
+
+  // --- Uygulamalar: ilk 5 + diğer, halka grafik
+  const apps = Object.values(st.apps || {}).sort((a, b) => b.seconds - a.seconds);
+  const total = apps.reduce((a, x) => a + x.seconds, 0);
+  const top = apps.slice(0, 5);
+  const rest = apps.slice(5).reduce((a, x) => a + x.seconds, 0);
+  const segs = top.map((a, i) => ({ name: a.name, path: a.path, secs: a.seconds, color: `var(--s${i + 1})` }));
+  if (rest > 0) segs.push({ name: `Diğer (${apps.length - 5})`, path: "", secs: rest, color: "var(--other)" });
+  const R = 46, C = 2 * Math.PI * R, GAP = segs.length > 1 ? 2.5 : 0;
+  let off = 0;
+  const arcs = segs.map((sg) => {
+    const len = total ? (sg.secs / total) * C : 0;
+    const a = `<circle cx="60" cy="60" r="${R}" stroke="${sg.color}" stroke-dasharray="${Math.max(0, len - GAP)} ${C}" stroke-dashoffset="${-off}" data-tip="<b>${esc(sg.name)}</b><br>${dur(sg.secs)} · %${Math.round((sg.secs / total) * 100)}"/>`;
+    off += len;
+    return a;
+  }).join("");
+  const legend = segs.map((sg, i) => `
+    <div class="lg" data-tip="<b>${esc(sg.name)}</b><br>${dur(sg.secs)}">
+      <span class="sw" style="background:${sg.color}"></span>
+      <span class="lg-ic" data-i="${i}"></span>
+      <span class="lg-n">${esc(sg.name)}</span>
+      <span class="lg-v">${durShort(sg.secs)}</span>
+    </div>`).join("");
+
+  const wrap = el("div", "use");
+  wrap.innerHTML = `
+    <section class="use-col">
+      <h4>EKRAN SÜRESİ · BUGÜN</h4>
+      <div class="hero"><b>${dur(st.seconds)}</b>${delta ? `<span>${delta}</span>` : ""}</div>
+      <div class="chips">
+        ${st.first ? `<span class="chip">İlk etkinlik ${st.first}</span>` : ""}
+        ${st.seconds ? `<span class="chip">En yoğun ${String(peakH).padStart(2, "0")}:00</span>` : ""}
+        <span class="chip">${st.switches || 0} uygulama geçişi</span>
+      </div>
+      <div class="chart-h">Saatlik</div>
+      <div class="cols hours">${hourCols}</div>
+      <div class="axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
+      <div class="chart-h">Son 7 gün</div>
+      <div class="cols week">${weekCols}</div>
+    </section>
+    <section class="use-col">
+      <h4>UYGULAMALAR</h4>
+      ${segs.length ? `<div class="apps-row">
+        <div class="donut"><svg viewBox="0 0 120 120" width="120" height="120">${arcs}</svg>
+          <span class="donut-c"><b>${apps.length}</b><small>uygulama</small></span></div>
+        <div class="legend">${legend}</div>
+      </div>` : `<div class="empty-note">Uygulama kullanımı toplanıyor; birkaç dakika sonra burada görünecek.</div>`}
+      <h4 class="res-h">KAYNAKLAR <span>son 2 dakika</span></h4>
+      <div class="res-grid"></div>
+    </section>`;
+  panel.append(wrap);
+
+  // Uygulama simgeleri
+  segs.forEach((sg, i) => {
+    if (!sg.path) return;
+    invoke("app_icon", { path: sg.path, aumid: null, hwnd: null }).then((url) => {
+      const slot = wrap.querySelector(`.lg-ic[data-i="${i}"]`);
+      if (url && slot) slot.append(Object.assign(new Image(), { src: url, alt: "" }));
+    }).catch(() => {});
+  });
+
+  const sys = el("div", "sysbar");
+  panel.append(sys);
+  drawResources(wrap.querySelector(".res-grid"), d);
+  drawSysbar(sys, d);
+  bindTips(panel);
+
+  stopLive();
+  liveTimer = setInterval(async () => {
+    if (spec?.kind !== "usage") return stopLive();
+    const n = await invoke("usage_data").catch(() => null);
+    if (!n) return;
+    drawResources(wrap.querySelector(".res-grid"), n);
+    drawSysbar(sys, n);
+  }, 1000);
+}
+
+function areaPath(vals, w, h) {
+  if (vals.length < 2) return { line: "", area: "" };
+  const step = w / 119; // 120 örnek = 2 dk; az veri varsa sağa yaslı
+  const x0 = w - (vals.length - 1) * step;
+  const pts = vals.map((v, i) => [x0 + i * step, h - (Math.max(0, Math.min(100, v)) / 100) * (h - 2) - 1]);
+  const line = pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join("");
+  return { line, area: `${line}L${w},${h}L${x0.toFixed(1)},${h}Z` };
+}
+
+function drawResources(grid, d) {
+  const cur = d.now;
+  const items = RES.filter((r) => cur[r.k] >= 0);
+  if (grid.childElementCount !== items.length) {
+    grid.innerHTML = items.map((r) => `
+      <div class="res ${r.cls}">
+        <div class="res-top">
+          <span class="ring-wrap"><svg class="ring" viewBox="0 0 40 40" width="38" height="38"><circle cx="20" cy="20" r="15" class="ring-track"/><circle cx="20" cy="20" r="15" class="ring-val"/></svg></span>
+          <span class="res-t"><small>${r.name}</small><b></b></span>
+          <span class="res-d"></span>
+        </div>
+        <svg class="area" viewBox="0 0 150 34" preserveAspectRatio="none"><line x1="0" x2="150" y1="17" y2="17" class="grid"/><path class="ar"/><path class="ln"/></svg>
+      </div>`).join("");
+  }
+  const C = 2 * Math.PI * 15;
+  items.forEach((r, i) => {
+    const box = grid.children[i];
+    const v = Math.max(0, cur[r.k]);
+    const ringV = box.querySelector(".ring-val");
+    ringV.setAttribute("stroke-dasharray", C);
+    ringV.setAttribute("stroke-dashoffset", C * (1 - v / 100));
+    box.querySelector(".res-t b").textContent = pctTxt(cur[r.k]);
+    const vals = d.history.map((h) => Math.max(0, h[r.k]));
+    const avg = vals.length ? vals.reduce((a, x) => a + x, 0) / vals.length : 0;
+    const peak = vals.length ? Math.max(...vals) : 0;
+    box.querySelector(".res-d").innerHTML = r.k === "ram"
+      ? `${cur.ram_used_gb.toFixed(1)} / ${cur.ram_total_gb.toFixed(1)} GB`
+      : `ort. %${Math.round(avg)} · en çok %${Math.round(peak)}`;
+    const { line, area } = areaPath(vals, 150, 34);
+    box.querySelector(".ln").setAttribute("d", line);
+    box.querySelector(".ar").setAttribute("d", area);
+  });
+}
+
+function drawSysbar(sys, d) {
+  const i = d.info;
+  const up = i.uptime_sec;
+  const upTxt = up >= 86400 ? `${Math.floor(up / 86400)} gün ${Math.floor((up % 86400) / 3600)} sa` : dur(up);
+  const used = i.disk_total_gb - i.disk_free_gb;
+  const diskPct = i.disk_total_gb ? Math.round((used / i.disk_total_gb) * 100) : 0;
+  const html = `
+    <div class="si" title="${esc(i.os)}"><small>Sistem</small><b>${esc((i.os || "Windows").split(" · ")[0])}</b></div>
+    <div class="si" title="${esc(i.cpu_name)}"><small>İşlemci</small><b>${esc((i.cpu_name || "–").replace(/\(R\)|\(TM\)|CPU|Processor|@.*$| w\/.*$|with .*$/gi, "").replace(/\s+/g, " ").trim())}${i.cores ? ` · ${i.cores} iş parçacığı` : ""}</b></div>
+    <div class="si"><small>Açık kalma</small><b>${upTxt}</b></div>
+    <div class="si disk"><small>C: diski · ${i.disk_free_gb.toFixed(0)} GB boş</small><span class="dbar"><i style="width:${diskPct}%"></i></span></div>
+    ${i.battery >= 0 ? `<div class="si"><small>Pil</small><b>%${i.battery}${i.charging ? " · şarjda" : ""}</b></div>` : ""}
+    <div class="si"><small>İşlem</small><b>${i.procs}</b></div>
+    <button class="tm">Görev Yöneticisi</button>`;
+  if (sys.dataset.sig === html) return;
+  sys.dataset.sig = html;
+  sys.innerHTML = html;
+  sys.querySelector(".tm").onclick = () => { invoke("launch_app", { path: "taskmgr.exe" }); invoke("popover_close"); };
+}
+
+// ---------------------------------------------------------------------------
+// Haber ve piyasa paneli
+// ---------------------------------------------------------------------------
+const newsCache = new Map(); // url -> { at, items }
+let newsCat = "top";
+
+async function loadFeed(url) {
+  const c = newsCache.get(url);
+  if (c && Date.now() - c.at < 10 * 60_000) return c.items;
+  const items = parseFeed(await invoke("fetch_text", { url }), new URL(url).hostname);
+  newsCache.set(url, { at: Date.now(), items });
+  return items;
+}
+
+async function renderNews(p) {
+  const cats = [...NEWS_CATEGORIES];
+  const own = (p?.feeds || []).filter((u) => !cats.some((c) => c.url === u));
+  if (own.length) cats.push({ id: "mine", name: "Kaynaklarım", urls: own });
+  if (!cats.some((c) => c.id === newsCat)) newsCat = "top";
+
+  const box = el("div", "news");
+  box.innerHTML = `
+    <aside class="mk">
+      <h4>PİYASALAR <span class="upd"></span></h4>
+      <div class="mk-list"><div class="mk-load">Yükleniyor…</div></div>
+    </aside>
+    <section class="nw">
+      <div class="tabs" role="tablist">${cats.map((c) => `<button role="tab" data-c="${c.id}" class="${c.id === newsCat ? "on" : ""}">${c.name}</button>`).join("")}</div>
+      <div class="nw-list"></div>
+      <div class="nw-foot"><span class="nw-src"></span><button class="nw-refresh">Yenile</button></div>
+    </section>`;
+  panel.append(box);
+
+  const list = box.querySelector(".nw-list");
+  async function showCat(id, force) {
+    newsCat = id;
+    box.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.c === id));
+    const cat = cats.find((c) => c.id === id);
+    const urls = cat.urls || [cat.url];
+    if (force) urls.forEach((u) => newsCache.delete(u));
+    list.innerHTML = `<div class="nw-empty">Haberler yükleniyor…</div>`;
+    const all = [];
+    for (const u of urls) {
+      try { all.push(...(await loadFeed(u))); } catch (e) { console.warn("haber alınamadı", u, e); }
+    }
+    if (newsCat !== id) return;
+    const seen = new Set();
+    const items = all.filter((n) => !seen.has(n.title) && seen.add(n.title))
+      .sort((a, b) => (b.date || 0) - (a.date || 0)).slice(0, 30);
+    if (!items.length) { list.innerHTML = `<div class="nw-empty">Bu kategoride haber alınamadı.</div>`; return; }
+    list.replaceChildren(...items.map((n, i) => {
+      const b = el("button", "nw-item" + (i === 0 ? " lead" : ""));
+      const ago = n.date && !isNaN(n.date) ? timeAgo(n.date) : "";
+      b.innerHTML = `<span class="nw-meta"><b></b>${ago ? ` · ${ago}` : ""}</span><span class="nw-title"></span>`;
+      b.querySelector(".nw-meta b").textContent = n.source;
+      b.querySelector(".nw-title").textContent = n.title;
+      b.title = "Haberi tarayıcıda aç";
+      if (p?.focus && n.link === p.focus) b.classList.add("focus");
+      b.onclick = () => { if (n.link) invoke("launch_app", { path: n.link }); invoke("popover_close"); };
+      return b;
+    }));
+    list.scrollTop = 0;
+    box.querySelector(".nw-src").textContent = `${items.length} haber · ${id === "mine" ? "kendi kaynakların" : "Google Haberler"}`;
+  }
+  box.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => showCat(b.dataset.c)));
+  box.querySelector(".nw-refresh").onclick = () => { showCat(newsCat, true); loadMarkets(true); };
+
+  const mk = box.querySelector(".mk-list");
+  let mkData = null;
+  async function loadMarkets(force) {
+    try {
+      if (force || !mkData || Date.now() - mkData.at > 5 * 60_000) {
+        mkData = { at: Date.now(), data: JSON.parse(await invoke("fetch_text", { url: "https://finans.truncgil.com/today.json" })) };
+      }
+    } catch { mk.innerHTML = `<div class="mk-load">Piyasa verisi alınamadı.</div>`; return; }
+    const data = mkData.data;
+    const mine = new Set(p?.markets || []);
+    const upd = data.Update_Date ? new Date(data.Update_Date.replace(" ", "T")) : null;
+    box.querySelector(".upd").textContent = upd && !isNaN(upd) ? `· ${upd.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}` : "";
+    mk.innerHTML = MARKET_GROUPS.map(([g, keys]) => {
+      const rows = keys.filter((k) => data[k] && marketInfo(k)).map((k) => {
+        const m = marketInfo(k);
+        const sell = trNum(data[k]["Satış"]), buy = trNum(data[k]["Alış"]), chg = trNum(data[k]["Değişim"]);
+        const dir = chg > 0 ? "up" : chg < 0 ? "down" : "flat";
+        const unit = k === "ons" ? "$" : "₺";
+        return `<div class="mk-row${mine.has(k) ? " mine" : ""}" title="${m.name}: alış ${fmt2(buy)} ${unit} · satış ${fmt2(sell)} ${unit}${mine.has(k) ? " · dock'ta gösteriliyor" : ""}">
+          <span class="mk-g" style="background:${m.bg}">${m.glyph}</span>
+          <span class="mk-n"><b>${m.name}</b><small>Alış ${fmt2(buy)}</small></span>
+          <span class="mk-v"><b>${fmt2(sell)} ${unit}</b><span class="chg ${dir}">${dir === "up" ? "▲" : dir === "down" ? "▼" : "•"} %${fmt2(Math.abs(chg))}</span></span>
+        </div>`;
+      }).join("");
+      return rows ? `<div class="mk-g-h">${g}</div>${rows}` : "";
+    }).join("");
+  }
+  loadMarkets();
+  showCat(newsCat);
+}
+
+// ---------------------------------------------------------------------------
 // Başlangıç
 // ---------------------------------------------------------------------------
 (async () => {
@@ -291,7 +612,7 @@ function drawSide() {
 })();
 
 // Tarayıcıda önizleme (popover.html?kind=calendar | windows)
-async function mockInvoke(cmd) {
+async function mockInvoke(cmd, args) {
   const q = new URLSearchParams(location.search);
   if (cmd === "get_config") return { theme: q.get("theme") || "dark", backdrop: "acrylic", accent: "#2F7BFF" };
   if (cmd === "popover_pending") {
@@ -309,9 +630,49 @@ async function mockInvoke(cmd) {
         },
       };
     if (q.get("kind") === "tray") return { kind: "tray", serial: 1, key: "tray", payload: null };
+    if (q.get("kind") === "usage") return { kind: "usage", serial: 1, key: "usage", payload: null };
+    if (q.get("kind") === "news") return { kind: "news", serial: 1, key: "news", payload: { markets: ["USD", "EUR", "gram-altin"], feeds: [], focus: null } };
     return { kind: "calendar", serial: 1, key: "cal", payload: null };
   }
+  if (cmd === "usage_data") {
+    const hours = [0,0,0,0,0,0,0,0,1200,3100,3400,2900,1800,3300,3550,2700,1500,0,0,0,0,0,0,0];
+    const rnd = (b, a) => Math.max(0, Math.min(100, b + Math.sin(Date.now() / 4000) * a + (Math.random() - .5) * a));
+    const history = Array.from({ length: 120 }, (_, i) => ({ cpu: 18 + 14 * Math.sin(i / 9) + Math.random() * 8, ram: 61 + Math.sin(i / 30) * 2, gpu: 8 + 20 * Math.max(0, Math.sin(i / 14)), disk: Math.random() < .15 ? 30 + Math.random() * 40 : Math.random() * 5 }));
+    return {
+      screen: {
+        date: "2026-10-30", seconds: hours.reduce((a, b) => a + b, 0), hours, first: "08:41", switches: 137,
+        history: [["2026-10-24", 15800], ["2026-10-25", 9200], ["2026-10-26", 23500], ["2026-10-27", 26100], ["2026-10-28", 21400], ["2026-10-29", 24800]].map(([date, seconds]) => ({ date, seconds })),
+        apps: {
+          a: { name: "Chrome", path: "C:\\chrome.exe", seconds: 8400 }, b: { name: "Code", path: "C:\\code.exe", seconds: 6200 },
+          c: { name: "Excel", path: "C:\\excel.exe", seconds: 3900 }, d: { name: "Teams", path: "C:\\teams.exe", seconds: 2400 },
+          e: { name: "Spotify", path: "C:\\spotify.exe", seconds: 1300 }, f: { name: "Telegram", path: "", seconds: 700 }, g: { name: "Explorer", path: "", seconds: 550 },
+        },
+      },
+      now: { cpu: rnd(24, 10), ram: 62, ram_used_gb: 19.8, ram_total_gb: 31.9, gpu: rnd(12, 10), disk: rnd(4, 4) },
+      history,
+      info: { uptime_sec: 273000, disk_free_gb: 312, disk_total_gb: 951, battery: -1, charging: false, procs: 284, cores: 16, cpu_name: "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics", os: "Windows 11 25H2 · derleme 26200" },
+    };
+  }
+  if (cmd === "fetch_text") return mockFetch(args.url);
   if (cmd === "tray_apps")
     return ["Steam", "Discord", "OneDrive", "Telegram", "NVIDIA", "Bluetooth"].map((n, i) => ({ name: n, exe: `C:\\${n}.exe`, icon: null, promoted: i < 2 }));
   return null;
+}
+
+function mockFetch(url) {
+  if (url.includes("truncgil")) return JSON.stringify({
+    Update_Date: "2026-10-30 15:45:03",
+    USD: { "Alış": "49,9424", "Satış": "49,9531", "Değişim": "%0,08" }, EUR: { "Alış": "57,9010", "Satış": "57,9480", "Değişim": "%0,21" },
+    GBP: { "Alış": "66,3120", "Satış": "66,4011", "Değişim": "%-0,12" }, CHF: { "Alış": "62,0100", "Satış": "62,1033", "Değişim": "%0,05" },
+    JPY: { "Alış": "0,3271", "Satış": "0,3289", "Değişim": "%-0,30" }, SAR: { "Alış": "13,3010", "Satış": "13,3200", "Değişim": "%0,07" },
+    "gram-altin": { "Alış": "6.355,43", "Satış": "6.356,31", "Değişim": "%-1,49" }, "ceyrek-altin": { "Alış": "10.390,00", "Satış": "10.512,00", "Değişim": "%-1,52" },
+    "yarim-altin": { "Alış": "20.770,00", "Satış": "21.020,00", "Değişim": "%-1,52" }, "tam-altin": { "Alış": "41.300,00", "Satış": "41.800,00", "Değişim": "%-1,50" },
+    "cumhuriyet-altini": { "Alış": "42.100,00", "Satış": "42.650,00", "Değişim": "%-1,48" }, ons: { "Alış": "$3.957,67", "Satış": "$3.958,22", "Değişim": "%-1,57" },
+    gumus: { "Alış": "80,31", "Satış": "80,39", "Değişim": "%-3,98" },
+  });
+  const titles = ["Merkez Bankası faiz kararını açıkladı: piyasalar beklentiye odaklandı", "İstanbul'da yeni metro hattı hafta sonu hizmete giriyor", "Avrupa borsaları günü karışık seyirle tamamladı",
+    "Yerli elektrikli otomobilin yeni modeli tanıtıldı", "Milli takımın aday kadrosu belli oldu", "Hafta sonu için kuvvetli yağış uyarısı", "Teknoloji şirketlerinden üçüncü çeyrek bilançoları",
+    "Üniversitelerde yeni dönem burs başvuruları başladı", "Akdeniz'de yeni doğal gaz keşfi iddiası", "Yapay zekâ düzenlemesi için yeni taslak meclise sunuldu"];
+  const src = ["Anadolu Ajansı", "NTV", "BBC Türkçe", "Hürriyet", "Dünya", "Webrazzi"];
+  return `<rss><channel><title>Google Haberler</title>${titles.map((t, i) => `<item><title>${t} - ${src[i % 6]}</title><link>https://example.com/${i}</link><pubDate>${new Date(Date.now() - (i * 23 + 4) * 60000).toUTCString()}</pubDate><source>${src[i % 6]}</source></item>`).join("")}</channel></rss>`;
 }

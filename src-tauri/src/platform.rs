@@ -38,6 +38,19 @@ pub struct SysStats {
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
+pub struct SysInfo {
+    pub uptime_sec: u64,
+    pub disk_free_gb: f32,
+    pub disk_total_gb: f32,
+    pub battery: i32,
+    pub charging: bool,
+    pub procs: u32,
+    pub cores: u32,
+    pub cpu_name: String,
+    pub os: String,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct TrayApp {
     pub name: String,
     pub exe: String,
@@ -328,6 +341,26 @@ mod imp {
     pub fn hide(hwnd: isize) {
         monitor::hide(hwnd)
     }
+    pub fn is_visible(hwnd: isize) -> bool {
+        monitor::is_visible(hwnd)
+    }
+    pub fn sys_info() -> SysInfo {
+        let i = sysinfo::info();
+        SysInfo {
+            uptime_sec: i.uptime_sec,
+            disk_free_gb: i.disk_free_gb,
+            disk_total_gb: i.disk_total_gb,
+            battery: i.battery,
+            charging: i.charging,
+            procs: i.procs,
+            cores: i.cores,
+            cpu_name: i.cpu_name,
+            os: i.os,
+        }
+    }
+    pub fn app_of_window(hwnd: isize) -> Option<(String, String)> {
+        winlist::app_of_window(hwnd)
+    }
 }
 
 #[cfg(not(windows))]
@@ -471,6 +504,15 @@ mod imp {
     pub fn glass_detach(_hwnd: isize) {}
     pub fn show_no_activate(_hwnd: isize) {}
     pub fn hide(_hwnd: isize) {}
+    pub fn is_visible(_hwnd: isize) -> bool {
+        false
+    }
+    pub fn sys_info() -> SysInfo {
+        SysInfo { battery: -1, ..Default::default() }
+    }
+    pub fn app_of_window(_hwnd: isize) -> Option<(String, String)> {
+        None
+    }
 }
 
 pub use imp::*;

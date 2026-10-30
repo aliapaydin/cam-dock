@@ -34,10 +34,9 @@ const FEEDS = [
 ];
 const WIDGETS = [
   { id: "calendar", name: "Takvim", desc: "Bugünün tarihi. Etkinlikler Faz 2'de bağlanacak." },
-  { id: "screentime", name: "Ekran süresi", desc: "Bugün bilgisayar başında geçen aktif süre." },
-  { id: "ticker", name: "Piyasa ve haberler", desc: "Dolar, euro, gram altın ve haber başlıkları dönüşümlü." },
+  { id: "screentime", name: "Ekran süresi ve kaynaklar", desc: "Aktif süre ile CPU, RAM, GPU, disk dönüşümlü; tıklayınca grafikli kullanım paneli." },
+  { id: "ticker", name: "Piyasa ve haberler", desc: "Döviz, altın ve haber başlıkları dönüşümlü; tıklayınca kategorili haber paneli." },
   { id: "media", name: "Müzik", desc: "Spotify, YouTube ve diğer oynatıcılar; birden çoksa tekerlekle kaydır." },
-  { id: "sysinfo", name: "Sistem kaynakları", desc: "CPU, RAM, GPU ve disk kullanımı." },
   { id: "system", name: "Sistem düğmeleri", desc: "Arka plan uygulamaları (tepsi), hızlı ayarlar, bildirimler, görev görünümü." },
   { id: "clock", name: "Saat", desc: "Saat ve tarih." },
   { id: "lock", name: "Kilit düğmesi", desc: "Dock'u kilitle (hep görünür) ya da otomatik gizle." },

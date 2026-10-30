@@ -246,9 +246,11 @@ pub async fn layout_dock(app: AppHandle, window: WebviewWindow, width: f64, heig
         (first, d.clone())
     };
 
-    let place_y = if snapshot.shown && !first { y } else { mb + 40 };
-    platform::set_bounds(hwnd, x, place_y, w.max(1), h.max(1));
-    dlog!("{label}: yerleşim x={x} y={y} w={w} h={h} (alt sınır {bottom}, ölçek {scale})");
+    let place_y = if snapshot.shown && !first { y } else { mb };
+    docks::place(hwnd, x, place_y, w, h);
+    if first {
+        dlog!("{label}: ilk yerleşim x={x} y={y} w={w} h={h} (alt sınır {bottom}, ölçek {scale})");
+    }
 
     if first && snapshot.shown {
         docks::slide_in(&snapshot);
@@ -648,6 +650,28 @@ pub async fn screen_time(app: AppHandle) -> ScreenTime {
     snap
 
     }).await.unwrap_or_default()
+}
+
+#[derive(Serialize, Default)]
+pub struct UsageData {
+    pub screen: ScreenTime,
+    pub now: platform::SysStats,
+    pub history: Vec<platform::SysStats>,
+    pub info: platform::SysInfo,
+}
+
+/// Kullanım paneli: ekran süresi, uygulama dağılımı, kaynak geçmişi, sistem bilgisi.
+#[tauri::command]
+pub async fn usage_data(app: AppHandle) -> UsageData {
+    run(move || {
+        let state = app.state::<AppState>();
+        let screen = state.screen.lock().unwrap().snapshot();
+        let now = *state.stats.lock().unwrap();
+        let history = state.stats_hist.lock().unwrap().iter().copied().collect();
+        UsageData { screen, now, history, info: platform::sys_info() }
+    })
+    .await
+    .unwrap_or_default()
 }
 
 #[tauri::command]

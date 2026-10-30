@@ -34,6 +34,8 @@ pub struct AppState {
     pub catalog: Mutex<Option<Vec<platform::CatalogApp>>>,
     /// Son sistem kaynakları örneği
     pub stats: Mutex<platform::SysStats>,
+    /// Son ~2 dakikanın örnekleri (kullanım panelindeki çizgiler için)
+    pub stats_hist: Mutex<std::collections::VecDeque<platform::SysStats>>,
     /// Son okunan Windows teması (açık mı)
     pub system_light: Mutex<Option<bool>>,
     /// Sağ tık menüsü açılan uygulama
@@ -104,6 +106,7 @@ fn main() {
         pop: Mutex::new(popover::PopState::default()),
         catalog: Mutex::new(None),
         stats: Mutex::new(platform::SysStats::default()),
+        stats_hist: Mutex::new(std::collections::VecDeque::with_capacity(120)),
         system_light: Mutex::new(None),
         app_menu: Mutex::new(None),
     };
@@ -148,6 +151,7 @@ fn main() {
             commands::tray_apps,
             commands::fetch_text,
             commands::screen_time,
+            commands::usage_data,
             commands::open_start,
             commands::system_action,
             commands::open_settings,
@@ -174,7 +178,13 @@ fn main() {
                     loop {
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                         let st = sampler.sample();
-                        *h.state::<AppState>().stats.lock().unwrap() = st;
+                        let state = h.state::<AppState>();
+                        *state.stats.lock().unwrap() = st;
+                        let mut hist = state.stats_hist.lock().unwrap();
+                        if hist.len() >= 120 {
+                            hist.pop_front();
+                        }
+                        hist.push_back(st);
                     }
                 });
             }

@@ -304,32 +304,125 @@ pub fn emergency_restore() {
 // Görünürlük: kayarak açılma/kapanma
 // ---------------------------------------------------------------------------
 
-fn animate(hwnd: isize, x: i32, from: i32, to: i32) {
-    const STEPS: i32 = 9;
-    for i in 1..=STEPS {
-        let t = i as f64 / STEPS as f64;
-        let ease = 1.0 - (1.0 - t).powi(3);
-        let y = from + ((to - from) as f64 * ease).round() as i32;
-        platform::move_to(hwnd, x, y);
-        std::thread::sleep(Duration::from_millis(11));
+/// Dock penceresinin tek "hareket ettiricisi". Yerleşim (genişlik/x) ve kayma
+/// animasyonu aynı pencereyi aynı anda taşıdığında titreme ve sağa/sola kayık
+/// kalma oluyordu. Artık:
+///  - yerleşim yalnızca hedef geometriyi günceller; animasyon sürüyorsa her
+///    karede en güncel x/genişlik okunur,
+///  - yeni bir animasyon eskisini nesil sayacıyla iptal eder,
+///  - pencere hiçbir zaman iki iş parçacığından aynı anda taşınmaz.
+#[derive(Clone, Copy)]
+struct Geo {
+    x: i32,
+    w: i32,
+    h: i32,
+    /// Pencerenin şu anki y konumu (en son uygulanan)
+    y: i32,
+    gen: u64,
+    moving: bool,
+}
+
+static GEO: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<isize, Geo>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Yerleşimden gelen yeni geometri. Animasyon sürmüyorsa pencereyi hemen
+/// `y` konumuna yerleştirir; sürüyorsa animasyon bir sonraki karede alır.
+pub fn place(hwnd: isize, x: i32, y: i32, w: i32, h: i32) {
+    let apply = {
+        let mut map = GEO.lock().unwrap();
+        let g = map.entry(hwnd).or_insert(Geo { x, w, h, y, gen: 0, moving: false });
+        let same = g.x == x && g.w == w && g.h == h && g.y == y;
+        g.x = x;
+        g.w = w;
+        g.h = h;
+        if g.moving || same {
+            false
+        } else {
+            g.y = y;
+            true
+        }
+    };
+    if apply {
+        platform::set_bounds(hwnd, x, y, w.max(1), h.max(1));
     }
 }
 
-/// DİKKAT: kayma fonksiyonları hiçbir kilit tutulmadan çağrılmalı. Pencere
-/// işlemleri asenkron olsa da animasyon ~100 ms sürüyor; bu sırada kilit
-/// tutmak arayüz komutlarını bekletir.
+/// Animasyonu iptal eder (tam ekranda gizleme gibi anlık işlemler için).
+fn cancel(hwnd: isize, y_now: i32) {
+    let mut map = GEO.lock().unwrap();
+    if let Some(g) = map.get_mut(&hwnd) {
+        g.gen += 1;
+        g.moving = false;
+        g.y = y_now;
+    }
+}
+
+/// `to` konumuna yumuşak kayma. Başka bir animasyon başlarsa erken döner ve
+/// `false` verir.
+fn animate(hwnd: isize, to: i32, ms: u64) -> bool {
+    let (my_gen, from) = {
+        let mut map = GEO.lock().unwrap();
+        let Some(g) = map.get_mut(&hwnd) else { return false };
+        g.gen += 1;
+        g.moving = true;
+        (g.gen, g.y)
+    };
+    let start = Instant::now();
+    let total = Duration::from_millis(ms);
+    loop {
+        let t = (start.elapsed().as_secs_f64() / total.as_secs_f64()).min(1.0);
+        let ease = 1.0 - (1.0 - t).powi(3);
+        let y = from + ((to - from) as f64 * ease).round() as i32;
+        let geo = {
+            let mut map = GEO.lock().unwrap();
+            let Some(g) = map.get_mut(&hwnd) else { return false };
+            if g.gen != my_gen {
+                return false;
+            }
+            g.y = y;
+            if t >= 1.0 {
+                g.moving = false;
+            }
+            *g
+        };
+        platform::set_bounds(hwnd, geo.x, y, geo.w.max(1), geo.h.max(1));
+        if t >= 1.0 {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(8));
+    }
+}
+
+/// DİKKAT: kayma fonksiyonları hiçbir kilit tutulmadan çağrılmalı.
 pub fn slide_in(d: &Dock) {
-    let Some((x, y, _, _)) = d.target else { return };
+    let Some((x, y, w, h)) = d.target else { return };
     let off = d.mon_rect.3;
-    platform::move_to(d.hwnd, x, off);
+    {
+        let mut map = GEO.lock().unwrap();
+        let g = map.entry(d.hwnd).or_insert(Geo { x, w, h, y: off, gen: 0, moving: false });
+        // Gizliyse ekranın altından başla; yarıda kesilen kapanmadaysa
+        // olduğu yerden devam et.
+        if !g.moving && g.y < off {
+            if !platform::is_visible(d.hwnd) {
+                g.y = off;
+            }
+        }
+        if g.y > off {
+            g.y = off;
+        }
+        let cur = *g;
+        drop(map);
+        platform::set_bounds(d.hwnd, cur.x, cur.y, cur.w.max(1), cur.h.max(1));
+    }
     platform::show_no_activate(d.hwnd);
-    animate(d.hwnd, x, off, y);
+    animate(d.hwnd, y, 150);
 }
 
 fn slide_out(d: &Dock) {
-    let Some((x, y, _, _)) = d.target else { return };
-    animate(d.hwnd, x, y, d.mon_rect.3);
-    platform::hide(d.hwnd);
+    let off = d.mon_rect.3;
+    if animate(d.hwnd, off, 130) {
+        platform::hide(d.hwnd);
+    }
 }
 
 pub fn emit_visibility(app: &AppHandle, label: &str, visible: bool) {
@@ -448,6 +541,7 @@ fn update_visibility(app: &AppHandle, state: &AppState, vis: &Vis, hwnds: &[isiz
         match a {
             Act::Hide(d) => {
                 dlog!("{}: tam ekran algılandı, dock gizlendi", d.label);
+                cancel(d.hwnd, d.mon_rect.3);
                 platform::hide(d.hwnd);
                 emit_visibility(app, &d.label, false);
             }
@@ -485,7 +579,7 @@ pub fn spawn_watcher(app: AppHandle) {
             update_visibility(&app, &state, &vis, &hwnds, fg);
             crate::popover::watch(&app, fg);
 
-            if tick % 5 == 0 && state.taskbar_prev.lock().unwrap().is_some() {
+            if state.taskbar_prev.lock().unwrap().is_some() {
                 let fixed = platform::enforce_taskbar();
                 if fixed > 0 && tick % 50 == 0 {
                     dlog!("taskbar bölgesi yeniden uygulandı ({fixed} pencere)");
@@ -510,7 +604,8 @@ pub fn spawn_watcher(app: AppHandle) {
                 }
             }
             if tick % 10 == 0 && platform::idle_ms() < 120_000 {
-                state.screen.lock().unwrap().tick(1);
+                let fg_app = platform::app_of_window(state.last_fg.load(std::sync::atomic::Ordering::SeqCst));
+                state.screen.lock().unwrap().tick(1, fg_app);
             }
             if tick % 1200 == 0 {
                 state.screen.lock().unwrap().save();

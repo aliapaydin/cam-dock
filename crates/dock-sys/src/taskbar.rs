@@ -17,10 +17,11 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK};
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowExW, FindWindowW, GetClassNameW, GetWindowRect, GetWindowThreadProcessId,
-    IsWindowVisible, SetForegroundWindow, ShowWindowAsync,
-    EVENT_OBJECT_SHOW, SW_SHOWNA, OBJID_WINDOW, SW_HIDE, SW_SHOW, WINEVENT_OUTOFCONTEXT,
-    WINEVENT_SKIPOWNPROCESS,
+    DispatchMessageW, FindWindowExW, FindWindowW, GetClassNameW, GetWindowRect,
+    GetWindowThreadProcessId, IsWindowVisible, MsgWaitForMultipleObjects, PeekMessageW,
+    SetForegroundWindow, ShowWindowAsync, TranslateMessage, EVENT_OBJECT_CREATE,
+    EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_SHOW, MSG, OBJID_WINDOW, PM_REMOVE, QS_ALLINPUT,
+    SW_SHOW, SW_SHOWNA, WINEVENT_OUTOFCONTEXT,
 };
 
 /// ABS_AUTOHIDE
@@ -62,7 +63,13 @@ fn on_monitor(h: HWND, targets: &[Rect]) -> bool {
         .unwrap_or(false)
 }
 
-static HOOK: std::sync::Mutex<(isize, u32)> = std::sync::Mutex::new((0, 0));
+/// Bekçi iş parçacığı: Explorer taskbar penceresini gösterdiği, taşıdığı ya da
+/// yeniden oluşturduğu anda (özellikle yan ekranlarda, otomatik gizleme
+/// animasyonu sırasında bölge sıfırlanabiliyor) boş bölgeyi hemen yeniden
+/// uygular. Eskiden yalnızca 500 ms'de bir kontrol ediliyordu; arada taskbar bir
+/// an görünüp kayboluyordu. Kanca yalnızca bölge uygular, pencereyi asla
+/// gizlemez/göstermez (eski SW_HIDE kancası fareyi bozuyordu).
+static GUARD_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 unsafe extern "system" fn on_shell_event(
     _hook: HWINEVENTHOOK,
@@ -73,78 +80,79 @@ unsafe extern "system" fn on_shell_event(
     _thread: u32,
     _time: u32,
 ) {
-    if id_object != OBJID_WINDOW.0 || h.is_invalid() || TARGETS.lock().map(|t| t.is_none()).unwrap_or(true) {
+    if id_object != OBJID_WINDOW.0 || h.is_invalid() {
         return;
     }
-    let mut buf = [0u16; 64];
+    if TARGETS.lock().map(|t| t.is_none()).unwrap_or(true) {
+        return;
+    }
+    let mut buf = [0u16; 32];
     let n = GetClassNameW(h, &mut buf);
-    let class = String::from_utf16_lossy(&buf[..n.max(0) as usize]);
-    if (class == "Shell_TrayWnd" || class == "Shell_SecondaryTrayWnd") && IsWindowVisible(h).as_bool() {
-        let _ = ShowWindowAsync(h, SW_HIDE);
+    let class = &buf[..n.max(0) as usize];
+    let is_tray = class == wide("Shell_TrayWnd").split_last().unwrap().1
+        || class == wide("Shell_SecondaryTrayWnd").split_last().unwrap().1;
+    if is_tray && !is_clipped(h) {
+        clip_empty(h);
     }
 }
 
-/// Explorer'ın taskbar'ı gösterdiği anı (Win tuşu, flyout, fare kenarda) yakalayıp
-/// anında geri gizleyen olay kancası. Mesaj döngüsü olan iş parçacığında (ana
-/// iş parçacığı) çağrılmalı. Explorer yeniden başlarsa tekrar çağrılabilir.
-pub fn install_hook() -> bool {
-    // Bölge yöntemiyle kanca gerekmiyor (bkz. `hide`). Kancayı kaldır.
-    let mut slot = HOOK.lock().unwrap();
-    if slot.0 != 0 {
-        unsafe {
-            let _ = UnhookWinEvent(HWINEVENTHOOK(slot.0 as *mut core::ffi::c_void));
-        }
-        *slot = (0, 0);
-    }
-    true
-}
-
-#[allow(dead_code)]
-fn install_hook_old() -> bool {
-    let Some(&main) = tray_windows().first() else { return false };
+fn explorer_pid() -> u32 {
+    let Some(&main) = tray_windows().first() else { return 0 };
     let mut pid = 0u32;
     unsafe {
         GetWindowThreadProcessId(main, Some(&mut pid));
     }
-    let mut slot = HOOK.lock().unwrap();
-    if slot.1 == pid && slot.0 != 0 {
+    pid
+}
+
+unsafe fn hook_pid(pid: u32) -> Vec<HWINEVENTHOOK> {
+    let mut v = Vec::new();
+    for ev in [EVENT_OBJECT_SHOW, EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_CREATE] {
+        let h = SetWinEventHook(ev, ev, None, Some(on_shell_event), pid, 0, WINEVENT_OUTOFCONTEXT);
+        if !h.is_invalid() {
+            v.push(h);
+        }
+    }
+    v
+}
+
+/// Bekçiyi başlatır (bir kez). Kendi mesaj döngüsü olan ayrı bir iş
+/// parçacığında çalışır; ana iş parçacığını hiç meşgul etmez.
+pub fn install_hook() -> bool {
+    if GUARD_STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return true;
     }
-    unsafe {
-        if slot.0 != 0 {
-            let _ = UnhookWinEvent(HWINEVENTHOOK(slot.0 as *mut core::ffi::c_void));
+    std::thread::spawn(|| unsafe {
+        let mut pid = 0u32;
+        let mut hooks: Vec<HWINEVENTHOOK> = Vec::new();
+        let mut last_check = std::time::Instant::now() - std::time::Duration::from_secs(10);
+        loop {
+            if last_check.elapsed() >= std::time::Duration::from_secs(2) {
+                last_check = std::time::Instant::now();
+                // Explorer yeniden başladıysa kancaları yeni sürece bağla.
+                let now = explorer_pid();
+                if now != 0 && now != pid {
+                    for h in hooks.drain(..) {
+                        let _ = UnhookWinEvent(h);
+                    }
+                    hooks = hook_pid(now);
+                    pid = now;
+                }
+            }
+            let mut msg = MSG::default();
+            while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            MsgWaitForMultipleObjects(None, false, 1000, QS_ALLINPUT);
         }
-        // Yalnızca "gösterildi" olayı: taskbar'ı biz gizlediğimiz için tekrar
-        // görünmesi her zaman bir SHOW olayıyla olur. (Geniş aralık, explorer'ın
-        // her pencere hareketini ana iş parçacığına yığıyordu.)
-        let hook = SetWinEventHook(
-            EVENT_OBJECT_SHOW,
-            EVENT_OBJECT_SHOW,
-            None,
-            Some(on_shell_event),
-            pid,
-            0,
-            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
-        );
-        *slot = (hook.0 as isize, pid);
-        !hook.is_invalid()
-    }
-}
-
-/// Kancanın bağlı olduğu explorer süreci hâlâ aynı mı? (Explorer yeniden
-/// başlarsa false; `install_hook` yeniden çağrılmalı.)
-pub fn hook_current() -> bool {
+    });
     true
 }
 
-#[allow(dead_code)]
-fn hook_current_old() -> bool {
-    let Some(&main) = tray_windows().first() else { return true };
-    let mut pid = 0u32;
-    unsafe {
-        GetWindowThreadProcessId(main, Some(&mut pid));
-    }
-    HOOK.lock().map(|s| s.1 == pid && s.0 != 0).unwrap_or(false)
+/// Bekçi Explorer yeniden başlamasını kendisi takip ediyor.
+pub fn hook_current() -> bool {
+    true
 }
 
 fn appbar_data() -> APPBARDATA {

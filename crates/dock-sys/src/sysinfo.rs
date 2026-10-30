@@ -122,3 +122,100 @@ impl Sampler {
         st
     }
 }
+
+/// Kullanım panelinde gösterilen, yavaş değişen sistem bilgileri.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct Info {
+    pub uptime_sec: u64,
+    pub disk_free_gb: f32,
+    pub disk_total_gb: f32,
+    /// Pil yüzdesi; pil yoksa -1
+    pub battery: i32,
+    pub charging: bool,
+    pub procs: u32,
+    pub cores: u32,
+    pub cpu_name: String,
+    pub os: String,
+}
+
+fn reg_string(root: windows::Win32::System::Registry::HKEY, key: &str, name: &str) -> Option<String> {
+    use windows::Win32::System::Registry::{RegGetValueW, RRF_RT_REG_SZ};
+    let k = wide(key);
+    let n = wide(name);
+    let mut buf = [0u16; 256];
+    let mut size = (buf.len() * 2) as u32;
+    unsafe {
+        RegGetValueW(
+            root,
+            PCWSTR(k.as_ptr()),
+            PCWSTR(n.as_ptr()),
+            RRF_RT_REG_SZ,
+            None,
+            Some(buf.as_mut_ptr() as *mut _),
+            Some(&mut size),
+        )
+        .ok()
+        .ok()?;
+    }
+    let len = (size as usize / 2).saturating_sub(1).min(buf.len());
+    Some(String::from_utf16_lossy(&buf[..len]).trim().to_string())
+}
+
+pub fn info() -> Info {
+    use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    };
+    use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+    use windows::Win32::System::Registry::HKEY_LOCAL_MACHINE;
+    use windows::Win32::System::SystemInformation::{GetSystemInfo, GetTickCount64, SYSTEM_INFO};
+    use windows::Win32::Foundation::CloseHandle;
+
+    let mut out = Info { battery: -1, ..Default::default() };
+    unsafe {
+        out.uptime_sec = GetTickCount64() / 1000;
+
+        let drive = wide("C:\\");
+        let (mut free, mut total) = (0u64, 0u64);
+        if GetDiskFreeSpaceExW(PCWSTR(drive.as_ptr()), Some(&mut free), Some(&mut total), None).is_ok() {
+            let gb = 1024.0 * 1024.0 * 1024.0;
+            out.disk_free_gb = (free as f64 / gb) as f32;
+            out.disk_total_gb = (total as f64 / gb) as f32;
+        }
+
+        let mut ps = SYSTEM_POWER_STATUS::default();
+        if GetSystemPowerStatus(&mut ps).is_ok() && ps.BatteryFlag != 128 && ps.BatteryLifePercent <= 100 {
+            out.battery = ps.BatteryLifePercent as i32;
+            out.charging = ps.ACLineStatus == 1;
+        }
+
+        if let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
+            let mut e = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+            if Process32FirstW(snap, &mut e).is_ok() {
+                out.procs = 1;
+                while Process32NextW(snap, &mut e).is_ok() {
+                    out.procs += 1;
+                }
+            }
+            let _ = CloseHandle(snap);
+        }
+
+        let mut si = SYSTEM_INFO::default();
+        GetSystemInfo(&mut si);
+        out.cores = si.dwNumberOfProcessors;
+    }
+    out.cpu_name = reg_string(
+        HKEY_LOCAL_MACHINE,
+        "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0",
+        "ProcessorNameString",
+    )
+    .unwrap_or_default();
+    let nt = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
+    let build: u32 = reg_string(HKEY_LOCAL_MACHINE, nt, "CurrentBuild")
+        .and_then(|b| b.parse().ok())
+        .unwrap_or(0);
+    let name = if build >= 22000 { "Windows 11" } else { "Windows 10" };
+    let ver = reg_string(HKEY_LOCAL_MACHINE, nt, "DisplayVersion").unwrap_or_default();
+    out.os = format!("{name} {ver} · derleme {build}").replace("  ", " ");
+    out
+}

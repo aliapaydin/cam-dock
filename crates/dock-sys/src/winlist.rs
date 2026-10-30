@@ -353,3 +353,11 @@ pub fn launch_verb(target: &str, args: Option<&str>, verb: &str) -> bool {
         r.0 as isize > 32
     }
 }
+
+/// Pencerenin ait olduğu uygulamanın exe yolu ve pencere başlığı
+/// (ekran süresinde uygulama bazlı sayım için).
+pub fn app_of_window(h: isize) -> Option<(String, String)> {
+    let hw = crate::hwnd(h);
+    let exe = exe_of_pid(pid_of(hw))?;
+    Some((exe, title_of(hw)))
+}
