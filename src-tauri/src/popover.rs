@@ -7,11 +7,12 @@
 
 use crate::docks::{self, Rect};
 use crate::platform;
+use crate::commands::run;
 use crate::{dlog, AppState};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 #[derive(Debug, Clone)]
 pub struct Open {
@@ -71,15 +72,11 @@ pub fn close(app: &AppHandle) {
 }
 
 /// Paneli açar; aynı panel zaten açıksa takvimde kapatır (aç/kapa düğmesi).
-#[tauri::command(async)]
-pub fn popover_open(
-    window: WebviewWindow,
-    state: State<'_, AppState>,
-    kind: String,
-    key: String,
-    anchor: f64,
-    payload: Value,
-) -> Result<String, String> {
+#[tauri::command]
+pub async fn popover_open(app: AppHandle, window: WebviewWindow, kind: String, key: String, anchor: f64, payload: Value) -> Result<String, String> {
+    match run(move || {
+        let state = app.state::<AppState>();
+
     let app = window.app_handle().clone();
     let dock = window.label().to_string();
     let Some((target, scale, mon)) = state
@@ -109,7 +106,10 @@ pub fn popover_open(
     clear_thumbs(&state);
 
     let pop = pop_label(&dock);
-    let hwnd = match state.pop.lock().unwrap().windows.get(&pop).copied() {
+    // Kilidi bırakarak oku: eskiden bu `match` kilidi kollar boyunca tutuyor,
+    // `None` kolunda aynı kilidi tekrar almaya çalışıp sonsuza dek kilitleniyordu.
+    let existing = state.pop.lock().unwrap().windows.get(&pop).copied();
+    let hwnd = match existing {
         Some(h) => h,
         None => {
             let h = docks::create_window(&app, &pop, mon, "popover.html").map_err(|e| e.to_string())?;
@@ -143,27 +143,34 @@ pub fn popover_open(
         ShowEvent { kind, key, payload, serial },
     );
     Ok("opened".into())
+
+    }).await {
+        Ok(r) => r,
+        Err(e) => Err(e),
+    }
 }
 
 /// Yeni açılan panel sayfası yüklenince bekleyen içeriği ister.
-#[tauri::command(async)]
-pub fn popover_pending(window: WebviewWindow, state: State<'_, AppState>) -> Option<Value> {
+#[tauri::command]
+pub async fn popover_pending(app: AppHandle, window: WebviewWindow) -> Option<Value> {
+    run(move || {
+        let state = app.state::<AppState>();
+
     let p = state.pop.lock().unwrap();
     let o = p.open.as_ref()?;
     (o.pop == window.label()).then(|| {
         serde_json::json!({ "kind": o.kind, "key": o.key, "payload": o.payload, "serial": o.serial })
     })
+
+    }).await.unwrap_or_default()
 }
 
 /// Panel içeriği çizildi; ölçüsünü bildirir. Dock'un üstüne yerleştirip gösteririz.
-#[tauri::command(async)]
-pub fn popover_layout(
-    window: WebviewWindow,
-    state: State<'_, AppState>,
-    width: f64,
-    height: f64,
-    serial: u64,
-) -> Result<(), String> {
+#[tauri::command]
+pub async fn popover_layout(app: AppHandle, window: WebviewWindow, width: f64, height: f64, serial: u64) -> Result<(), String> {
+    match run(move || {
+        let state = app.state::<AppState>();
+
     let app = window.app_handle().clone();
     let (dock, anchor_x) = {
         let p = state.pop.lock().unwrap();
@@ -204,16 +211,29 @@ pub fn popover_layout(
     let _ = app.emit_to(window.label(), "popover-in", serial);
     let _ = app.emit_to(dock.as_str(), "popover-opened", ());
     Ok(())
+
+    }).await {
+        Ok(r) => r,
+        Err(e) => Err(e),
+    }
 }
 
-#[tauri::command(async)]
-pub fn popover_close(app: AppHandle) {
+#[tauri::command]
+pub async fn popover_close(app: AppHandle) {
+    let _ = run(move || {
+        let _ = &app;
+
     close(&app);
+
+    }).await;
 }
 
 /// Kapanış animasyonu bitti: (yeni bir panel açılmadıysa) pencereyi gizle.
-#[tauri::command(async)]
-pub fn popover_hidden(window: WebviewWindow, state: State<'_, AppState>) {
+#[tauri::command]
+pub async fn popover_hidden(app: AppHandle, window: WebviewWindow) {
+    let _ = run(move || {
+        let state = app.state::<AppState>();
+
     let reopened = state
         .pop
         .lock()
@@ -225,9 +245,12 @@ pub fn popover_hidden(window: WebviewWindow, state: State<'_, AppState>) {
     if reopened {
         return;
     }
-    if let Some(h) = state.pop.lock().unwrap().windows.get(window.label()) {
-        platform::hide(*h);
+    let h = state.pop.lock().unwrap().windows.get(window.label()).copied();
+    if let Some(h) = h {
+        platform::hide(h);
     }
+
+    }).await;
 }
 
 fn schedule_hover_close(app: AppHandle) {
@@ -249,21 +272,31 @@ fn schedule_hover_close(app: AppHandle) {
 }
 
 /// Fare panelin üstünde mi (panel JS'i bildirir).
-#[tauri::command(async)]
-pub fn popover_hover(app: AppHandle, hover: bool) {
+#[tauri::command]
+pub async fn popover_hover(app: AppHandle, hover: bool) {
+    let _ = run(move || {
+        let _ = &app;
+
     app.state::<AppState>().pop.lock().unwrap().pop_hover = hover;
     if !hover {
         schedule_hover_close(app);
     }
+
+    }).await;
 }
 
 /// Fare önizlemesi açılan uygulama simgesinin üstünde mi (dock JS'i bildirir).
-#[tauri::command(async)]
-pub fn popover_dock_hover(app: AppHandle, hover: bool) {
+#[tauri::command]
+pub async fn popover_dock_hover(app: AppHandle, hover: bool) {
+    let _ = run(move || {
+        let _ = &app;
+
     app.state::<AppState>().pop.lock().unwrap().dock_hover = hover;
     if !hover {
         schedule_hover_close(app);
     }
+
+    }).await;
 }
 
 #[derive(Deserialize)]
@@ -277,8 +310,11 @@ pub struct ThumbReq {
 
 /// Önizleme kartlarındaki kutulara canlı pencere görüntülerini yerleştirir
 /// (CSS pikseli, panelin sol üstüne göre).
-#[tauri::command(async)]
-pub fn popover_thumbs(window: WebviewWindow, state: State<'_, AppState>, items: Vec<ThumbReq>, serial: u64) {
+#[tauri::command]
+pub async fn popover_thumbs(app: AppHandle, window: WebviewWindow, items: Vec<ThumbReq>, serial: u64) {
+    let _ = run(move || {
+        let state = app.state::<AppState>();
+
     clear_thumbs(&state);
     let (dock, ok) = {
         let p = state.pop.lock().unwrap();
@@ -302,13 +338,20 @@ pub fn popover_thumbs(window: WebviewWindow, state: State<'_, AppState>, items: 
         }
     }
     state.pop.lock().unwrap().thumbs = made;
+
+    }).await;
 }
 
 /// Önizleme kartına tıklama: pencereyi öne getir, paneli kapat.
-#[tauri::command(async)]
-pub fn popover_activate(app: AppHandle, hwnd: isize) {
+#[tauri::command]
+pub async fn popover_activate(app: AppHandle, hwnd: isize) {
+    let _ = run(move || {
+        let _ = &app;
+
     close(&app);
     platform::bring_front(hwnd);
+
+    }).await;
 }
 
 /// İzleyici döngüsünden (100 ms) çağrılır: dışarı tıklama ya da başka uygulamaya

@@ -43,29 +43,19 @@ pub struct MonitorView {
     pub rect: Rect,
 }
 
-pub fn monitors(app: &AppHandle) -> Vec<MonitorView> {
-    let primary = app
-        .primary_monitor()
-        .ok()
-        .flatten()
-        .and_then(|m| m.name().cloned());
-    let mut list: Vec<MonitorView> = app
-        .available_monitors()
-        .unwrap_or_default()
-        .iter()
-        .enumerate()
-        .map(|(i, m)| {
-            let name = m.name().cloned().unwrap_or_else(|| format!("MONITOR{}", i + 1));
-            let (p, s) = (m.position(), m.size());
-            MonitorView {
-                primary: primary.as_deref() == Some(name.as_str()),
-                title: String::new(),
-                width: s.width,
-                height: s.height,
-                scale: m.scale_factor(),
-                rect: (p.x, p.y, p.x + s.width as i32, p.y + s.height as i32),
-                name,
-            }
+pub fn monitors(_app: &AppHandle) -> Vec<MonitorView> {
+    // Doğrudan Windows'tan oku: Tauri'nin monitör API'si ana iş parçacığına gidip
+    // cevap bekliyor; arka plan döngüsünü ona bağlamak donmalara yol açıyordu.
+    let mut list: Vec<MonitorView> = platform::monitor_list()
+        .into_iter()
+        .map(|(name, rect, scale, primary)| MonitorView {
+            title: String::new(),
+            width: (rect.2 - rect.0).max(0) as u32,
+            height: (rect.3 - rect.1).max(0) as u32,
+            scale,
+            primary,
+            rect,
+            name,
         })
         .collect();
     // Soldan sağa sırala, kullanıcıya "Ekran 1, 2…" diye göster.
@@ -296,7 +286,9 @@ pub fn apply_taskbar(app: &AppHandle) {
 }
 
 pub fn restore_taskbar(state: &AppState) {
-    if let Some(prev) = state.taskbar_prev.lock().unwrap().take() {
+    // Kilidi Explorer'la konuşmadan önce bırak.
+    let prev = state.taskbar_prev.lock().unwrap().take();
+    if let Some(prev) = prev {
         platform::restore_taskbar(prev);
         let _ = std::fs::remove_file(guard_path());
     }
@@ -388,7 +380,7 @@ fn update_visibility(app: &AppHandle, state: &AppState, vis: &Vis, hwnds: &[isiz
     } else {
         None
     };
-    let fg_is_dock = hwnds.contains(&fg);
+    let _ = fg;
     // Başlat menüsü, arama, hızlı ayarlar, tepsi menüsü açıkken gizlenme.
     let flyout = vis.mode != 0 && platform::shell_flyout_open();
     let pop_dock = state.pop.lock().unwrap().open.as_ref().map(|o| o.dock.clone());
@@ -426,7 +418,7 @@ fn update_visibility(app: &AppHandle, state: &AppState, vis: &Vis, hwnds: &[isiz
                     && cursor.1 >= y - pad
                     && cursor.1 < m.3;
                 let pinned_open = flyout || pop_dock.as_deref() == Some(d.label.as_str());
-                if near_edge || inside || (fg_is_dock && d.shown) || (pinned_open && d.shown) {
+                if near_edge || inside || (pinned_open && d.shown) {
                     d.last_inside = now;
                 }
                 let recent = now.duration_since(d.last_inside) < vis.delay;
@@ -501,6 +493,17 @@ pub fn spawn_watcher(app: AppHandle) {
                         let ok = platform::install_taskbar_hook();
                         dlog!("taskbar kancası {}", if ok { "kuruldu" } else { "KURULAMADI" });
                     });
+                }
+            }
+            // Windows teması değişti mi? (Ayarlar → Kişiselleştirme → Renkler)
+            if tick % 20 == 0 {
+                if let Some(light) = platform::light_theme() {
+                    let mut last = state.system_light.lock().unwrap();
+                    if *last != Some(light) {
+                        *last = Some(light);
+                        drop(last);
+                        let _ = app.emit("system-theme", !light);
+                    }
                 }
             }
             if tick % 10 == 0 && platform::idle_ms() < 120_000 {

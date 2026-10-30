@@ -329,7 +329,12 @@ pub fn close(window: isize) {
 
 /// Bir exe, kısayol, klasör ya da URI'yi (ms-settings:, https:) açar.
 pub fn launch(target: &str, args: Option<&str>) -> bool {
-    let op = crate::wide("open");
+    launch_verb(target, args, "open")
+}
+
+/// `verb`: "open" ya da "runas" (yönetici olarak çalıştır).
+pub fn launch_verb(target: &str, args: Option<&str>, verb: &str) -> bool {
+    let op = crate::wide(verb);
     let file = crate::wide(target);
     let params = args.map(crate::wide);
     unsafe {

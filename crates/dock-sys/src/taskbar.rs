@@ -15,7 +15,7 @@ use windows::Win32::Foundation::RECT;
 use windows::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK};
 use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowExW, FindWindowW, GetClassNameW, GetWindowRect, GetWindowThreadProcessId,
-    IsWindowVisible, SetForegroundWindow, ShowWindowAsync, EVENT_OBJECT_LOCATIONCHANGE,
+    IsWindowVisible, SetForegroundWindow, ShowWindowAsync,
     EVENT_OBJECT_SHOW, OBJID_WINDOW, SW_HIDE, SW_SHOW, WINEVENT_OUTOFCONTEXT,
     WINEVENT_SKIPOWNPROCESS,
 };
@@ -104,9 +104,12 @@ pub fn install_hook() -> bool {
         if slot.0 != 0 {
             let _ = UnhookWinEvent(HWINEVENTHOOK(slot.0 as *mut core::ffi::c_void));
         }
+        // Yalnızca "gösterildi" olayı: taskbar'ı biz gizlediğimiz için tekrar
+        // görünmesi her zaman bir SHOW olayıyla olur. (Geniş aralık, explorer'ın
+        // her pencere hareketini ana iş parçacığına yığıyordu.)
         let hook = SetWinEventHook(
             EVENT_OBJECT_SHOW,
-            EVENT_OBJECT_LOCATIONCHANGE,
+            EVENT_OBJECT_SHOW,
             None,
             Some(on_shell_event),
             pid,

@@ -163,6 +163,9 @@ mod imp {
     pub fn launch(target: &str, args: Option<&str>) -> bool {
         winlist::launch(target, args)
     }
+    pub fn launch_admin(target: &str, args: Option<&str>) -> bool {
+        winlist::launch_verb(target, args, "runas")
+    }
     pub fn icon_png(path: &str, size: i32) -> Option<Vec<u8>> {
         icons::icon_png(path, size)
     }
@@ -267,6 +270,17 @@ mod imp {
     pub fn win_combo_tab() {
         input::win_tab()
     }
+    pub fn monitor_list() -> Vec<(String, Rect, f64, bool)> {
+        monitor::list()
+            .into_iter()
+            .map(|m| (m.name, t(m.rect), m.scale, m.primary))
+            .collect()
+    }
+    /// Windows açık temada mı? Önce görev çubuğu/Başlat ("Windows modu"),
+    /// okunamazsa uygulama modu.
+    pub fn light_theme() -> Option<bool> {
+        monitor::light_theme(true).or_else(|| monitor::light_theme(false))
+    }
     pub fn idle_ms() -> u32 {
         input::idle_ms()
     }
@@ -357,6 +371,9 @@ mod imp {
     pub fn launch(_target: &str, _args: Option<&str>) -> bool {
         false
     }
+    pub fn launch_admin(_target: &str, _args: Option<&str>) -> bool {
+        false
+    }
     pub fn icon_png(_path: &str, _size: i32) -> Option<Vec<u8>> {
         None
     }
@@ -411,6 +428,12 @@ mod imp {
     pub fn open_start() {}
     pub fn win_combo(_letter: char) {}
     pub fn win_combo_tab() {}
+    pub fn monitor_list() -> Vec<(String, Rect, f64, bool)> {
+        vec![("PRIMARY".into(), (0, 0, 1920, 1080), 1.0, true)]
+    }
+    pub fn light_theme() -> Option<bool> {
+        None
+    }
     pub fn idle_ms() -> u32 {
         0
     }

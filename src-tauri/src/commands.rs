@@ -12,6 +12,12 @@ use std::time::Instant;
 use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 
+/// Bloklayan işleri Tauri'nin komut havuzundan ayrı iş parçacıklarında çalıştır.
+/// (Havuz küçük ve sabit; bloklayan bir komut tüm arayüzü kilitleyebiliyordu.)
+pub async fn run<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())
+}
+
 fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
@@ -102,8 +108,11 @@ fn fix_missing_pinned(state: &AppState) {
     }
 }
 
-#[tauri::command(async)]
-pub fn get_config(state: State<'_, AppState>) -> ConfigView {
+#[tauri::command]
+pub async fn get_config(app: AppHandle) -> Result<ConfigView, String> {
+    run(move || {
+        let state = app.state::<AppState>();
+
     fix_missing_pinned(&state);
     let cfg = state.cfg.lock().unwrap().clone();
     let pinned_resolved = cfg
@@ -126,6 +135,8 @@ pub fn get_config(state: State<'_, AppState>) -> ConfigView {
         config_path: config::config_path().display().to_string(),
         log_path: crate::log::path().display().to_string(),
     }
+
+    }).await
 }
 
 /// Ayarlar penceresi tüm ayarı gönderir; kaydedip hemen uygularız.
@@ -137,10 +148,13 @@ pub async fn save_config(app: AppHandle, cfg: Config) -> Result<(), String> {
         state.icons.lock().unwrap().clear();
     }
     config::save(&cfg);
-    // Ekran seçimi değiştiyse dock'ları aç/kapat, taskbar'ı güncelle.
-    docks::sync(&app);
-    crate::emit_config(&app);
-    Ok(())
+    // Ekran seçimi değiştiyse dock'ları aç/kapat, taskbar'ı güncelle
+    // (pencere oluşturma bloklayıcı: komut havuzunun dışında).
+    run(move || {
+        docks::sync(&app);
+        crate::emit_config(&app);
+    })
+    .await
 }
 
 #[derive(Serialize)]
@@ -150,9 +164,12 @@ pub struct DockInfo {
     pub primary: bool,
 }
 
-#[tauri::command(async)]
-pub fn dock_info(window: WebviewWindow, state: State<'_, AppState>) -> Option<DockInfo> {
-    state
+#[tauri::command]
+pub async fn dock_info(app: AppHandle, window: WebviewWindow) -> Option<DockInfo> {
+    run(move || {
+        let state = app.state::<AppState>();
+
+    let info = state
         .docks
         .lock()
         .unwrap()
@@ -161,12 +178,19 @@ pub fn dock_info(window: WebviewWindow, state: State<'_, AppState>) -> Option<Do
             label: d.label.clone(),
             monitor: d.monitor.clone(),
             primary: d.primary,
-        })
+        });
+    info
+    }).await.unwrap_or_default()
 }
 
-#[tauri::command(async)]
-pub fn list_monitors(app: AppHandle) -> Vec<MonitorView> {
+#[tauri::command]
+pub async fn list_monitors(app: AppHandle) -> Vec<MonitorView> {
+    run(move || {
+        let _ = &app;
+
     docks::monitors(&app)
+
+    }).await.unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
@@ -176,13 +200,11 @@ pub fn list_monitors(app: AppHandle) -> Vec<MonitorView> {
 /// Arayüz dock'un ölçüsünü (CSS pikseli) bildirir; pencereyi boyutlandırıp
 /// kendi ekranının alt ortasına yerleştiririz. Kilitler yalnızca durum okunup
 /// yazılırken tutulur; Windows çağrıları kilit dışında yapılır.
-#[tauri::command(async)]
-pub fn layout_dock(
-    window: WebviewWindow,
-    state: State<'_, AppState>,
-    width: f64,
-    height: f64,
-) -> Result<(), String> {
+#[tauri::command]
+pub async fn layout_dock(app: AppHandle, window: WebviewWindow, width: f64, height: f64) -> Result<(), String> {
+    match run(move || {
+        let state = app.state::<AppState>();
+
     let (reserve, always, margin_css, radius_css) = {
         let cfg = state.cfg.lock().unwrap();
         (cfg.reserve_space, cfg.effective_visibility() == "always", cfg.bottom_margin, cfg.radius)
@@ -234,51 +256,79 @@ pub fn layout_dock(
     }
     docks::apply_glass(window.app_handle(), &label);
     Ok(())
+
+    }).await {
+        Ok(r) => r,
+        Err(e) => Err(e),
+    }
 }
 
 /// Koyu/açık temaya göre bu dock'un cam arka planını uygular.
-#[tauri::command(async)]
-pub fn set_theme(window: WebviewWindow, state: State<'_, AppState>, dark: bool) {
+#[tauri::command]
+pub async fn set_theme(app: AppHandle, window: WebviewWindow, dark: bool) {
+    let _ = run(move || {
+        let state = app.state::<AppState>();
+
     if let Some(d) = state.docks.lock().unwrap().get_mut(window.label()) {
         d.dark = dark;
     }
     docks::apply_glass(window.app_handle(), window.label());
+
+    }).await;
 }
 
 // ---------------------------------------------------------------------------
 // Uygulamalar ve pencereler
 // ---------------------------------------------------------------------------
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 pub struct WindowsView {
     pub windows: Vec<AppWindow>,
     /// Kullanıcının şu an çalıştığı (dock'tan önceki) pencere
     pub active: isize,
 }
 
-#[tauri::command(async)]
-pub fn list_windows(state: State<'_, AppState>) -> WindowsView {
+#[tauri::command]
+pub async fn list_windows(app: AppHandle) -> WindowsView {
+    run(move || {
+        let state = app.state::<AppState>();
+
     WindowsView {
         windows: platform::list_windows(&dock_hwnds(&state)),
         active: state.last_fg.load(Ordering::SeqCst),
     }
+
+    }).await.unwrap_or_default()
 }
 
-#[tauri::command(async)]
-pub fn activate_window(state: State<'_, AppState>, hwnd: isize) {
+#[tauri::command]
+pub async fn activate_window(app: AppHandle, hwnd: isize) {
+    let _ = run(move || {
+        let state = app.state::<AppState>();
+
     platform::activate(hwnd, state.last_fg.load(Ordering::SeqCst));
+
+    }).await;
 }
 
 /// Uygulama simgesine tıklama: öndeyse küçült, küçültülmüşse geri getir,
 /// arkadaysa öne getir (pencereler Z sırasına göre).
-#[tauri::command(async)]
-pub fn activate_app(state: State<'_, AppState>, hwnds: Vec<isize>) {
+#[tauri::command]
+pub async fn activate_app(app: AppHandle, hwnds: Vec<isize>) {
+    let _ = run(move || {
+        let state = app.state::<AppState>();
+
     platform::activate_group(&hwnds, state.last_fg.load(Ordering::SeqCst));
+
+    }).await;
 }
 
 /// Dock'taki kilit düğmesi: kilitli ↔ otomatik gizle.
-#[tauri::command(async)]
-pub fn toggle_lock(app: AppHandle) -> bool {
+#[tauri::command]
+pub async fn toggle_lock(app: AppHandle) -> bool {
+    run(move || {
+        let _ = &app;
+
     let locked = {
         let state = app.state::<AppState>();
         let mut cfg = state.cfg.lock().unwrap();
@@ -293,34 +343,44 @@ pub fn toggle_lock(app: AppHandle) -> bool {
     dlog!("kilit {}", if locked { "kapatıldı (hep görünür)" } else { "açıldı (otomatik gizle)" });
     crate::emit_config(&app);
     locked
+
+    }).await.unwrap_or_default()
 }
 
-#[tauri::command(async)]
-pub fn close_window(hwnd: isize) {
+#[tauri::command]
+pub async fn close_window(app: AppHandle, hwnd: isize) {
+    let _ = run(move || {
+        let _ = &app;
+
     platform::close(hwnd);
+
+    }).await;
 }
 
-#[tauri::command(async)]
-pub fn launch_app(path: String, args: Option<String>) -> bool {
+#[tauri::command]
+pub async fn launch_app(app: AppHandle, path: String, args: Option<String>) -> bool {
+    run(move || {
+        let _ = &app;
+
     let path = config::expand_env(&path);
     if path.to_lowercase().starts_with("shell:") {
         // Store uygulamaları ve katalog öğeleri
         return platform::launch("explorer.exe", Some(&path));
     }
     platform::launch(&path, args.as_deref())
+
+    }).await.unwrap_or_default()
 }
 
 /// Bir uygulamanın ikonunu data URL olarak döndürür (önbellekli).
 /// Sırayla dener: Store kimliği (AppsFolder) → exe'den çıkarma → kabuk ikonu →
 /// pencerenin kendi ikonu. Store uygulamaları ve küçültülmüş pencereler için
 /// ilk ve son yol gerekiyor.
-#[tauri::command(async)]
-pub fn app_icon(
-    state: State<'_, AppState>,
-    path: String,
-    aumid: Option<String>,
-    hwnd: Option<isize>,
-) -> Option<String> {
+#[tauri::command]
+pub async fn app_icon(app: AppHandle, path: String, aumid: Option<String>, hwnd: Option<isize>) -> Option<String> {
+    run(move || {
+        let state = app.state::<AppState>();
+
     let path = config::expand_env(&path);
     let aumid = aumid.unwrap_or_default();
     let key = if aumid.is_empty() { path.to_lowercase() } else { format!("aumid:{}", aumid.to_lowercase()) };
@@ -348,17 +408,27 @@ pub fn app_icon(
         dlog!("ikon bulunamadı: {path} {aumid}");
     }
     url
+
+    }).await.unwrap_or_default()
 }
 
 /// Windows uygulama kataloğu (Başlat → Tüm uygulamalar; Store dahil).
-#[tauri::command(async)]
-pub fn catalog_apps(state: State<'_, AppState>, refresh: Option<bool>) -> Vec<platform::CatalogApp> {
+#[tauri::command]
+pub async fn catalog_apps(app: AppHandle, refresh: Option<bool>) -> Vec<platform::CatalogApp> {
+    run(move || {
+        let state = app.state::<AppState>();
+
     catalog(&state, refresh.unwrap_or(false))
+
+    }).await.unwrap_or_default()
 }
 
 /// Dosya seçme penceresi; .lnk seçilirse hedef exe döner.
-#[tauri::command(async)]
-pub fn pick_app(window: WebviewWindow) -> Option<String> {
+#[tauri::command]
+pub async fn pick_app(app: AppHandle, window: WebviewWindow) -> Option<String> {
+    run(move || {
+        let _ = &app;
+
     #[cfg(windows)]
     let owner = window.hwnd().map(|h| h.0 as isize).unwrap_or(0);
     #[cfg(not(windows))]
@@ -373,11 +443,25 @@ pub fn pick_app(window: WebviewWindow) -> Option<String> {
         }
     }
     Some(path)
+
+    }).await.unwrap_or_default()
 }
 
-#[tauri::command(async)]
-pub fn sys_stats(state: State<'_, AppState>) -> platform::SysStats {
-    *state.stats.lock().unwrap()
+/// Windows koyu temada mı? (Tema "Sistemle aynı" iken kullanılır.)
+#[tauri::command]
+pub fn system_theme() -> bool {
+    !platform::light_theme().unwrap_or(false)
+}
+
+#[tauri::command]
+pub async fn sys_stats(app: AppHandle) -> platform::SysStats {
+    run(move || {
+        let state = app.state::<AppState>();
+
+    let st = *state.stats.lock().unwrap();
+    st
+
+    }).await.unwrap_or_default()
 }
 
 #[derive(Serialize)]
@@ -389,8 +473,11 @@ pub struct TrayView {
 }
 
 /// Tepside simgesi olan ve çalışan uygulamalar (kendi tepsi panelimiz için).
-#[tauri::command(async)]
-pub fn tray_apps() -> Vec<TrayView> {
+#[tauri::command]
+pub async fn tray_apps(app: AppHandle) -> Vec<TrayView> {
+    run(move || {
+        let _ = &app;
+
     platform::tray_apps()
         .into_iter()
         .map(|a| TrayView {
@@ -400,21 +487,36 @@ pub fn tray_apps() -> Vec<TrayView> {
             promoted: a.promoted,
         })
         .collect()
+
+    }).await.unwrap_or_default()
 }
 
 /// Tüm medya oturumları.
-#[tauri::command(async)]
-pub fn media_list() -> Vec<MediaState> {
+#[tauri::command]
+pub async fn media_list(app: AppHandle) -> Vec<MediaState> {
+    run(move || {
+        let _ = &app;
+
     platform::media_states()
+
+    }).await.unwrap_or_default()
 }
 
-#[tauri::command(async)]
-pub fn media_control_id(id: String, action: String) -> bool {
+#[tauri::command]
+pub async fn media_control_id(app: AppHandle, id: String, action: String) -> bool {
+    run(move || {
+        let _ = &app;
+
     platform::media_control_id(&id, &action)
+
+    }).await.unwrap_or_default()
 }
 
-#[tauri::command(async)]
-pub fn media_thumbnail_id(state: State<'_, AppState>, id: String, track_key: String) -> Option<String> {
+#[tauri::command]
+pub async fn media_thumbnail_id(app: AppHandle, id: String, track_key: String) -> Option<String> {
+    run(move || {
+        let state = app.state::<AppState>();
+
     let key = format!("{id}\u{1}{track_key}");
     {
         let cache = state.thumb.lock().unwrap();
@@ -428,17 +530,27 @@ pub fn media_thumbnail_id(state: State<'_, AppState>, id: String, track_key: Str
     });
     *state.thumb.lock().unwrap() = (key, url.clone());
     url
+
+    }).await.unwrap_or_default()
 }
 
 /// Başlat menüsündeki uygulamalar (ayarlardan sabitlemek için).
-#[tauri::command(async)]
-pub fn start_menu_apps() -> Vec<StartApp> {
+#[tauri::command]
+pub async fn start_menu_apps(app: AppHandle) -> Vec<StartApp> {
+    run(move || {
+        let _ = &app;
+
     platform::start_menu_apps()
+
+    }).await.unwrap_or_default()
 }
 
 /// .lnk ise hedef exe'yi döndürür, değilse yolu olduğu gibi.
-#[tauri::command(async)]
-pub fn resolve_shortcut(path: String) -> String {
+#[tauri::command]
+pub async fn resolve_shortcut(app: AppHandle, path: String) -> String {
+    run(move || {
+        let _ = &app;
+
     let expanded = config::expand_env(&path);
     if expanded.to_lowercase().ends_with(".lnk") {
         if let Some(t) = platform::resolve_shortcut(&expanded) {
@@ -446,20 +558,30 @@ pub fn resolve_shortcut(path: String) -> String {
         }
     }
     path
+
+    }).await.unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
 // Medya, ekran süresi, sistem
 // ---------------------------------------------------------------------------
 
-#[tauri::command(async)]
-pub fn media_state() -> MediaState {
+#[tauri::command]
+pub async fn media_state(app: AppHandle) -> MediaState {
+    run(move || {
+        let _ = &app;
+
     platform::media_state()
+
+    }).await.unwrap_or_default()
 }
 
 /// Kapak görseli; aynı parça için tekrar okumayız.
-#[tauri::command(async)]
-pub fn media_thumbnail(state: State<'_, AppState>, track_key: String) -> Option<String> {
+#[tauri::command]
+pub async fn media_thumbnail(app: AppHandle, track_key: String) -> Option<String> {
+    run(move || {
+        let state = app.state::<AppState>();
+
     {
         let cache = state.thumb.lock().unwrap();
         if cache.0 == track_key {
@@ -479,17 +601,27 @@ pub fn media_thumbnail(state: State<'_, AppState>, track_key: String) -> Option<
     });
     *state.thumb.lock().unwrap() = (track_key, url.clone());
     url
+
+    }).await.unwrap_or_default()
 }
 
-#[tauri::command(async)]
-pub fn media_control(action: String) -> bool {
+#[tauri::command]
+pub async fn media_control(app: AppHandle, action: String) -> bool {
+    run(move || {
+        let _ = &app;
+
     platform::media_control(&action)
+
+    }).await.unwrap_or_default()
 }
 
 /// Piyasa verisi ve RSS için basit HTTPS GET. Tarayıcı içinden yapılan
 /// istekler CORS'a takıldığı için Rust tarafında indiriyoruz.
-#[tauri::command(async)]
-pub fn fetch_text(url: String) -> Result<String, String> {
+#[tauri::command]
+pub async fn fetch_text(app: AppHandle, url: String) -> Result<String, String> {
+    match run(move || {
+        let _ = &app;
+
     if !url.starts_with("https://") {
         return Err("yalnızca https adreslerine izin var".into());
     }
@@ -500,32 +632,56 @@ pub fn fetch_text(url: String) -> Result<String, String> {
         .call()
         .map_err(err)?;
     resp.into_string().map_err(err)
+
+    }).await {
+        Ok(r) => r,
+        Err(e) => Err(e),
+    }
 }
 
-#[tauri::command(async)]
-pub fn screen_time(state: State<'_, AppState>) -> ScreenTime {
-    state.screen.lock().unwrap().snapshot()
+#[tauri::command]
+pub async fn screen_time(app: AppHandle) -> ScreenTime {
+    run(move || {
+        let state = app.state::<AppState>();
+
+    let snap = state.screen.lock().unwrap().snapshot();
+    snap
+
+    }).await.unwrap_or_default()
 }
 
-#[tauri::command(async)]
-pub fn open_start() {
+#[tauri::command]
+pub async fn open_start(app: AppHandle) {
+    let _ = run(move || {
+        let _ = &app;
+
     platform::open_start();
+
+    }).await;
 }
 
 /// Dock'taki sistem düğmeleri.
-#[tauri::command(async)]
-pub fn system_action(action: String) {
+#[tauri::command]
+pub async fn system_action(app: AppHandle, action: String) {
+    let _ = run(move || {
+        let _ = &app;
+
     match action.as_str() {
         "quick" => platform::win_combo('A'),
         "notifications" => platform::win_combo('N'),
         "taskview" => platform::win_combo_tab(),
         _ => {}
     }
+
+    }).await;
 }
 
 #[tauri::command]
 pub async fn open_settings(app: AppHandle) -> Result<(), String> {
-    docks::open_settings(&app).map_err(err)
+    match run(move || docks::open_settings(&app).map_err(err)).await {
+        Ok(r) => r,
+        Err(e) => Err(e),
+    }
 }
 
 /// Dock'a sağ tıklayınca açılan menü.
@@ -553,4 +709,138 @@ pub fn show_menu(window: WebviewWindow, state: State<'_, AppState>) -> Result<()
         .build()
         .map_err(err)?;
     window.popup_menu(&menu).map_err(err)
+}
+
+// ---------------------------------------------------------------------------
+// Uygulama sağ tık menüsü
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, serde::Deserialize, Default)]
+pub struct AppMenuItem {
+    pub name: String,
+    pub path: String,
+    pub args: Option<String>,
+    #[serde(default)]
+    pub aumid: String,
+    /// Açık pencereler: (hwnd, başlık)
+    #[serde(default)]
+    pub windows: Vec<(isize, String)>,
+    #[serde(default)]
+    pub pinned: bool,
+}
+
+/// Tarayıcıysa: (gizli pencere etiketi, gizli pencere bayrağı, yeni pencere bayrağı)
+fn browser_flags(path: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    let exe = path.rsplit('\\').next().unwrap_or("").to_lowercase();
+    match exe.as_str() {
+        "chrome.exe" | "brave.exe" | "vivaldi.exe" | "chromium.exe" => Some(("Yeni gizli pencere", "--incognito", "--new-window")),
+        "msedge.exe" => Some(("Yeni InPrivate penceresi", "--inprivate", "--new-window")),
+        "firefox.exe" => Some(("Yeni gizli pencere", "-private-window", "-new-window")),
+        "opera.exe" => Some(("Yeni özel pencere", "--private", "--new-window")),
+        _ => None,
+    }
+}
+
+/// Bir uygulama simgesine sağ tıklama menüsü.
+#[tauri::command]
+pub fn app_menu(window: WebviewWindow, state: State<'_, AppState>, item: AppMenuItem) -> Result<(), String> {
+    use tauri::menu::{MenuItemBuilder, PredefinedMenuItem};
+    let app = window.app_handle();
+    let is_file = !item.path.to_lowercase().starts_with("shell:") && item.path.contains(":\\");
+    let is_exe = item.path.to_lowercase().ends_with(".exe");
+    let mut b = MenuBuilder::new(app);
+    b = b.item(&MenuItemBuilder::with_id("am:noop", &item.name).enabled(false).build(app).map_err(err)?);
+    b = b.item(&PredefinedMenuItem::separator(app).map_err(err)?);
+    if !item.windows.is_empty() {
+        for (h, title) in item.windows.iter().take(10) {
+            let mut t: String = title.chars().take(60).collect();
+            if title.chars().count() > 60 {
+                t.push('…');
+            }
+            b = b.text(format!("am:win:{h}"), t);
+        }
+        b = b.item(&PredefinedMenuItem::separator(app).map_err(err)?);
+    }
+    b = b.text("am:new", "Yeni pencere");
+    if let Some((label, _, _)) = browser_flags(&item.path) {
+        b = b.text("am:private", label);
+    }
+    if is_exe {
+        b = b.text("am:admin", "Yönetici olarak çalıştır");
+    }
+    if is_file {
+        b = b.text("am:folder", "Dosya konumunu aç");
+    }
+    b = b.item(&PredefinedMenuItem::separator(app).map_err(err)?);
+    b = b.text(if item.pinned { "am:unpin" } else { "am:pin" }, if item.pinned { "Dock'tan kaldır" } else { "Dock'a sabitle" });
+    if !item.windows.is_empty() {
+        let n = item.windows.len();
+        b = b.text("am:close", if n > 1 { format!("Tüm pencereleri kapat ({n})") } else { "Pencereyi kapat".to_string() });
+    }
+    let menu = b.build().map_err(err)?;
+    *state.app_menu.lock().unwrap() = Some(item);
+    window.popup_menu(&menu).map_err(err)
+}
+
+/// Uygulama menüsünden seçim (main.rs'teki menü olayından çağrılır).
+pub fn app_menu_action(app: &AppHandle, id: &str) {
+    let state = app.state::<AppState>();
+    let Some(item) = state.app_menu.lock().unwrap().clone() else { return };
+    let path = config::expand_env(&item.path);
+    let open = |p: &str, a: Option<&str>| {
+        if p.to_lowercase().starts_with("shell:") {
+            platform::launch("explorer.exe", Some(p))
+        } else {
+            platform::launch(p, a)
+        }
+    };
+    let id = id.to_string();
+    let app = app.clone();
+    // Pencere işlemleri ve ShellExecute ana iş parçacığını meşgul etmesin.
+    std::thread::spawn(move || {
+        if let Some(h) = id.strip_prefix("am:win:") {
+            if let Ok(h) = h.parse::<isize>() {
+                platform::bring_front(h);
+            }
+            return;
+        }
+        match id.as_str() {
+            "am:new" => {
+                let flag = browser_flags(&path).map(|f| f.2);
+                open(&path, flag.or(item.args.as_deref()));
+            }
+            "am:private" => {
+                if let Some((_, f, _)) = browser_flags(&path) {
+                    open(&path, Some(f));
+                }
+            }
+            "am:admin" => {
+                platform::launch_admin(&path, item.args.as_deref());
+            }
+            "am:folder" => {
+                platform::launch("explorer.exe", Some(&format!("/select,\"{path}\"")));
+            }
+            "am:pin" | "am:unpin" => {
+                let state = app.state::<AppState>();
+                {
+                    let mut cfg = state.cfg.lock().unwrap();
+                    if id == "am:pin" {
+                        if !cfg.pinned.iter().any(|p| config::expand_env(&p.path).eq_ignore_ascii_case(&path)) {
+                            cfg.pinned.push(config::Pinned { name: item.name.clone(), path: item.path.clone(), args: None });
+                        }
+                    } else {
+                        cfg.pinned.retain(|p| !config::expand_env(&p.path).eq_ignore_ascii_case(&path));
+                    }
+                    config::save(&cfg);
+                }
+                crate::emit_config(&app);
+            }
+            "am:close" => {
+                for (h, _) in &item.windows {
+                    platform::close(*h);
+                }
+            }
+            _ => {}
+        }
+    });
 }

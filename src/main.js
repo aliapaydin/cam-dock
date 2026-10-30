@@ -35,13 +35,27 @@ const timers = [];
 const every = (ms, fn) => { fn(); timers.push(setInterval(fn, ms)); };
 // Dock gizliyken (otomatik gizle / tam ekran) sık sorguları durdur.
 let dockVisible = true;
-const whenVisible = (fn) => () => { if (dockVisible) fn(); };
+// Önceki sorgu bitmeden yenisini başlatma (yavaş bir oynatıcı ya da sistem
+// çağrısı sorguları üst üste yığmasın).
+const single = (fn) => {
+  let busy = false;
+  return async () => {
+    if (busy) return;
+    busy = true;
+    try { await fn(); } finally { busy = false; }
+  };
+};
+const whenVisible = (fn) => { const g = single(fn); return () => { if (dockVisible) g(); }; };
 
 // ---------------------------------------------------------------------------
 // Tema
 // ---------------------------------------------------------------------------
-const darkQuery = matchMedia("(prefers-color-scheme: dark)");
-const isDark = () => cfg.theme === "dark" || (cfg.theme !== "light" && darkQuery.matches);
+// "Sistemle aynı": Windows'un kendi ayarı (kayıt defteri) — WebView'in
+// prefers-color-scheme'i her zaman doğru değeri vermiyordu.
+let systemDark = matchMedia("(prefers-color-scheme: dark)").matches;
+invoke("system_theme").then((d) => { systemDark = !!d; if (cfg) applyTheme(); }).catch(() => {});
+listen("system-theme", (e) => { systemDark = !!e.payload; if (cfg) applyTheme(); });
+const isDark = () => cfg.theme === "dark" || (cfg.theme !== "light" && systemDark);
 
 function applyTheme() {
   const root = document.documentElement;
@@ -52,7 +66,7 @@ function applyTheme() {
   root.style.setProperty("--radius", `${cfg.radius ?? 26}px`);
   invoke("set_theme", { dark }).catch(() => {});
 }
-darkQuery.addEventListener("change", () => cfg && applyTheme());
+
 
 // ---------------------------------------------------------------------------
 // Yerleşim: dock'un ölçüsü değişince pencereyi yeniden boyutlandır
@@ -140,7 +154,7 @@ function appsWidget() {
       const aum = pk.startsWith("shell:appsfolder\\") ? "aumid:" + pk.slice(17) : null;
       const k = (aum && groups.has(aum)) ? aum : groups.has(pk) ? pk : byExe.get(pk) || pk;
       used.add(k);
-      next.push({ key: k, name: p.name, path: p.path, args: p.args, aumid: aum ? aum.slice(6) : "", wins: groups.get(k) || [] });
+      next.push({ key: k, name: p.name, path: p.path, args: p.args, aumid: aum ? aum.slice(6) : "", wins: groups.get(k) || [], pinned: true });
     }
     if (cfg.show_running) {
       const running = [];
@@ -221,6 +235,23 @@ function appsWidget() {
       b.onmouseleave = () => {
         clearTimeout(hoverTimer);
         if (item.wins.length >= 2) invoke("popover_dock_hover", { hover: false }).catch(() => {});
+      };
+      // Sağ tık: uygulamaya özel menü (yeni pencere, gizli pencere, sabitle…)
+      b.oncontextmenu = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        clearTimeout(hoverTimer);
+        const cur = items.find((i) => i.key === item.key) || item;
+        invoke("app_menu", {
+          item: {
+            name: item.name,
+            path: item.path,
+            args: item.args || null,
+            aumid: item.aumid || "",
+            windows: (cur.stable || cur.wins).map((w) => [w.hwnd, w.title]),
+            pinned: !!item.pinned,
+          },
+        }).catch(console.error);
       };
       // Orta tık: yeni pencere aç
       b.onauxclick = (e) => {

@@ -26,12 +26,12 @@ let spec = null;
 // ---------------------------------------------------------------------------
 // Tema (dock ile aynı)
 // ---------------------------------------------------------------------------
-const darkQuery = matchMedia("(prefers-color-scheme: dark)");
 async function applyTheme() {
   const cfg = await invoke("get_config").catch(() => null);
   if (!cfg) return;
   const root = document.documentElement;
-  const dark = cfg.theme === "dark" || (cfg.theme !== "light" && darkQuery.matches);
+  const sys = await invoke("system_theme").catch(() => matchMedia("(prefers-color-scheme: dark)").matches);
+  const dark = cfg.theme === "dark" || (cfg.theme !== "light" && sys);
   root.dataset.theme = dark ? "dark" : "light";
   root.dataset.backdrop = cfg.backdrop;
   root.style.setProperty("--accent", cfg.accent || "#2F7BFF");
@@ -70,6 +70,7 @@ listen("popover-out", () => {
   setTimeout(() => invoke("popover_hidden").catch(() => {}), 200);
 });
 listen("config-changed", applyTheme);
+listen("system-theme", applyTheme);
 
 panel.addEventListener("mouseenter", () => invoke("popover_hover", { hover: true }).catch(() => {}));
 panel.addEventListener("mouseleave", () => invoke("popover_hover", { hover: false }).catch(() => {}));

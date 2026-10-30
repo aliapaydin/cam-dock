@@ -34,6 +34,10 @@ pub struct AppState {
     pub catalog: Mutex<Option<Vec<platform::CatalogApp>>>,
     /// Son sistem kaynakları örneği
     pub stats: Mutex<platform::SysStats>,
+    /// Son okunan Windows teması (açık mı)
+    pub system_light: Mutex<Option<bool>>,
+    /// Sağ tık menüsü açılan uygulama
+    pub app_menu: Mutex<Option<commands::AppMenuItem>>,
 }
 
 pub fn emit_config(app: &tauri::AppHandle) {
@@ -49,6 +53,10 @@ fn cleanup(app: &tauri::AppHandle) {
 }
 
 fn on_menu(app: &tauri::AppHandle, id: &str) {
+    if id.starts_with("am:") {
+        commands::app_menu_action(app, id);
+        return;
+    }
     let state = app.state::<AppState>();
     if let Some(theme) = id.strip_prefix("theme:") {
         {
@@ -96,6 +104,8 @@ fn main() {
         pop: Mutex::new(popover::PopState::default()),
         catalog: Mutex::new(None),
         stats: Mutex::new(platform::SysStats::default()),
+        system_light: Mutex::new(None),
+        app_menu: Mutex::new(None),
     };
 
     let app = tauri::Builder::default()
@@ -134,6 +144,7 @@ fn main() {
             commands::catalog_apps,
             commands::pick_app,
             commands::sys_stats,
+            commands::system_theme,
             commands::tray_apps,
             commands::fetch_text,
             commands::screen_time,
@@ -141,6 +152,7 @@ fn main() {
             commands::system_action,
             commands::open_settings,
             commands::show_menu,
+            commands::app_menu,
         ])
         .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
         .setup(|app| {

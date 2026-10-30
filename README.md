@@ -1,4 +1,4 @@
-# Cam Dock — v0.7
+# Cam Dock — v0.8
 
 Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebView2) ile yazıldı.
 
@@ -29,6 +29,7 @@ Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebVi
 | **Kilit düğmesi**: kilitli = hep görünür, pencereler altına girmez; açık = otomatik gizle, pencereler tüm ekranı kaplar | ✅ |
 | Simgeye tıkla: öndeyse küçült, tekrar tıkla eski konumuna getir; açık uygulamaların sırası sabit | ✅ |
 | Başlat menüsü, arama, hızlı ayarlar açıkken dock gizlenmez | ✅ |
+| **Sağ tık menüsü**: açık pencereler, yeni pencere, tarayıcılarda gizli/InPrivate pencere, yönetici olarak çalıştır, dosya konumu, sabitle/kaldır, pencereleri kapat | ✅ |
 | Takvim etkinlikleri (Outlook/Google), mail, Claude kullanımı | ⏳ Sonraki aşama |
 
 ## Kurulum (bir kerelik)

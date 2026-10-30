@@ -9,6 +9,26 @@ use windows::Media::Control::{
     GlobalSystemMediaTransportControlsSessionPlaybackStatus as Status,
 };
 use windows::Storage::Streams::DataReader;
+use windows_future::{AsyncStatus, IAsyncOperation};
+
+/// WinRT işlemini en fazla `ms` milisaniye bekler. Bazı oynatıcılar (ör. donmuş
+/// bir tarayıcı sekmesi) hiç cevap vermeyebilir; `join()` sonsuza kadar bekleyip
+/// iş parçacığını kilitliyordu.
+fn wait<T: windows_core::RuntimeType + 'static>(op: IAsyncOperation<T>, ms: u64) -> Result<T> {
+    let start = std::time::Instant::now();
+    loop {
+        match op.Status()? {
+            AsyncStatus::Completed => return op.GetResults(),
+            AsyncStatus::Started => {}
+            _ => return Err(windows_core::Error::from_hresult(windows_core::HRESULT(0x80004005u32 as i32))),
+        }
+        if start.elapsed().as_millis() as u64 >= ms {
+            let _ = op.Cancel();
+            return Err(windows_core::Error::from_hresult(windows_core::HRESULT(0x800705B4u32 as i32)));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(4));
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct MediaState {
@@ -37,7 +57,7 @@ fn manager() -> Result<Manager> {
     if let Some(m) = slot.as_ref() {
         return Ok(m.clone());
     }
-    let m = Manager::RequestAsync()?.join()?;
+    let m = wait(Manager::RequestAsync()?, 3000)?;
     *slot = Some(m.clone());
     Ok(m)
 }
@@ -67,7 +87,7 @@ pub fn state() -> Result<MediaState> {
 }
 
 fn session_state(s: &Session) -> Result<MediaState> {
-    let props = s.TryGetMediaPropertiesAsync()?.join()?;
+    let props = wait(s.TryGetMediaPropertiesAsync()?, 600)?;
     let info = s.GetPlaybackInfo()?;
     let playing = info.PlaybackStatus()? == Status::Playing;
     let tl = s.GetTimelineProperties()?;
@@ -108,17 +128,17 @@ pub fn thumbnail() -> Result<Option<Vec<u8>>> {
     let Some(s) = session()? else {
         return Ok(None);
     };
-    let props = s.TryGetMediaPropertiesAsync()?.join()?;
+    let props = wait(s.TryGetMediaPropertiesAsync()?, 600)?;
     let Ok(thumb) = props.Thumbnail() else {
         return Ok(None);
     };
-    let stream = thumb.OpenReadAsync()?.join()?;
+    let stream = wait(thumb.OpenReadAsync()?, 1500)?;
     let size = stream.Size()? as u32;
     if size == 0 {
         return Ok(None);
     }
     let reader = DataReader::CreateDataReader(&stream.GetInputStreamAt(0)?)?;
-    reader.LoadAsync(size)?.join()?;
+    wait(reader.LoadAsync(size)?, 1500)?;
     let mut buf = vec![0u8; size as usize];
     reader.ReadBytes(&mut buf)?;
     Ok(Some(buf))
@@ -129,9 +149,10 @@ pub fn control(action: &str) -> Result<bool> {
         return Ok(false);
     };
     let ok = match action {
-        "toggle" => s.TryTogglePlayPauseAsync()?.join()?,
-        "next" => s.TrySkipNextAsync()?.join()?,
-        "prev" => s.TrySkipPreviousAsync()?.join()?,
+        // Komutu gönderip beklemeyiz; oynatıcı cevap vermese de dock takılmaz.
+        "toggle" => s.TryTogglePlayPauseAsync().is_ok(),
+        "next" => s.TrySkipNextAsync().is_ok(),
+        "prev" => s.TrySkipPreviousAsync().is_ok(),
         _ => false,
     };
     Ok(ok)
@@ -175,24 +196,24 @@ fn find(id: &str) -> Result<Option<Session>> {
 pub fn control_id(id: &str, action: &str) -> Result<bool> {
     let Some(s) = find(id)? else { return Ok(false) };
     Ok(match action {
-        "toggle" => s.TryTogglePlayPauseAsync()?.join()?,
-        "next" => s.TrySkipNextAsync()?.join()?,
-        "prev" => s.TrySkipPreviousAsync()?.join()?,
+        "toggle" => s.TryTogglePlayPauseAsync().is_ok(),
+        "next" => s.TrySkipNextAsync().is_ok(),
+        "prev" => s.TrySkipPreviousAsync().is_ok(),
         _ => false,
     })
 }
 
 pub fn thumbnail_id(id: &str) -> Result<Option<Vec<u8>>> {
     let Some(s) = find(id)? else { return Ok(None) };
-    let props = s.TryGetMediaPropertiesAsync()?.join()?;
+    let props = wait(s.TryGetMediaPropertiesAsync()?, 600)?;
     let Ok(thumb) = props.Thumbnail() else { return Ok(None) };
-    let stream = thumb.OpenReadAsync()?.join()?;
+    let stream = wait(thumb.OpenReadAsync()?, 1500)?;
     let size = stream.Size()? as u32;
     if size == 0 {
         return Ok(None);
     }
     let reader = DataReader::CreateDataReader(&stream.GetInputStreamAt(0)?)?;
-    reader.LoadAsync(size)?.join()?;
+    wait(reader.LoadAsync(size)?, 1500)?;
     let mut buf = vec![0u8; size as usize];
     reader.ReadBytes(&mut buf)?;
     Ok(Some(buf))

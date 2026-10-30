@@ -255,3 +255,75 @@ pub fn foreground_is_shell_flyout() -> bool {
     }
     false
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MonitorInfo {
+    pub name: String,
+    pub rect: Rect,
+    pub scale: f64,
+    pub primary: bool,
+}
+
+unsafe extern "system" fn enum_mon(
+    mon: HMONITOR,
+    _dc: windows::Win32::Graphics::Gdi::HDC,
+    _r: *mut RECT,
+    lp: windows::Win32::Foundation::LPARAM,
+) -> windows::core::BOOL {
+    let out = &mut *(lp.0 as *mut Vec<MonitorInfo>);
+    let mut mi = MONITORINFOEXW::default();
+    mi.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+    if GetMonitorInfoW(mon, &mut mi as *mut _ as *mut MONITORINFO).as_bool() {
+        let len = mi.szDevice.iter().position(|&c| c == 0).unwrap_or(mi.szDevice.len());
+        let (mut dx, mut dy) = (96u32, 96u32);
+        let _ = windows::Win32::UI::HiDpi::GetDpiForMonitor(
+            mon,
+            windows::Win32::UI::HiDpi::MDT_EFFECTIVE_DPI,
+            &mut dx,
+            &mut dy,
+        );
+        out.push(MonitorInfo {
+            name: String::from_utf16_lossy(&mi.szDevice[..len]),
+            rect: Rect::from_win(mi.monitorInfo.rcMonitor),
+            scale: dx as f64 / 96.0,
+            primary: mi.monitorInfo.dwFlags & 1 != 0, // MONITORINFOF_PRIMARY
+        });
+    }
+    windows::core::BOOL(1)
+}
+
+/// Bağlı monitörler (Tauri'nin ana iş parçacığına gitmeden doğrudan Windows'tan).
+pub fn list() -> Vec<MonitorInfo> {
+    let mut out: Vec<MonitorInfo> = Vec::new();
+    unsafe {
+        let _ = windows::Win32::Graphics::Gdi::EnumDisplayMonitors(
+            None,
+            None,
+            Some(enum_mon),
+            windows::Win32::Foundation::LPARAM(&mut out as *mut _ as isize),
+        );
+    }
+    out
+}
+
+/// Windows açık temada mı? (Ayarlar → Kişiselleştirme → Renkler)
+/// `system`: görev çubuğu/Başlat ("Windows modu"); değilse uygulama modu.
+pub fn light_theme(system: bool) -> Option<bool> {
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+    let key = crate::wide("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
+    let name = crate::wide(if system { "SystemUsesLightTheme" } else { "AppsUseLightTheme" });
+    let mut v = 0u32;
+    let mut size = 4u32;
+    unsafe {
+        let r = RegGetValueW(
+            HKEY_CURRENT_USER,
+            windows::core::PCWSTR(key.as_ptr()),
+            windows::core::PCWSTR(name.as_ptr()),
+            RRF_RT_REG_DWORD,
+            None,
+            Some(&mut v as *mut _ as *mut core::ffi::c_void),
+            Some(&mut size),
+        );
+        (r.0 == 0).then_some(v != 0)
+    }
+}

@@ -170,12 +170,13 @@ function bind() {
 // ---------------------------------------------------------------------------
 // Ekranı güncelle
 // ---------------------------------------------------------------------------
-const darkQuery = matchMedia("(prefers-color-scheme: dark)");
-darkQuery.addEventListener("change", () => cfg && refresh());
+let systemDark = matchMedia("(prefers-color-scheme: dark)").matches;
+invoke("system_theme").then((d) => { systemDark = !!d; if (cfg) refresh(); }).catch(() => {});
+listen("system-theme", (e) => { systemDark = !!e.payload; if (cfg) refresh(); });
 
 function refresh() {
   const root = document.documentElement;
-  root.dataset.theme = cfg.theme === "dark" || (cfg.theme !== "light" && darkQuery.matches) ? "dark" : "light";
+  root.dataset.theme = cfg.theme === "dark" || (cfg.theme !== "light" && systemDark) ? "dark" : "light";
   root.style.setProperty("--accent", cfg.accent);
   root.style.setProperty("--pv-radius", `${Math.round(cfg.radius * 0.66)}px`);
   root.style.setProperty("--pv-margin", `${Math.max(4, cfg.bottom_margin)}px`);
