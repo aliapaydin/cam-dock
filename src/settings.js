@@ -37,11 +37,12 @@ const WIDGETS = [
   { id: "screentime", name: "Ekran süresi ve kaynaklar", desc: "Aktif süre ile CPU, RAM, GPU, disk dönüşümlü; tıklayınca grafikli kullanım paneli." },
   { id: "ticker", name: "Piyasa ve haberler", desc: "Döviz, altın ve haber başlıkları dönüşümlü; tıklayınca kategorili haber paneli." },
   { id: "media", name: "Müzik", desc: "Spotify, YouTube ve diğer oynatıcılar; birden çoksa tekerlekle kaydır." },
+  { id: "clipboard", name: "Pano geçmişi", desc: "Son kopyaladığın metin ve görseller; tıkla, tekrar kopyalansın." },
   { id: "system", name: "Sistem düğmeleri", desc: "Arka plan uygulamaları (tepsi), hızlı ayarlar, bildirimler, görev görünümü." },
   { id: "clock", name: "Saat ve hava durumu", desc: "Saat, tarih, sıcaklık; tıklayınca saatlik ve 6 günlük tahmin." },
   { id: "lock", name: "Kilit düğmesi", desc: "Dock'u kilitle (hep görünür) ya da otomatik gizle." },
   { id: "mail", name: "Mail", desc: "Önizleme — örnek veri.", preview: true },
-  { id: "claude", name: "Claude kullanımı", desc: "Önizleme — örnek veri.", preview: true },
+  { id: "claude", name: "Claude kullanımı", desc: "5 saatlik ve haftalık limitler; Claude Code'da oturum açık olmalı." },
 ];
 
 let cfg = null;
@@ -142,6 +143,7 @@ function bind() {
   $("#city-go").onclick = searchCity;
   $("#city-q").onkeydown = (e) => { if (e.key === "Enter") searchCity(); };
   // Güncellemeler
+  $("#win-notif").onclick = () => invoke("launch_app", { path: "ms-settings:notifications" });
   $("#upd-check").onclick = () => invoke("update_check").catch(() => {});
   $("#upd-install").onclick = () => invoke("update_install").catch(() => {});
   $("#feed-add").onclick = () => {
@@ -263,6 +265,13 @@ function refresh() {
     ? `İnternet bağlantısından bulunur${cfg.weather.city ? " · şu an " + cfg.weather.city : ""}`
     : `Elle seçildi: ${cfg.weather.city || "–"}`;
   $("#city-row").classList.toggle("disabled", !cfg.weather.enabled);
+  const nt = cfg.notifications;
+  for (const id of ["#nt-balloon", "#nt-bounce", "#nt-text", "#nt-sec"]) $(id).classList.toggle("disabled", !nt.enabled);
+  $("#nt-text").classList.toggle("disabled", !nt.enabled || !nt.balloons);
+  $("#nt-sec").classList.toggle("disabled", !nt.enabled || !nt.bounce);
+  $("#nt-sec-val").textContent = `${nt.bounce_sec} saniye`;
+  $("#clip-max-row").classList.toggle("disabled", !cfg.clipboard.enabled);
+  $("#clip-max-val").textContent = `Son ${cfg.clipboard.max_items} öğe (görseller en çok 12)`;
   root.style.setProperty("--pv-radius", `${Math.round(cfg.radius * 0.66)}px`);
   root.style.setProperty("--pv-margin", `${Math.max(4, cfg.bottom_margin)}px`);
 
@@ -613,6 +622,8 @@ async function mockInvoke(cmd) {
         weather: { enabled: true, auto_location: true, city: "İzmir", lat: 38.42, lon: 27.14 },
         update: { auto_check: true, auto_install: true },
         autostart: true,
+        notifications: { enabled: true, balloons: true, bounce: true, bounce_sec: 10, show_text: true },
+        clipboard: { enabled: true, max_items: 40 },
       };
     case "theme_dark": return (q.get("theme") || "dark") === "dark";
     case "wallpaper": return MOCK.wallpaper(q.get("wall"));

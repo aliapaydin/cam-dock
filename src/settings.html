@@ -212,6 +212,46 @@
         <h1>Widget'lar</h1>
         <p class="hint">Açık olanlar dock'ta bu sırayla görünür.</p>
         <div class="card list" id="widgets"></div>
+        <h2>Bildirimler</h2>
+        <div class="card">
+          <div class="row">
+            <div class="label"><strong>Windows bildirimlerini izle</strong><span>WhatsApp, Teams, Outlook… Okunmamış sayısı uygulama simgesinde rozet olarak görünür.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="notifications.enabled"><span></span></label>
+          </div>
+          <div class="row" id="nt-balloon">
+            <div class="label"><strong>Cam balon</strong><span>Yeni bildirim dock'un üstünde birkaç saniye görünür; tıklayınca uygulama açılır.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="notifications.balloons"><span></span></label>
+          </div>
+          <div class="row" id="nt-text">
+            <div class="label"><strong>Mesaj metnini göster</strong><span>Kapalıysa balonda yalnızca uygulama adı görünür (ekran paylaşırken iyi olur).</span></div>
+            <label class="switch"><input type="checkbox" data-bind="notifications.show_text"><span></span></label>
+          </div>
+          <div class="row" id="nt-bounce">
+            <div class="label"><strong>Simge zıplasın</strong><span>Bildirim gelen uygulamanın simgesi Mac'teki gibi zıplar.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="notifications.bounce"><span></span></label>
+          </div>
+          <div class="row" id="nt-sec">
+            <div class="label"><strong>Zıplama süresi</strong><span id="nt-sec-val"></span></div>
+            <input type="range" min="2" max="20" step="1" data-bind="notifications.bounce_sec" aria-label="Zıplama süresi">
+          </div>
+          <div class="row">
+            <div class="label"><strong>Windows'un kendi afişleri</strong><span>İki kez görmemek için Windows ayarlarında uygulamaların "Bildirim afişlerini göster" seçeneğini kapatabilirsin; bildirimler yine gelir ve dock'ta görünür.</span></div>
+            <button class="btn ghost" id="win-notif">Windows ayarları</button>
+          </div>
+        </div>
+
+        <h2>Pano geçmişi</h2>
+        <div class="card">
+          <div class="row">
+            <div class="label"><strong>Kopyalananları hatırla</strong><span>Yalnızca bellekte tutulur, diske yazılmaz. Şifre yöneticilerinden kopyalananlar kaydedilmez.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="clipboard.enabled"><span></span></label>
+          </div>
+          <div class="row" id="clip-max-row">
+            <div class="label"><strong>Geçmiş uzunluğu</strong><span id="clip-max-val"></span></div>
+            <input type="range" min="10" max="100" step="5" data-bind="clipboard.max_items" aria-label="Geçmiş uzunluğu">
+          </div>
+        </div>
+
         <h2>Hava durumu</h2>
         <div class="card">
           <div class="row">
@@ -288,7 +328,7 @@
         <h2>Güncellemeler</h2>
         <div class="card">
           <div class="row">
-            <div class="label"><strong id="upd-title">Cam Dock 0.10.0</strong><span id="upd-desc"></span>
+            <div class="label"><strong id="upd-title">Cam Dock 0.11.0</strong><span id="upd-desc"></span>
               <span class="upd-bar" id="upd-bar"><i></i></span></div>
             <div class="upd-btns"><button class="btn ghost" id="upd-check">Denetle</button><button class="btn" id="upd-install">Şimdi güncelle</button></div>
           </div>
@@ -303,7 +343,7 @@
         </div>
 
         <div class="card">
-          <div class="row"><div class="label"><strong>Cam Dock</strong><span>Sürüm 0.10.0</span></div></div>
+          <div class="row"><div class="label"><strong>Cam Dock</strong><span>Sürüm 0.11.0</span></div></div>
           <div class="row"><div class="label"><strong>Ayar dosyası</strong><span id="cfg-path" class="mono"></span></div>
             <button class="btn ghost" id="open-cfg">Aç</button></div>
           <div class="row"><div class="label"><strong>Tanılama kaydı</strong><span>Dock'un ne zaman neden hareket ettiğini ve cam katmanının durumunu yazar. Bir sorun olursa bu dosyayı gönder.</span><span id="log-path" class="mono"></span></div>

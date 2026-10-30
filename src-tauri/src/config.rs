@@ -98,6 +98,41 @@ impl Default for Weather {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+pub struct Notifications {
+    /// Windows bildirimlerini izle (rozetler)
+    pub enabled: bool,
+    /// Yeni bildirimde dock'un üstünde cam balon
+    pub balloons: bool,
+    /// Yeni bildirimde uygulama simgesi zıplasın
+    pub bounce: bool,
+    /// Zıplama süresi (sn)
+    pub bounce_sec: u32,
+    /// Balonda mesaj metnini göster (kapalıysa yalnızca uygulama adı)
+    pub show_text: bool,
+}
+
+impl Default for Notifications {
+    fn default() -> Self {
+        Self { enabled: true, balloons: true, bounce: true, bounce_sec: 10, show_text: true }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Clipboard {
+    pub enabled: bool,
+    /// En çok kaç öğe tutulsun
+    pub max_items: u32,
+}
+
+impl Default for Clipboard {
+    fn default() -> Self {
+        Self { enabled: true, max_items: 40 }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Update {
     /// Açılışta ve 6 saatte bir yeni sürüm denetle
     pub auto_check: bool,
@@ -172,6 +207,8 @@ pub struct Config {
     pub dynamic: Dynamic,
     pub weather: Weather,
     pub update: Update,
+    pub notifications: Notifications,
+    pub clipboard: Clipboard,
     /// Windows açılınca başlat
     pub autostart: bool,
     /// Ayar dosyası sürüm geçişleri (kullanıcı düzenlemez)
@@ -220,7 +257,7 @@ impl Default for Config {
                 p("Spotify", "%APPDATA%\\Spotify\\Spotify.exe"),
                 p("Telegram", "%APPDATA%\\Telegram Desktop\\Telegram.exe"),
             ],
-            widgets: ["calendar", "screentime", "ticker", "media", "system", "clock", "lock"]
+            widgets: ["calendar", "screentime", "ticker", "media", "clipboard", "system", "clock", "lock"]
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
@@ -228,8 +265,10 @@ impl Default for Config {
             dynamic: Dynamic::default(),
             weather: Weather::default(),
             update: Update::default(),
+            notifications: Notifications::default(),
+            clipboard: Clipboard::default(),
             autostart: true,
-            migrations: 5,
+            migrations: 6,
         }
     }
 }
@@ -306,6 +345,15 @@ pub fn load() -> Config {
             if cfg.migrations < 5 {
                 cfg.autostart = true;
                 cfg.migrations = 5;
+                save(&cfg);
+            }
+            // v0.11: pano geçmişi düğmesi (sistem düğmelerinin önüne)
+            if cfg.migrations < 6 {
+                if !cfg.widgets.iter().any(|w| w == "clipboard") {
+                    let at = cfg.widgets.iter().position(|w| w == "system").unwrap_or(cfg.widgets.len());
+                    cfg.widgets.insert(at, "clipboard".into());
+                }
+                cfg.migrations = 6;
                 save(&cfg);
             }
             cfg

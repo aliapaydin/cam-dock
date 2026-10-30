@@ -167,7 +167,7 @@ unsafe fn render(icon: HICON, size: i32) -> Option<Vec<u8>> {
     out
 }
 
-fn encode_png(bgra: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
+pub(crate) fn encode_png(bgra: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
     let mut rgba = Vec::with_capacity(bgra.len());
     let no_alpha = bgra.chunks_exact(4).all(|p| p[3] == 0);
     // Ön-çarpılmış mı? (hiçbir renk kanalı alfadan büyük değilse öyledir)

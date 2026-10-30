@@ -7,6 +7,7 @@ pub mod appbar;
 pub mod autostart;
 pub mod backdrop;
 pub mod catalog;
+pub mod clipboard;
 pub mod glass;
 pub mod icons;
 pub mod input;

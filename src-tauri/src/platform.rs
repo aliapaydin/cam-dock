@@ -75,6 +75,17 @@ pub struct MediaState {
 }
 
 #[allow(dead_code)]
+pub struct ClipContent {
+    pub text: Option<String>,
+    /// Önizleme PNG'si
+    pub thumb: Option<Vec<u8>>,
+    pub size: Option<(u32, u32)>,
+    pub dib: Option<Vec<u8>>,
+    pub owner: Option<String>,
+    pub private: bool,
+}
+
+#[allow(dead_code)]
 pub enum Wall {
     File(String),
     Solid(u8, u8, u8),
@@ -379,6 +390,27 @@ mod imp {
     pub fn single_instance() -> bool {
         dock_sys::single_instance()
     }
+    pub fn clip_listen(cb: impl Fn() + Send + Sync + 'static) {
+        clipboard::listen(cb)
+    }
+    pub fn clip_read() -> Option<ClipContent> {
+        let c = clipboard::read()?;
+        let thumb = c.image.as_ref().and_then(|i| clipboard::thumbnail_png(i, 360));
+        Some(ClipContent {
+            text: c.text,
+            thumb,
+            size: c.image.as_ref().map(|i| (i.0, i.1)),
+            dib: c.dib,
+            owner: c.owner,
+            private: c.private,
+        })
+    }
+    pub fn clip_set_text(s: &str) -> bool {
+        clipboard::set_text(s)
+    }
+    pub fn clip_set_dib(d: &[u8]) -> bool {
+        clipboard::set_dib(d)
+    }
     pub fn autostart_set(exe: Option<&str>) -> bool {
         autostart::set(exe)
     }
@@ -542,6 +574,16 @@ mod imp {
     }
     pub fn single_instance() -> bool {
         true
+    }
+    pub fn clip_listen(_cb: impl Fn() + Send + Sync + 'static) {}
+    pub fn clip_read() -> Option<ClipContent> {
+        None
+    }
+    pub fn clip_set_text(_s: &str) -> bool {
+        false
+    }
+    pub fn clip_set_dib(_d: &[u8]) -> bool {
+        false
     }
     pub fn autostart_set(_exe: Option<&str>) -> bool {
         false

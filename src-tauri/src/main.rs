@@ -9,6 +9,9 @@ mod platform;
 mod popover;
 mod screentime;
 mod theme;
+mod notify;
+mod clip;
+mod claude;
 mod updater;
 
 use config::Config;
@@ -43,6 +46,10 @@ pub struct AppState {
     /// Tüm pencerelerin kullandığı geçerli tema (dinamik mod dahil)
     pub eff_dark: Mutex<Option<bool>>,
     pub update: Mutex<updater::Status>,
+    pub notif: Mutex<notify::NotifState>,
+    pub toast: Mutex<notify::ToastWin>,
+    pub clips: Mutex<clip::History>,
+    pub claude: Mutex<claude::Usage>,
     /// Sağ tık menüsü açılan uygulama
     pub app_menu: Mutex<Option<commands::AppMenuItem>>,
 }
@@ -121,6 +128,10 @@ fn main() {
         system_light: Mutex::new(None),
         eff_dark: Mutex::new(None),
         update: Mutex::new(updater::Status::default()),
+        notif: Mutex::new(notify::NotifState::default()),
+        toast: Mutex::new(notify::ToastWin::default()),
+        clips: Mutex::new(clip::History::default()),
+        claude: Mutex::new(claude::Usage::default()),
         app_menu: Mutex::new(None),
     };
 
@@ -171,6 +182,20 @@ fn main() {
             commands::autostart_state,
             commands::set_weather_location,
             updater::update_status,
+            notify::notif_state,
+            notify::notif_open_center,
+            notify::toast_show,
+            notify::toast_pending,
+            notify::toast_layout,
+            notify::toast_hide,
+            notify::toast_click,
+            clip::clip_list,
+            clip::clip_copy,
+            clip::clip_remove,
+            clip::clip_pin,
+            clip::clip_clear,
+            claude::claude_usage,
+            claude::claude_refresh,
             updater::update_check,
             updater::update_install,
             commands::open_start,
@@ -203,6 +228,9 @@ fn main() {
             }
             docks::refresh_theme(&handle);
             updater::spawn(handle.clone());
+            notify::spawn(handle.clone());
+            clip::spawn(handle.clone());
+            claude::spawn(handle.clone());
             // Sistem kaynakları: saniyede bir örnekle.
             {
                 let h = handle.clone();

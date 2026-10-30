@@ -1,4 +1,4 @@
-# Cam Dock — v0.10.0
+# Cam Dock — v0.11.0
 
 Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebView2) ile yazıldı.
 
@@ -18,6 +18,9 @@ Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebVi
 | **Piyasa ve haberler**: dolar, euro, gram altın (Truncgil) ve RSS haber başlıkları dönüşümlü kayar; tıklayınca **haber ve piyasa paneli** (tüm kurlar/altın, alış-satış-değişim; Gündem, Ekonomi, Teknoloji, Spor… kategorileri; haberden tarayıcıya) | ✅ |
 | Tarih / saat + **hava durumu** (Open-Meteo): sıcaklık ve simge; tıklayınca saatlik ve 6 günlük tahmin, konum otomatik ya da şehir arama | ✅ |
 | **Dinamik mod**: renkler duvar kâğıdından (her ekran kendi duvar kâğıdından), koyu/açık tema gün doğumu-batımına ya da sabit saate göre; kapatınca kendi ayarların geri gelir | ✅ |
+| **Bildirimler**: Windows bildirimleri dock'un üstünde cam balon olarak görünür, uygulama simgesinde okunmamış sayısı rozeti, yeni bildirimde simge Mac'teki gibi zıplar | ✅ |
+| **Pano geçmişi**: son kopyalanan metin ve görseller (yalnızca bellekte), tıkla tekrar kopyala, sabitle | ✅ |
+| **Claude kullanımı**: Claude Code oturumundan 5 saatlik ve haftalık limitler (resmî olmayan uç nokta) | ✅ |
 | **Windows ile başlat** ve **otomatik güncelleme** (açık `cam-dock-releases` deposundan; boştayken sessiz kurulum) | ✅ |
 | Tam ekran oyun/video açılınca dock'un kendini gizlemesi | ✅ |
 | **Ayarlar penceresi** (sağ tık → Ayarlar…): görünüm, dock/taskbar, ekranlar, uygulamalar, widget'lar | ✅ |

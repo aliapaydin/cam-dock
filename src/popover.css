@@ -393,3 +393,64 @@ h4.sec, .use h4, .news h4 { margin: 0 0 8px; font-size: 11px; font-weight: 700; 
 .retheme .panel, .retheme .res, .retheme .chip, .retheme .tabs button, .retheme .mk-row, .retheme .nw-item {
   transition: background-color 1.1s ease, border-color 1.1s ease, color .9s ease !important;
 }
+
+/* ---------- Pano geçmişi ---------- */
+.clp { width: 380px; }
+.clp-head { display: flex; align-items: center; gap: 8px; padding: 0 4px 10px; }
+.clp-head strong { font-size: 14px; }
+.clp-n { font-size: 12px; color: var(--text-2); }
+.clp-clear { margin-left: auto; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--cell-line); background: var(--cell); font-size: 11.5px; font-weight: 600; }
+.clp-clear:hover { background: var(--hover); }
+.clp-list { max-height: 430px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-right: -6px; padding-right: 6px; }
+.clp-list::-webkit-scrollbar { width: 6px; }
+.clp-list::-webkit-scrollbar-thumb { background: var(--track); border-radius: 3px; }
+.clp-item {
+  position: relative; display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 10px 12px;
+  border-radius: 12px; border: 1px solid var(--cell-line); background: var(--cell); overflow: hidden;
+}
+.clp-item:hover { background: var(--hover); }
+.clp-item.pinned { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.clp-text { font-size: 12.5px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.clp-img { max-width: 100%; max-height: 140px; border-radius: 8px; align-self: flex-start; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+.clp-meta { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--text-3); }
+.clp-src { width: 14px; height: 14px; display: inline-flex; }
+.clp-src img { width: 14px; height: 14px; }
+.clp-acts { position: absolute; top: 6px; right: 6px; display: none; gap: 4px; }
+.clp-item:hover .clp-acts { display: flex; }
+.clp-act { width: 24px; height: 24px; border-radius: 7px; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--text-2); border: 1px solid var(--cell-line); }
+.clp-act:hover { color: var(--text); }
+.clp-act.pin.on { color: var(--accent); }
+.clp-item.pinned:not(:hover) .clp-acts { display: flex; }
+.clp-item.pinned:not(:hover) .clp-act.del { display: none; }
+.clp-item.pinned:not(:hover) .clp-act.pin { border: 0; background: transparent; }
+.clp-done {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 6px;
+  background: color-mix(in srgb, var(--accent) 88%, transparent); color: #fff; font-weight: 700; font-size: 13px;
+  opacity: 0; pointer-events: none; transition: opacity .18s;
+}
+.clp-item.copied .clp-done { opacity: 1; }
+.clp-empty { padding: 26px 8px; text-align: center; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.clp-foot { padding: 10px 4px 0; font-size: 10.5px; color: var(--text-3); line-height: 1.4; }
+
+/* ---------- Claude kullanımı ---------- */
+.cld { width: 340px; display: flex; flex-direction: column; gap: 12px; }
+.cld-head { display: flex; align-items: center; gap: 10px; }
+.cld-tile { width: 34px; height: 34px; border-radius: 10px; background: #D97757; color: #fff; display: flex; align-items: center; justify-content: center; }
+.cld-head div { display: flex; flex-direction: column; }
+.cld-head strong { font-size: 14px; }
+.cld-head span { font-size: 11.5px; color: var(--text-2); }
+.cld-row { display: flex; flex-direction: column; gap: 5px; padding: 10px 12px; border-radius: 12px; background: var(--cell); border: 1px solid var(--cell-line); }
+.cld-top { display: flex; align-items: baseline; font-size: 12.5px; font-weight: 600; }
+.cld-top b { margin-left: auto; font-size: 18px; }
+.cld-bar { display: block; height: 7px; border-radius: 4px; background: var(--track); overflow: hidden; }
+.cld-bar i { display: block; height: 100%; border-radius: 4px; transition: width .6s var(--ease); }
+.cld-row.lo .cld-bar i { background: #22C55E; }
+.cld-row.mid .cld-bar i { background: #F5A524; }
+.cld-row.hi .cld-bar i { background: #F0524B; }
+.cld-row small { font-size: 11px; color: var(--text-3); }
+.cld-note { font-size: 12px; line-height: 1.45; color: var(--text-2); padding: 8px 10px; border-radius: 10px; background: var(--hover); }
+.cld-note small { color: var(--text-3); }
+.cld-foot { display: flex; align-items: center; font-size: 11px; color: var(--text-3); }
+.cld-foot button { margin-left: auto; padding: 5px 11px; border-radius: 9px; border: 1px solid var(--cell-line); background: var(--cell); font-size: 12px; font-weight: 600; color: var(--text); }
+.cld-src { font-size: 10.5px; line-height: 1.4; color: var(--text-3); }
+.clp-src:empty { display: none; }

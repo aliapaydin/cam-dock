@@ -141,6 +141,106 @@ const seenWin = new Map();
 let seenCounter = 0;
 let hoverTimer = null;
 
+// ---------------------------------------------------------------------------
+// Bildirimler: rozet sayısı, zıplama, cam balon
+// ---------------------------------------------------------------------------
+let notifSnap = { ok: false, apps: {}, recent: [] };
+const notifSeen = new Map();   // dock öğe anahtarı → görülen en büyük bildirim kimliği
+const bounceUntil = new Map(); // dock öğe anahtarı → zıplamanın biteceği an
+let catalogNames = null;       // AUMID (küçük harf) → uygulama adı
+const appsApi = { items: () => [], redraw: () => {}, anchorOf: () => null, activate: () => {} };
+
+const lc = (s) => (s || "").toLowerCase();
+/** Windows'un bildirim kimliği bu dock öğesine mi ait? */
+function notifMatches(handler, item) {
+  const h = lc(handler);
+  if (!h) return false;
+  if (item.aumid && h === lc(item.aumid)) return true;
+  for (const w of item.wins || []) if (w.aumid && h === lc(w.aumid)) return true;
+  if (lc(item.path).startsWith("shell:appsfolder\\") && h === lc(item.path).slice(17)) return true;
+  // Masaüstü uygulamaları: "Microsoft.Office.OUTLOOK.EXE.15", "...\\chrome.exe" gibi
+  const base = lc(item.path).split(/[\\/]/).pop().replace(/\.exe$/, "");
+  if (base.length >= 4 && (h.includes(base + ".exe") || h.split(/[.!_\\/]/).includes(base))) return true;
+  return false;
+}
+function itemForHandler(handler) {
+  return appsApi.items().find((it) => notifMatches(handler, it)) || null;
+}
+/** Dock öğesinin rozet metni (yoksa ""). */
+function badgeFor(item) {
+  if (!notifSnap.ok || cfg.notifications?.enabled === false) return "";
+  let badge = null, toasts = 0;
+  const seen = notifSeen.get(item.key) || 0;
+  for (const [handler, n] of Object.entries(notifSnap.apps || {})) {
+    if (!notifMatches(handler, item)) continue;
+    if (n.badge) badge = n.badge;
+    toasts += n.toasts.filter((id) => id > seen).length;
+  }
+  if (badge) return badge;
+  return toasts ? (toasts > 99 ? "99+" : String(toasts)) : "";
+}
+/** Kullanıcı uygulamayı açtı: o ana kadarki bildirimleri görülmüş say. */
+function markSeen(item) {
+  let max = notifSeen.get(item.key) || 0;
+  for (const [handler, n] of Object.entries(notifSnap.apps || {})) {
+    if (notifMatches(handler, item)) max = Math.max(max, ...n.toasts);
+  }
+  notifSeen.set(item.key, max);
+}
+function prettyHandler(h) {
+  const tail = h.split("!").pop().split("\\").pop();
+  const parts = tail.split(".").filter((p) => !/^(exe|\d+|microsoft|com|office)$/i.test(p));
+  const name = parts.sort((a, b) => b.length - a.length)[0] || tail;
+  return name.replace(/_[a-z0-9]{13}$/i, "").replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+async function appInfoFor(handler) {
+  const it = itemForHandler(handler);
+  if (it) return { name: it.name, icon: await iconFor(it), item: it };
+  if (!catalogNames) {
+    catalogNames = new Map();
+    const list = await invoke("catalog_apps").catch(() => []);
+    for (const a of list || []) if (a.aumid) catalogNames.set(lc(a.aumid), a);
+  }
+  const c = catalogNames.get(lc(handler));
+  const icon = await invoke("app_icon", { path: c?.path || "", aumid: handler, hwnd: null }).catch(() => null);
+  return { name: c?.name || prettyHandler(handler), icon, item: null };
+}
+
+listen("notifications", async (e) => {
+  const { snap, new: fresh } = e.payload || {};
+  if (snap) notifSnap = snap;
+  const nc = cfg?.notifications || {};
+  for (const t of fresh || []) {
+    const info = await appInfoFor(t.app);
+    if (info.item && nc.bounce !== false) {
+      bounceUntil.set(info.item.key, Date.now() + (nc.bounce_sec || 10) * 1000);
+      setTimeout(() => appsApi.redraw(), (nc.bounce_sec || 10) * 1000 + 50);
+    }
+    if (nc.balloons !== false && dockVisible !== null) {
+      const anchor = (info.item && appsApi.anchorOf(info.item.key)) ?? dock.getBoundingClientRect().width - 160;
+      invoke("toast_show", {
+        anchor,
+        payload: {
+          id: t.id,
+          key: info.item?.key || "",
+          handler: t.app,
+          name: info.name,
+          icon: info.icon,
+          title: nc.show_text === false ? "Yeni bildirim" : t.title,
+          body: nc.show_text === false ? "" : t.body,
+          time: t.time,
+        },
+      }).catch(console.error);
+    }
+  }
+  appsApi.redraw();
+});
+listen("toast-click", (e) => {
+  const it = appsApi.items().find((x) => x.key === e.payload);
+  if (it) appsApi.activate(it);
+});
+invoke("notif_state").then((s) => { if (s) { notifSnap = s; appsApi.redraw(); } }).catch(() => {});
+
 function appsWidget() {
   const wrap = $("div", "apps");
   const start = $("button", "app start", `<span class="glyph">${ICON.start}</span>`);
@@ -154,6 +254,7 @@ function appsWidget() {
   wrap.append(list);
 
   let lastSig = "";
+  let lastActive = 0;
   let items = [];
 
   async function refresh() {
@@ -207,7 +308,8 @@ function appsWidget() {
     }
     items = next;
     const activeKey = items.find((i) => i.wins.some((w) => w.hwnd === data.active))?.key || "";
-    const sig = items.map((i) => `${i.key}:${i.wins.length}`).join("|") + "#" + activeKey;
+    const sig = items.map((i) => `${i.key}:${i.wins.length}:${badgeFor(i)}`).join("|") + "#" + activeKey;
+    lastActive = data.active;
     if (sig === lastSig) return firstAppsDone();
     lastSig = sig;
     render(data.active);
@@ -235,12 +337,29 @@ function appsWidget() {
       });
       if (item.wins.length) b.append($("span", "run"));
       b.style.setProperty("--i", list.childElementCount);
+      b.dataset.key = item.key;
+      if (isActive) markSeen(item);
+      const badge = badgeFor(item);
+      if (badge) {
+        const bd = $("span", "badge" + (badge === "•" ? " dot" : ""), badge === "•" ? "" : badge);
+        b.append(bd);
+        b.title += `\n${badge === "•" ? "Yeni bildirim" : badge + " bildirim"}`;
+      }
+      const until = bounceUntil.get(item.key) || 0;
+      if (until > Date.now()) {
+        b.classList.add("bounce");
+        b.style.setProperty("--bounce-left", `${(until - Date.now()) / 1000}s`);
+      }
 
       b.onclick = () => {
         clearTimeout(hoverTimer);
         const sp = $("span", "splash");
         b.append(sp);
         setTimeout(() => sp.remove(), 650);
+        markSeen(item);
+        bounceUntil.delete(item.key);
+        b.classList.remove("bounce");
+        b.querySelector(".badge")?.remove();
         if (!item.wins.length) return invoke("launch_app", { path: item.path, args: item.args });
         // Öndeyse küçült, küçültülmüşse eski konumuna getir, arkadaysa öne getir.
         invoke("activate_app", { hwnds: item.wins.map((w) => w.hwnd) }).then(() => setTimeout(refresh, 300));
@@ -294,6 +413,22 @@ function appsWidget() {
       list.append(b);
     }
   }
+
+  appsApi.items = () => items;
+  appsApi.redraw = () => { lastSig = ""; render(lastActive); };
+  appsApi.anchorOf = (key) => {
+    const el = list.querySelector(`[data-key="${CSS.escape(key)}"]`);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return r.left + r.width / 2;
+  };
+  appsApi.activate = (item) => {
+    markSeen(item);
+    bounceUntil.delete(item.key);
+    if (!item.wins.length) return invoke("launch_app", { path: item.path, args: item.args });
+    invoke("activate_window", { hwnd: item.wins[0].hwnd }).catch(() => invoke("activate_app", { hwnds: item.wins.map((w) => w.hwnd) }));
+    setTimeout(() => appsApi.redraw(), 300);
+  };
 
   every(1000, whenVisible(refresh));
   return wrap;
@@ -362,14 +497,66 @@ function mailWidget() {
   return c;
 }
 
+// Claude kullanımı: Claude Code oturumundan 5 saatlik ve haftalık limitler.
+let claudeCell = null;
 function claudeWidget() {
-  const c = $("div", "cell");
-  c.title = "Önizleme — örnek veri.";
-  const row = (l, p, v) =>
-    `<span class="lbl">${l}</span><span class="track"><span style="width:${p}%"></span></span><span class="val">${v}</span>`;
-  c.innerHTML = `
-    <span class="tile" style="background:#D97757">${ICON.spark}</span>
-    <span class="usage">${row("Oturum", 34, "%34")}${row("Haftalık", 58, "%58")}${row("Opus", 22, "%22")}</span>`;
+  const c = $("button", "cell w-claude");
+  c.innerHTML = `<span class="tile" style="background:#D97757">${ICON.spark}</span><span class="cl-body"></span>`;
+  const body = c.querySelector(".cl-body");
+  const tone = (p) => (p >= 85 ? "hi" : p >= 60 ? "mid" : "lo");
+  const draw = (u) => {
+    if (!u) return;
+    const rows = (u.limits || []).slice(0, 3);
+    c.classList.toggle("stale", u.state !== "ok" && rows.length > 0);
+    if (!rows.length) {
+      const msg = { loading: "Yükleniyor…", no_claude_code: "Claude Code oturumu yok", expired: "Oturum yenilenmeli", error: "Okunamadı" }[u.state] || "–";
+      body.className = "cl-body stack";
+      body.innerHTML = `<span class="t-strong">Claude kullanımı</span><span class="t-sub"></span>`;
+      body.querySelector(".t-sub").textContent = msg;
+    } else {
+      body.className = "cl-body usage";
+      body.innerHTML = rows.map((l) => `<span class="lbl"></span><span class="track ${tone(l.percent)}"><span style="width:${Math.min(100, l.percent)}%"></span></span><span class="val">%${Math.round(l.percent)}</span>`).join("");
+      body.querySelectorAll(".lbl").forEach((e, i) => (e.textContent = rows[i].label));
+    }
+    c.title = `Claude${u.plan ? " " + u.plan : ""} kullanımı\n` +
+      (u.limits || []).map((l) => `${l.label}: %${Math.round(l.percent)}`).join("\n") +
+      (u.message ? `\n${u.message}` : "") + "\nAyrıntılar için tıkla";
+  };
+  invoke("claude_usage").then(draw).catch(() => {});
+  listen("claude-usage", (e) => draw(e.payload));
+  c.onclick = async () => {
+    const r = c.getBoundingClientRect();
+    const res = await invoke("popover_open", { kind: "claude", key: "claude", anchor: r.left + r.width / 2, payload: null }).catch(() => "");
+    c.classList.toggle("active", res === "opened" || res === "open");
+  };
+  claudeCell = c;
+  return c;
+}
+
+// Pano geçmişi düğmesi
+let clipCell = null;
+function clipboardWidget() {
+  const c = $("button", "cell clipw");
+  c.innerHTML = `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="12" height="17" rx="2.5"/><path d="M9.5 4V3.2c0-.66.54-1.2 1.2-1.2h2.6c.66 0 1.2.54 1.2 1.2V4"/><path d="M9.5 10h5M9.5 14h5M9.5 18h3"/></svg><span class="cnt"></span>`;
+  c.setAttribute("aria-label", "Pano geçmişi");
+  const cnt = c.querySelector(".cnt");
+  const upd = () => invoke("clip_list").then((l) => {
+    cnt.textContent = l?.length ? l.length : "";
+    c.title = `Pano geçmişi · ${l?.length || 0} öğe\nTıkla: son kopyaladıklarını gör, tekrar kopyala`;
+  }).catch(() => {});
+  upd();
+  listen("clip-changed", () => {
+    upd();
+    c.classList.remove("pulse");
+    void c.offsetWidth;
+    c.classList.add("pulse");
+  });
+  c.onclick = async () => {
+    const r = c.getBoundingClientRect();
+    const res = await invoke("popover_open", { kind: "clipboard", key: "clipboard", anchor: r.left + r.width / 2, payload: null }).catch(() => "");
+    c.classList.toggle("active", res === "opened" || res === "open");
+  };
+  clipCell = c;
   return c;
 }
 
@@ -876,6 +1063,7 @@ const WIDGETS = {
   calendar: calendarWidget,
   mail: mailWidget,
   claude: claudeWidget,
+  clipboard: clipboardWidget,
   screentime: screenTimeWidget,
   ticker: tickerWidget,
   currency: tickerWidget, // eski ayar dosyaları için
@@ -913,7 +1101,7 @@ dock.addEventListener("contextmenu", (e) => {
 listen("relayout", () => { lastSize = ""; queueLayout(); });
 listen("dock-visibility", (e) => { dockVisible = !!e.payload; });
 listen("popover-closed", (e) => {
-  const cell = { calendar: calendarCell, usage: screenCell, news: tickerCell, weather: clockCell }[e.payload];
+  const cell = { calendar: calendarCell, usage: screenCell, news: tickerCell, weather: clockCell, claude: claudeCell, clipboard: clipCell }[e.payload];
   cell?.classList.remove("active");
 });
 
@@ -942,7 +1130,8 @@ async function mockInvoke(cmd, args) {
         accent: "#2F7BFF",
         show_running: true,
         display: { mode: "primary", selected: [], apps_per_monitor: false },
-        widgets: (params.get("widgets") || "calendar,screentime,ticker,media,system,clock,lock").split(","),
+        widgets: (params.get("widgets") || "calendar,screentime,ticker,media,clipboard,system,clock,lock").split(","),
+        notifications: { enabled: true, balloons: true, bounce: true, bounce_sec: 10, show_text: true },
         dock_locked: params.get("locked") !== "0",
         dynamic: { enabled: params.has("wall"), tint: Number(params.get("tint") || 45), auto_theme: false, schedule: "sun", light_at: "07:00", dark_at: "19:30" },
         weather: { enabled: true, auto_location: true, city: "İstanbul", lat: 41, lon: 29 },
@@ -968,6 +1157,16 @@ async function mockInvoke(cmd, args) {
         { id: "Spotify.exe#0", current: true, active: true, title: "Gece Sürüşü", artist: "Örnek Sanatçı", album: "", playing: true, position_ms: 134000, duration_ms: 218000, source: "Spotify.exe", track_key: "a" },
         { id: "Chrome#0", current: false, active: true, title: "Kurtlar Vadisi Pusu | 52. Bölüm", artist: "YouTube", album: "", playing: false, position_ms: 600000, duration_ms: 2400000, source: "Chrome", track_key: "b" },
       ];
+    case "claude_usage":
+      return { state: "ok", plan: "Max", updated: Date.now() - 120000, message: "", limits: [
+        { key: "session", label: "Oturum", percent: 34, resets_at: new Date(Date.now() + 2.3 * 3600e3).toISOString() },
+        { key: "weekly_all", label: "Haftalık", percent: 58, resets_at: new Date(Date.now() + 3.4 * 86400e3).toISOString() },
+        { key: "weekly_scoped:Opus", label: "Opus", percent: 87, resets_at: new Date(Date.now() + 3.4 * 86400e3).toISOString() },
+      ] };
+    case "clip_list":
+      return new Array(7).fill(0);
+    case "notif_state":
+      return { ok: true, apps: { "C:\\Spotify.exe": { badge: null, toasts: [5, 6] }, "Microsoft.VSCode": { badge: "3", toasts: [] } }, recent: [] };
     case "theme_dark":
       return (params.get("theme") || "dark") === "dark";
     case "wallpaper":

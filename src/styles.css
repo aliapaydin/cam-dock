@@ -166,27 +166,62 @@ img { -webkit-user-drag: none; }
   box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 70%, transparent);
 }
 
-/* ---------- Dalga: öndeki uygulamanın simgesinden yayılan halkalar ---------- */
-.app.is-active::before,
+/* ---------- Öndeki uygulama: simgenin çevresinde dönen renkli ışık ----------
+   Vurgu renginden türetilen üç tonlu bir halka yavaşça döner (girdap), simgenin
+   altında yumuşak bir ışık nefes alır. Renkler dinamik modda duvar kâğıdından gelir. */
+@property --swirl { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+.app.is-active::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 44px;
+  height: 44px;
+  margin: -25px 0 0 -22px;
+  border-radius: 14px;
+  padding: 2px;
+  background: conic-gradient(from var(--swirl),
+    var(--accent),
+    color-mix(in oklch, var(--accent), #ff5fd2 55%) 22%,
+    transparent 38%,
+    color-mix(in oklch, var(--accent), #3ee6ff 55%) 58%,
+    transparent 76%,
+    var(--accent));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  filter: blur(.6px) saturate(1.2);
+  opacity: .9;
+  pointer-events: none;
+  animation: swirl 4.5s linear infinite;
+}
 .app.is-active::after {
   content: "";
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 36px;
-  height: 36px;
-  margin: -21px 0 0 -18px;
-  border-radius: 11px;
-  border: 1.5px solid var(--accent);
-  opacity: 0;
+  width: 46px;
+  height: 46px;
+  margin: -26px 0 0 -23px;
+  border-radius: 16px;
+  background: conic-gradient(from var(--swirl),
+    color-mix(in srgb, var(--accent) 55%, transparent),
+    color-mix(in srgb, color-mix(in oklch, var(--accent), #ff5fd2 55%) 45%, transparent),
+    transparent 45%,
+    color-mix(in srgb, color-mix(in oklch, var(--accent), #3ee6ff 55%) 45%, transparent),
+    color-mix(in srgb, var(--accent) 55%, transparent));
+  filter: blur(9px);
+  opacity: .55;
+  z-index: -1;
   pointer-events: none;
-  animation: ripple 2.8s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+  animation: swirl 4.5s linear infinite, glow 3.2s ease-in-out infinite;
 }
-.app.is-active::after { animation-delay: 1.4s; }
-@keyframes ripple {
-  0% { transform: scale(0.92); opacity: 0.55; }
-  70% { opacity: 0; }
-  100% { transform: scale(1.32); opacity: 0; }
+.app.is-active { isolation: isolate; }
+.app.is-active img, .app.is-active .glyph { position: relative; z-index: 1; }
+@keyframes swirl { to { --swirl: 360deg; } }
+@keyframes glow {
+  0%, 100% { opacity: .38; transform: scale(.94); }
+  50% { opacity: .7; transform: scale(1.04); }
 }
 @keyframes run-flow {
   from { background-position: 100% 0; }
@@ -219,8 +254,54 @@ img { -webkit-user-drag: none; }
   from { transform: scale(0.3); opacity: 1; }
   to { transform: scale(1.35); opacity: 0; }
 }
+/* ---------- Bildirim rozeti ---------- */
+.app .badge {
+  position: absolute;
+  top: 3px;
+  right: 2px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: #FF3B30;
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--badge-ring, rgba(16, 20, 34, .85)), 0 2px 6px rgba(0, 0, 0, .25);
+  z-index: 2;
+  animation: badge-in .35s cubic-bezier(.3, 1.6, .5, 1);
+}
+.app .badge.dot { min-width: 10px; width: 10px; height: 10px; padding: 0; top: 6px; right: 6px; }
+[data-theme="light"] .app .badge { --badge-ring: rgba(255, 255, 255, .9); }
+@keyframes badge-in { from { transform: scale(0); } to { transform: scale(1); } }
+
+/* ---------- Zıplama (macOS gibi): yukarı hızlı çık, yerçekimiyle in, sekerek dur ----------
+   Dock penceresi içinde kalmak için zıplama dock'un iç boşluğu kadar (~11 px). */
+.app.bounce img, .app.bounce .glyph {
+  animation: bounce 1s cubic-bezier(.28, .84, .42, 1) infinite;
+  transform-origin: 50% 100%;
+}
+.app.bounce .badge { animation: badge-bounce 1s cubic-bezier(.28, .84, .42, 1) infinite; }
+@keyframes bounce {
+  0%   { transform: translateY(0) scale(1.06, .92); }
+  12%  { transform: translateY(-4px) scale(.96, 1.05); }
+  34%  { transform: translateY(-11px) scale(.98, 1.02); }
+  55%  { transform: translateY(0) scale(1.05, .93); }
+  66%  { transform: translateY(-3px) scale(1, 1); }
+  78%  { transform: translateY(0) scale(1.02, .98); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
+@keyframes badge-bounce {
+  0%, 55%, 78%, 100% { transform: translateY(0); }
+  34% { transform: translateY(-11px); }
+  66% { transform: translateY(-3px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .app.is-active::before, .app.is-active::after, .app .run { animation: none !important; }
+  .app.is-active::before, .app.is-active::after, .app .run, .app.bounce img, .app.bounce .glyph, .app.bounce .badge { animation: none !important; }
 }
 .app.start .glyph {
   background: var(--cell-active-bg);
@@ -500,3 +581,22 @@ button.cell.w-calendar { font: inherit; color: inherit; }
 .m-dots span.playing { opacity: .85; }
 .m-dots span.on { height: 12px; opacity: 1; background: var(--accent); }
 
+
+/* ---------- Claude kullanımı ---------- */
+.w-claude { width: 236px; box-sizing: border-box; font: inherit; color: inherit; }
+.w-claude .usage { grid-template-columns: 52px 1fr 32px; flex: 1; row-gap: 5px; }
+.w-claude .usage .lbl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.w-claude .track.lo > span { background: var(--progress); }
+.w-claude .track.mid > span { background: #F5A524; }
+.w-claude .track.hi > span { background: #F0524B; }
+.w-claude.stale .usage { opacity: .6; }
+.w-claude.active, .clipw.active { background: var(--cell-active-bg); border-color: var(--cell-active-border); }
+
+/* ---------- Pano düğmesi ---------- */
+.clipw {
+  width: 52px; flex: 0 0 auto; padding: 0; justify-content: center; flex-direction: column; gap: 2px;
+  font: inherit; color: var(--btn-text);
+}
+.clipw .cnt { font-size: 10px; font-weight: 700; color: var(--text-3); min-height: 12px; line-height: 12px; }
+.clipw.pulse svg { animation: clip-pulse .5s cubic-bezier(.3, 1.6, .5, 1); }
+@keyframes clip-pulse { 40% { transform: scale(1.18); color: var(--accent); } }

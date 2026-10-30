@@ -64,6 +64,8 @@ async function show(s) {
   else if (s.kind === "usage") await renderUsage();
   else if (s.kind === "news") await renderNews(s.payload);
   else if (s.kind === "weather") await renderWeather();
+  else if (s.kind === "clipboard") await renderClipboard();
+  else if (s.kind === "claude") await renderClaude();
   else renderWindows(s.payload);
   relayout();
 }
@@ -695,6 +697,120 @@ async function renderWeather() {
 }
 
 // ---------------------------------------------------------------------------
+// Pano geçmişi paneli
+// ---------------------------------------------------------------------------
+const CLIP_SVG = {
+  pin: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l-1 6 4 4H6l4-4z"/><path d="M12 14v7"/></svg>',
+  del: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+  ok: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>',
+};
+const clipIcons = new Map();
+let clipUnlisten = null;
+
+async function renderClipboard() {
+  const box = el("div", "clp");
+  box.innerHTML = `
+    <div class="clp-head"><strong>Pano geçmişi</strong><span class="clp-n"></span><button class="clp-clear">Temizle</button></div>
+    <div class="clp-list"></div>
+    <div class="clp-foot">Tıkla: tekrar kopyalanır. Geçmiş yalnızca bellekte tutulur; şifre yöneticilerinden kopyalananlar kaydedilmez.</div>`;
+  panel.append(box);
+  const list = box.querySelector(".clp-list");
+  box.querySelector(".clp-clear").onclick = () => invoke("clip_clear").catch(() => {});
+
+  async function draw() {
+    const items = (await invoke("clip_list").catch(() => [])) || [];
+    box.querySelector(".clp-n").textContent = items.length ? `${items.length} öğe` : "";
+    box.querySelector(".clp-clear").style.visibility = items.some((x) => !x.pinned) ? "visible" : "hidden";
+    if (!items.length) {
+      list.innerHTML = `<div class="clp-empty">Henüz bir şey kopyalamadın.<br>Kopyaladığın metin ve görseller burada birikir.</div>`;
+      return;
+    }
+    list.replaceChildren(...items.map((it) => {
+      const b = el("button", "clp-item" + (it.pinned ? " pinned" : "") + (it.kind === "image" ? " img" : ""));
+      const ago = timeAgo(new Date(it.time)) || "şimdi";
+      const meta = it.kind === "image" ? `${it.width}×${it.height}` : `${it.text.length.toLocaleString("tr-TR")} karakter`;
+      b.innerHTML = `
+        ${it.kind === "image" ? `<img class="clp-img" src="${it.preview}" alt="">` : `<span class="clp-text"></span>`}
+        <span class="clp-meta"><span class="clp-src"></span><span>${esc(it.source || "")}</span><span>· ${ago} · ${meta}</span></span>
+        <span class="clp-acts">
+          <span class="clp-act pin${it.pinned ? " on" : ""}" title="${it.pinned ? "Sabitlemeyi kaldır" : "Sabitle (temizlenmez)"}">${CLIP_SVG.pin}</span>
+          <span class="clp-act del" title="Sil">${CLIP_SVG.del}</span>
+        </span>
+        <span class="clp-done">${CLIP_SVG.ok} Kopyalandı</span>`;
+      if (it.kind === "text") b.querySelector(".clp-text").textContent = it.text.length > 600 ? it.text.slice(0, 600) + "…" : it.text;
+      if (it.source_path) {
+        const slot = b.querySelector(".clp-src");
+        const put = (url) => { if (url) slot.innerHTML = `<img src="${url}" alt="">`; };
+        if (clipIcons.has(it.source_path)) put(clipIcons.get(it.source_path));
+        else invoke("app_icon", { path: it.source_path, aumid: null, hwnd: null }).then((u) => { clipIcons.set(it.source_path, u); put(u); }).catch(() => {});
+      }
+      b.onclick = async (e) => {
+        if (e.target.closest(".pin")) return invoke("clip_pin", { id: it.id, pinned: !it.pinned });
+        if (e.target.closest(".del")) return invoke("clip_remove", { id: it.id });
+        const ok = await invoke("clip_copy", { id: it.id }).catch(() => false);
+        if (ok !== false) {
+          b.classList.add("copied");
+          setTimeout(() => invoke("popover_close"), 650);
+        }
+      };
+      return b;
+    }));
+  }
+  await draw();
+  clipUnlisten?.();
+  clipUnlisten = await listen("clip-changed", () => { if (spec?.kind === "clipboard") draw(); });
+}
+
+// ---------------------------------------------------------------------------
+// Claude kullanımı paneli
+// ---------------------------------------------------------------------------
+function untilTxt(iso) {
+  const t = new Date(iso);
+  if (!iso || isNaN(t)) return "";
+  const m = Math.round((t - Date.now()) / 60000);
+  if (m <= 0) return "şimdi sıfırlanıyor";
+  const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mm = m % 60;
+  const rel = d ? `${d} gün ${h} sa` : h ? `${h} sa ${mm} dk` : `${mm} dk`;
+  const day = t.toDateString() === new Date().toDateString() ? "bugün" : CAL.DAYNAMES[t.getDay()];
+  return `${rel} sonra sıfırlanır · ${day} ${t.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}`;
+}
+let claudeUnlisten = null;
+async function renderClaude() {
+  const box = el("div", "cld");
+  panel.append(box);
+  const draw = (u) => {
+    if (!u) return;
+    const tone = (p) => (p >= 85 ? "hi" : p >= 60 ? "mid" : "lo");
+    const state = {
+      ok: "",
+      stale: "Son bilinen değerler gösteriliyor.",
+      expired: "Claude Code oturum anahtarının süresi dolmuş. Claude Code'u bir kez açınca yenilenir.",
+      no_claude_code: "Bu bilgisayarda Claude Code oturumu bulunamadı. Claude Code'u kurup bir kez giriş yaparsan limitlerin burada görünür.",
+      error: "Kullanım okunamadı.",
+      loading: "Yükleniyor…",
+    }[u.state] ?? "";
+    const upd = u.updated ? `Son güncelleme ${timeAgo(new Date(u.updated)) || "şimdi"}` : "";
+    box.innerHTML = `
+      <div class="cld-head"><span class="cld-tile">${'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></svg>'}</span>
+        <div><strong>Claude kullanımı</strong><span>${u.plan ? esc(u.plan) + " planı" : "Plan bilinmiyor"}</span></div></div>
+      ${(u.limits || []).map((l) => `
+        <div class="cld-row ${tone(l.percent)}">
+          <div class="cld-top"><span>${esc(l.label === "Oturum" ? "Oturum (5 saatlik)" : l.label === "Haftalık" ? "Haftalık (tüm modeller)" : "Haftalık · " + l.label)}</span><b>%${Math.round(l.percent)}</b></div>
+          <span class="cld-bar"><i style="width:${Math.min(100, l.percent)}%"></i></span>
+          <small>${untilTxt(l.resets_at)}</small>
+        </div>`).join("")}
+      ${state || u.message ? `<div class="cld-note">${esc(state)}${u.message && u.state !== "ok" ? `<br><small>${esc(u.message)}</small>` : ""}</div>` : ""}
+      <div class="cld-foot"><span>${upd}</span><button class="cld-refresh">Yenile</button></div>
+      <div class="cld-src">Veriler Claude Code'un /usage ekranıyla aynı kaynaktan okunur (resmî olmayan uç nokta). Haftalık limit claude.ai ile ortaktır.</div>`;
+    box.querySelector(".cld-refresh").onclick = () => invoke("claude_refresh").catch(() => {});
+    relayout();
+  };
+  draw(await invoke("claude_usage").catch(() => null));
+  claudeUnlisten?.();
+  claudeUnlisten = await listen("claude-usage", (e) => { if (spec?.kind === "claude") draw(e.payload); });
+}
+
+// ---------------------------------------------------------------------------
 // Başlangıç
 // ---------------------------------------------------------------------------
 (async () => {
@@ -721,6 +837,8 @@ async function mockInvoke(cmd, args) {
         },
       };
     if (q.get("kind") === "tray") return { kind: "tray", serial: 1, key: "tray", payload: null };
+    if (q.get("kind") === "clipboard") return { kind: "clipboard", serial: 1, key: "clipboard", payload: null };
+    if (q.get("kind") === "claude") return { kind: "claude", serial: 1, key: "claude", payload: null };
     if (q.get("kind") === "weather") return { kind: "weather", serial: 1, key: "weather", payload: null };
     if (q.get("kind") === "usage") return { kind: "usage", serial: 1, key: "usage", payload: null };
     if (q.get("kind") === "news") return { kind: "news", serial: 1, key: "news", payload: { markets: ["USD", "EUR", "gram-altin"], feeds: [], focus: null } };
@@ -746,6 +864,17 @@ async function mockInvoke(cmd, args) {
     };
   }
   if (cmd === "theme_dark") return (q.get("theme") || "dark") === "dark";
+  if (cmd === "clip_list") return [
+    { id: 1, kind: "text", text: "SELECT region, SUM(revenue) FROM sales\nWHERE year = 2026\nGROUP BY region;", source: "Code", source_path: "", time: Date.now() - 40000, pinned: true },
+    { id: 2, kind: "image", preview: MOCK.wallpaper("ocean").image, width: 1920, height: 1080, source: "SnippingTool", source_path: "", time: Date.now() - 300000, pinned: false, text: "" },
+    { id: 3, kind: "text", text: "https://github.com/aliapaydin/cam-dock/actions", source: "Chrome", source_path: "", time: Date.now() - 900000, pinned: false },
+    { id: 4, kind: "text", text: "Toplantı notları: Q4 hedefleri, yeni dashboard taslağı, veri ambarı geçişi takvimi.", source: "Notepad", source_path: "", time: Date.now() - 3600000, pinned: false },
+  ];
+  if (cmd === "claude_usage") return { state: q.get("cstate") || "ok", plan: "Max", updated: Date.now() - 120000, message: "", limits: q.get("cstate") === "no_claude_code" ? [] : [
+    { label: "Oturum", percent: 34, resets_at: new Date(Date.now() + 2.3 * 3600e3).toISOString() },
+    { label: "Haftalık", percent: 58, resets_at: new Date(Date.now() + 3.4 * 86400e3).toISOString() },
+    { label: "Opus", percent: 87, resets_at: new Date(Date.now() + 3.4 * 86400e3).toISOString() },
+  ] };
   if (cmd === "wallpaper") return MOCK.wallpaper(q.get("wall"));
   if (cmd === "fetch_text") return /open-meteo|geojs/.test(args.url) ? MOCK.fetch(args.url) : mockFetch(args.url);
   if (cmd === "tray_apps")
