@@ -1,0 +1,14 @@
+{
+  "name": "cam-dock",
+  "private": true,
+  "version": "0.2.0",
+  "description": "Windows 11 için cam dock (klasik taskbar yerine)",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

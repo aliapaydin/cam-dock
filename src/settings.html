@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="tr" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cam Dock — Ayarlar</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="side">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span><strong>Cam Dock</strong><small>Ayarlar</small></span>
+      </div>
+      <nav class="tabs" aria-label="Ayar bölümleri">
+        <button class="tab active" data-tab="look">Görünüm</button>
+        <button class="tab" data-tab="behavior">Dock ve taskbar</button>
+        <button class="tab" data-tab="displays">Ekranlar</button>
+        <button class="tab" data-tab="apps">Uygulamalar</button>
+        <button class="tab" data-tab="widgets">Widget'lar</button>
+        <button class="tab" data-tab="about">Hakkında</button>
+      </nav>
+      <p class="saved" id="saved" aria-live="polite"></p>
+    </aside>
+
+    <main class="content">
+      <!-- GÖRÜNÜM -->
+      <section class="page active" data-page="look">
+        <h1>Görünüm</h1>
+        <div class="preview" aria-hidden="true">
+          <div class="pv-dock">
+            <span class="pv-app" style="background:#E9A23B"></span>
+            <span class="pv-app" style="background:#2F7BFF"></span>
+            <span class="pv-app active" style="background:#3E4FD6"></span>
+            <span class="pv-app" style="background:#1E9E63"></span>
+            <span class="pv-sep"></span>
+            <span class="pv-cell"><b>30</b><i></i></span>
+            <span class="pv-cell wide"><i></i><i class="short"></i></span>
+            <span class="pv-cell"><span class="pv-play"></span></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row">
+            <div class="label"><strong>Tema</strong><span>Sistem, Windows'un koyu/açık ayarını takip eder.</span></div>
+            <div class="seg" data-bind="theme">
+              <button data-v="system">Sistem</button><button data-v="dark">Koyu</button><button data-v="light">Açık</button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="label"><strong>Cam efekti</strong><span>Acrylic masaüstünü bulanıklaştırıp renklendirir.</span></div>
+            <div class="seg" data-bind="backdrop">
+              <button data-v="acrylic">Acrylic</button><button data-v="blur">Bulanık</button><button data-v="none">Kapalı</button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="label"><strong>Vurgu rengi</strong><span>Etkin uygulama, oynat düğmesi, ilerleme çubukları.</span></div>
+            <div class="swatches" id="swatches"></div>
+          </div>
+          <div class="row">
+            <div class="label"><strong>Köşe yuvarlaklığı</strong><span id="radius-val"></span></div>
+            <input type="range" min="12" max="34" step="1" data-bind="radius" aria-label="Köşe yuvarlaklığı">
+          </div>
+          <div class="row">
+            <div class="label"><strong>Ekran altından boşluk</strong><span id="margin-val"></span></div>
+            <input type="range" min="0" max="24" step="1" data-bind="bottom_margin" aria-label="Ekran altından boşluk">
+          </div>
+        </div>
+      </section>
+
+      <!-- DOCK VE TASKBAR -->
+      <section class="page" data-page="behavior">
+        <h1>Dock ve taskbar</h1>
+        <h2>Dock görünürlüğü</h2>
+        <div class="choices" data-bind="dock_visibility">
+          <button class="choice" data-v="always">
+            <span class="ill"><span class="ill-win"></span><span class="ill-dock"></span></span>
+            <strong>Her zaman görünür</strong>
+            <span>Dock hep ekranda. Ekranı kaplayan pencereler dock'un üstünde biter.</span>
+          </button>
+          <button class="choice" data-v="autohide">
+            <span class="ill"><span class="ill-win full"></span><span class="ill-dock ghost"></span><span class="ill-arrow"></span></span>
+            <strong>Otomatik gizle</strong>
+            <span>Fareyi ekranın altına götürünce kayarak açılır, ayrılınca gizlenir.</span>
+          </button>
+          <button class="choice" data-v="smart">
+            <span class="ill"><span class="ill-win low"></span><span class="ill-dock half"></span></span>
+            <strong>Akıllı gizle</strong>
+            <span>Bir pencere dock'a değdiğinde çekilir; yer açıkken görünür kalır.</span>
+          </button>
+        </div>
+
+        <div class="card">
+          <div class="row" id="delay-row">
+            <div class="label"><strong>Gizlenme gecikmesi</strong><span id="delay-val"></span></div>
+            <input type="range" min="200" max="2000" step="100" data-bind="hide_delay_ms" aria-label="Gizlenme gecikmesi">
+          </div>
+          <div class="row">
+            <div class="label"><strong>Tam ekranda gizle</strong><span>Oyun, video ya da sunum tam ekrandayken o ekrandaki dock çekilir.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="hide_in_fullscreen"><span></span></label>
+          </div>
+          <div class="row" id="reserve-row">
+            <div class="label"><strong>Dock için alan ayır</strong><span id="reserve-desc">Maximize edilen pencereler dock'un altına girmez.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="reserve_space"><span></span></label>
+          </div>
+        </div>
+
+        <h2>Klasik Windows taskbar'ı</h2>
+        <div class="card">
+          <div class="row">
+            <div class="label"><strong>Klasik taskbar'ı gizle</strong><span>Dock olan ekranlarda tamamen gizlenir. Dock olmayan ekranlarda otomatik gizlenen halde çalışmaya devam eder. Kapatınca hemen geri gelir.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="hide_taskbar"><span></span></label>
+          </div>
+        </div>
+        <p class="hint">Taskbar gizliyken: Wi-Fi ve ses için <kbd>Win</kbd>+<kbd>A</kbd>, bildirimler için <kbd>Win</kbd>+<kbd>N</kbd>.</p>
+      </section>
+
+      <!-- EKRANLAR -->
+      <section class="page" data-page="displays">
+        <h1>Ekranlar</h1>
+        <div class="monitors" id="monitors" aria-label="Ekran yerleşimi"></div>
+        <div class="card">
+          <div class="row stack">
+            <div class="label"><strong>Dock'u nerede göster?</strong></div>
+            <div class="radios" data-bind="display.mode">
+              <button data-v="primary"><span class="dot"></span><span><strong>Sadece ana ekranda</strong><small>Diğer ekranlarda klasik taskbar otomatik gizlenen halde kalır.</small></span></button>
+              <button data-v="all"><span class="dot"></span><span><strong>Tüm ekranlarda</strong><small>Her ekranın altında ayrı bir dock.</small></span></button>
+              <button data-v="selected"><span class="dot"></span><span><strong>Seçtiğim ekranlarda</strong><small>Yukarıdaki çizimden ekranlara tıklayarak seç.</small></span></button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="label"><strong>Her dock kendi ekranındaki uygulamaları göstersin</strong><span>Kapalıyken her dock tüm açık pencereleri gösterir. Sabitlenen uygulamalar her dock'ta görünür.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="display.apps_per_monitor"><span></span></label>
+          </div>
+        </div>
+      </section>
+
+      <!-- UYGULAMALAR -->
+      <section class="page" data-page="apps">
+        <h1>Uygulamalar</h1>
+        <div class="card">
+          <div class="row">
+            <div class="label"><strong>Sabitlenmemiş açık uygulamaları da göster</strong><span>Sabitlenenlerin sağında, açık oldukları sürece.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="show_running"><span></span></label>
+          </div>
+        </div>
+        <h2>Sabitlenenler</h2>
+        <div class="card list" id="pinned"></div>
+        <h2>Uygulama ekle</h2>
+        <div class="card">
+          <div class="search">
+            <input id="app-search" type="search" placeholder="Başlat menüsünde ara…" aria-label="Başlat menüsünde uygulama ara">
+          </div>
+          <div class="list results" id="results"></div>
+          <details class="manual">
+            <summary>Yol ile ekle</summary>
+            <div class="manual-row">
+              <input id="m-name" placeholder="Ad" aria-label="Uygulama adı">
+              <input id="m-path" placeholder="C:\Program Files\…\uygulama.exe ya da ms-settings:" aria-label="Uygulama yolu">
+              <button class="btn" id="m-add">Ekle</button>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <!-- WIDGET'LAR -->
+      <section class="page" data-page="widgets">
+        <h1>Widget'lar</h1>
+        <p class="hint">Açık olanlar dock'ta bu sırayla görünür.</p>
+        <div class="card list" id="widgets"></div>
+        <h2>Döviz</h2>
+        <div class="card">
+          <div class="row">
+            <div class="label"><strong>Çevrilecek miktar</strong></div>
+            <input class="num" type="number" min="1" step="1" data-bind="currency.amount" aria-label="Miktar">
+          </div>
+          <div class="row">
+            <div class="label"><strong>Para birimleri</strong><span>Kur kaynağı: Frankfurter (Avrupa Merkez Bankası verisi)</span></div>
+            <div class="pair">
+              <select data-bind="currency.from" aria-label="Kaynak para birimi"></select>
+              <span aria-hidden="true">→</span>
+              <select data-bind="currency.to" aria-label="Hedef para birimi"></select>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- HAKKINDA -->
+      <section class="page" data-page="about">
+        <h1>Hakkında</h1>
+        <div class="card">
+          <div class="row"><div class="label"><strong>Cam Dock</strong><span>Sürüm 0.2</span></div></div>
+          <div class="row"><div class="label"><strong>Ayar dosyası</strong><span id="cfg-path" class="mono"></span></div>
+            <button class="btn ghost" id="open-cfg">Aç</button></div>
+          <div class="row"><div class="label"><strong>Taskbar geri gelmezse</strong><span class="mono">cam-dock.exe --restore-taskbar</span></div></div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="settings.js"></script>
+</body>
+</html>
