@@ -234,7 +234,25 @@ const Dyn = (() => {
     root._rt = setTimeout(() => root.classList.remove("retheme"), 1300);
   }
 
-  return { apply, refresh, watch, animate, preview: () => pal };
+  /** Kapak görselinden iki canlı renk (medya kartındaki dalga için). */
+  const artCache = new Map();
+  async function artColors(url) {
+    if (!url) return null;
+    if (artCache.has(url)) return artCache.get(url);
+    let out = null;
+    try {
+      const p = await fromImage(url);
+      const s = p.gray ? 0.15 : clamp(p.sat, 0.45, 0.85);
+      out = {
+        c1: `hsl(${Math.round(p.hue)} ${Math.round(s * 100)}% 58%)`,
+        c2: `hsl(${Math.round((p.hue + 40) % 360)} ${Math.round(s * 90)}% 52%)`,
+      };
+    } catch { out = null; }
+    artCache.set(url, out);
+    return out;
+  }
+
+  return { apply, refresh, watch, animate, artColors, preview: () => pal };
 })();
 
 // ---------------------------------------------------------------------------

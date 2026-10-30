@@ -453,6 +453,7 @@ function calendarWidget() {
     title.textContent = trDate(d, { day: "numeric", month: "long", weekday: "long" });
     const h = CAL.holiday(d);
     const next = CAL.upcoming(d, 1)[0];
+    c.classList.toggle("holiday", !!h);
     sub.textContent = h
       ? h.name
       : next && next.days <= 45
@@ -625,8 +626,17 @@ function screenTimeWidget() {
     return el;
   }
 
+  const FX = { cpu: "var(--s1)", ram: "var(--s2)", gpu: "var(--s3)", disk: "var(--s4)" };
   function fill(el) {
     const page = el.dataset.page;
+    // Arka plandaki ışık: kaynak sayfasında metriğin renginde, yük arttıkça güçlenir.
+    if (page === "screen") {
+      c.style.removeProperty("--fx1");
+      c.style.removeProperty("--fx-o");
+    } else if (stats) {
+      c.style.setProperty("--fx1", FX[page]);
+      c.style.setProperty("--fx-o", (0.14 + Math.max(0, stats[page]) / 100 * 0.32).toFixed(2));
+    }
     if (page === "screen") {
       if (!st) return;
       el.querySelector(".t-big").textContent = fmtDur(st.seconds);
@@ -845,9 +855,10 @@ function tickerWidget() {
 // ---------------------------------------------------------------------------
 // Medya: birden çok oynatıcı varsa tekerlekle ya da noktalarla dikey kaydır
 // ---------------------------------------------------------------------------
+let mediaCell = null;
 function mediaWidget() {
   const c = $("div", "cell media idle");
-  c.innerHTML = `<div class="m-view"></div><div class="m-dots" aria-hidden="true"></div>`;
+  c.innerHTML = `<div class="m-fx" aria-hidden="true"><i></i><i></i><span class="m-wave"></span><span class="m-wave w2"></span></div><div class="m-view"></div><div class="m-dots" aria-hidden="true"></div>`;
   const view = c.querySelector(".m-view");
   const dots = c.querySelector(".m-dots");
   let sessions = [];
@@ -893,6 +904,12 @@ function mediaWidget() {
     const apply = (url) => {
       art.style.backgroundImage = url ? `url("${url}")` : "";
       art.classList.toggle("has-img", !!url);
+      // Çalarken arkadaki dalga kapak renklerini alır
+      Dyn.artColors(url).then((col) => {
+        if (shownId !== m.id) return;
+        c.style.setProperty("--m-c1", col?.c1 || "var(--accent)");
+        c.style.setProperty("--m-c2", col?.c2 || "color-mix(in oklch, var(--accent), #ff5fd2 50%)");
+      });
     };
     if (thumbs.has(k)) apply(thumbs.get(k));
     else {
@@ -950,6 +967,7 @@ function mediaWidget() {
     c.classList.toggle("multi", sessions.length > 1);
     if (!sessions.length) {
       selected = null;
+      c.classList.remove("playing");
       show(null);
       renderDots();
       return;
@@ -965,6 +983,7 @@ function mediaWidget() {
     const newIdx = sessions.findIndex((m) => m.id === pick.id);
     selected = pick.id;
     show(pick, shownId && shownId !== pick.id ? (newIdx >= oldIdx ? 1 : -1) : 0);
+    c.classList.toggle("playing", !!pick.playing);
     renderDots();
   }
 
@@ -973,8 +992,16 @@ function mediaWidget() {
     if (Math.abs(e.deltaY) < 4) return;
     step(e.deltaY > 0 ? 1 : -1);
   }, { passive: false });
-  dots.onclick = () => step(1);
-  c.title = "Birden çok oynatıcı varsa tekerlekle kaydır";
+  dots.onclick = (e) => { e.stopPropagation(); step(1); };
+  c.title = "Birden çok oynatıcı varsa tıkla: diğerleri üstte listelenir (tekerlekle de geçebilirsin)";
+  // Birden çok oynatıcı: tıklayınca diğerleri dock'un üstünde sıralanır.
+  c.onclick = async () => {
+    if (sessions.length < 2) return;
+    const r = c.getBoundingClientRect();
+    const res = await invoke("popover_open", { kind: "media", key: "media", anchor: r.left + r.width / 2, payload: { exclude: selected } }).catch(() => "");
+    c.classList.toggle("active", res === "opened" || res === "open");
+  };
+  mediaCell = c;
 
   show(null);
   every(1000, whenVisible(poll));
@@ -1101,7 +1128,7 @@ dock.addEventListener("contextmenu", (e) => {
 listen("relayout", () => { lastSize = ""; queueLayout(); });
 listen("dock-visibility", (e) => { dockVisible = !!e.payload; });
 listen("popover-closed", (e) => {
-  const cell = { calendar: calendarCell, usage: screenCell, news: tickerCell, weather: clockCell, claude: claudeCell, clipboard: clipCell }[e.payload];
+  const cell = { calendar: calendarCell, usage: screenCell, news: tickerCell, weather: clockCell, claude: claudeCell, clipboard: clipCell, media: mediaCell }[e.payload];
   cell?.classList.remove("active");
 });
 

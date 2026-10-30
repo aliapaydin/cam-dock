@@ -46,8 +46,11 @@ Dyn.watch(() => pcfg, () => applyTheme(true));
 // ---------------------------------------------------------------------------
 function relayout() {
   requestAnimationFrame(() => {
-    const r = panel.getBoundingClientRect();
-    invoke("popover_layout", { width: Math.ceil(r.width), height: Math.ceil(r.height), serial }).catch(console.error);
+    // offsetWidth/Height: açılış animasyonunun küçültmesinden (scale .97)
+    // etkilenmeyen gerçek boyut. getBoundingClientRect küçültülmüş ölçüyü
+    // verdiği için pencere dar açılıyor, panelin sağı ve altı kesiliyordu.
+    const w = Math.ceil(panel.offsetWidth) + 1, h = Math.ceil(panel.offsetHeight) + 1;
+    invoke("popover_layout", { width: w, height: h, serial }).catch(console.error);
   });
 }
 
@@ -65,6 +68,7 @@ async function show(s) {
   else if (s.kind === "news") await renderNews(s.payload);
   else if (s.kind === "weather") await renderWeather();
   else if (s.kind === "clipboard") await renderClipboard();
+  else if (s.kind === "media") await renderMedia(s.payload);
   else if (s.kind === "claude") await renderClaude();
   else renderWindows(s.payload);
   relayout();
@@ -811,6 +815,78 @@ async function renderClaude() {
 }
 
 // ---------------------------------------------------------------------------
+// Diğer medya oynatıcıları (dock'ta görünen hariç)
+// ---------------------------------------------------------------------------
+const MSVG = {
+  prev: '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M19 5v14l-10-7zM5 5h2v14H5z"/></svg>',
+  next: '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M5 5v14l10-7zM17 5h2v14h-2z"/></svg>',
+  play: '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg>',
+  pause: '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>',
+  wave: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 10v4M9 7v10M13 9v6M17 6v12M21 10v4"/></svg>',
+};
+const mediaArt = new Map();
+async function renderMedia(p) {
+  const box = el("div", "mdl");
+  panel.append(box);
+  const exclude = p?.exclude;
+  const cards = new Map();
+
+  function card(m) {
+    const c = el("div", "mdc");
+    c.innerHTML = `
+      <span class="mdc-art">${MSVG.wave}</span>
+      <span class="mdc-meta"><b></b><small></small></span>
+      <span class="mdc-ctl">
+        <button data-a="prev" aria-label="Önceki">${MSVG.prev}</button>
+        <button data-a="toggle" class="main" aria-label="Oynat/Duraklat"></button>
+        <button data-a="next" aria-label="Sonraki">${MSVG.next}</button>
+      </span>
+      <span class="mdc-prog"><i></i></span>`;
+    c.querySelectorAll("button").forEach((b) => {
+      b.onclick = () => invoke("media_control_id", { id: c.dataset.id, action: b.dataset.a }).then(() => setTimeout(poll, 250)).catch(() => {});
+    });
+    return c;
+  }
+  function fill(c, m) {
+    c.dataset.id = m.id;
+    c.classList.toggle("playing", !!m.playing);
+    c.querySelector(".mdc-meta b").textContent = m.title || "Bilinmeyen parça";
+    c.querySelector(".mdc-meta small").textContent = [m.artist, m.source.replace(/\.exe$/i, "").split("!").pop()].filter(Boolean).join(" · ");
+    c.querySelector(".main").innerHTML = m.playing ? MSVG.pause : MSVG.play;
+    c.querySelector(".mdc-prog i").style.width = m.duration_ms > 0 ? `${(m.position_ms / m.duration_ms) * 100}%` : "0%";
+    const k = `${m.id}\u0001${m.track_key}`;
+    const art = c.querySelector(".mdc-art");
+    const put = (url) => { if (url) { art.style.backgroundImage = `url("${url}")`; art.classList.add("img"); } };
+    if (mediaArt.has(k)) put(mediaArt.get(k));
+    else {
+      mediaArt.set(k, null);
+      invoke("media_thumbnail_id", { id: m.id, trackKey: m.track_key }).then((u) => { mediaArt.set(k, u); put(u); }).catch(() => {});
+    }
+  }
+  async function poll() {
+    if (spec?.kind !== "media") return stopLive();
+    const list = ((await invoke("media_list").catch(() => [])) || []).filter((m) => m.active && m.id !== exclude);
+    if (!list.length) { invoke("popover_close"); return; }
+    // Çalanlar dock'a en yakın (altta)
+    list.sort((a, b) => Number(a.playing) - Number(b.playing));
+    const ids = list.map((m) => m.id).join("|");
+    if (box.dataset.ids !== ids) {
+      box.dataset.ids = ids;
+      box.replaceChildren(...list.map((m) => {
+        const c = cards.get(m.id) || card(m);
+        cards.set(m.id, c);
+        return c;
+      }));
+      relayout();
+    }
+    list.forEach((m) => fill(cards.get(m.id), m));
+  }
+  await poll();
+  stopLive();
+  liveTimer = setInterval(poll, 1000);
+}
+
+// ---------------------------------------------------------------------------
 // Başlangıç
 // ---------------------------------------------------------------------------
 (async () => {
@@ -837,6 +913,7 @@ async function mockInvoke(cmd, args) {
         },
       };
     if (q.get("kind") === "tray") return { kind: "tray", serial: 1, key: "tray", payload: null };
+    if (q.get("kind") === "media") return { kind: "media", serial: 1, key: "media", payload: { exclude: "Spotify.exe#0" } };
     if (q.get("kind") === "clipboard") return { kind: "clipboard", serial: 1, key: "clipboard", payload: null };
     if (q.get("kind") === "claude") return { kind: "claude", serial: 1, key: "claude", payload: null };
     if (q.get("kind") === "weather") return { kind: "weather", serial: 1, key: "weather", payload: null };
@@ -864,6 +941,11 @@ async function mockInvoke(cmd, args) {
     };
   }
   if (cmd === "theme_dark") return (q.get("theme") || "dark") === "dark";
+  if (cmd === "media_list") return [
+    { id: "Spotify.exe#0", active: true, title: "Gece Sürüşü", artist: "Örnek Sanatçı", playing: true, position_ms: 1, duration_ms: 2, source: "Spotify.exe", track_key: "a" },
+    { id: "Chrome#0", active: true, title: "Veri ambarı mimarisi — konferans kaydı", artist: "YouTube", playing: false, position_ms: 600000, duration_ms: 2400000, source: "Chrome", track_key: "b" },
+    { id: "Edge#0", active: true, title: "Lo-fi çalışma listesi", artist: "YouTube Music", playing: true, position_ms: 90000, duration_ms: 200000, source: "msedge.exe", track_key: "c" },
+  ];
   if (cmd === "clip_list") return [
     { id: 1, kind: "text", text: "SELECT region, SUM(revenue) FROM sales\nWHERE year = 2026\nGROUP BY region;", source: "Code", source_path: "", time: Date.now() - 40000, pinned: true },
     { id: 2, kind: "image", preview: MOCK.wallpaper("ocean").image, width: 1920, height: 1080, source: "SnippingTool", source_path: "", time: Date.now() - 300000, pinned: false, text: "" },

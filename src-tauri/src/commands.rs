@@ -845,14 +845,66 @@ pub fn show_menu(window: WebviewWindow, state: State<'_, AppState>) -> Result<()
         .item(&check("theme:light", "Açık", theme_now == "light")?)
         .build()
         .map_err(err)?;
+    let settings_sub = SubmenuBuilder::new(app, "Windows ayarları")
+        .text("sys:ms-settings:display", "Ekran")
+        .text("sys:ms-settings:sound", "Ses")
+        .text("sys:ms-settings:network", "Ağ ve İnternet")
+        .text("sys:ms-settings:bluetooth", "Bluetooth ve cihazlar")
+        .text("sys:ms-settings:powersleep", "Güç ve pil")
+        .text("sys:ms-settings:personalization", "Kişiselleştirme")
+        .text("sys:ms-settings:appsfeatures", "Yüklü uygulamalar")
+        .text("sys:ms-settings:windowsupdate", "Windows Update")
+        .build()
+        .map_err(err)?;
+    let tools = SubmenuBuilder::new(app, "Yönetim araçları")
+        .text("sys:devmgmt.msc", "Aygıt Yöneticisi")
+        .text("sys:diskmgmt.msc", "Disk Yönetimi")
+        .text("sys:compmgmt.msc", "Bilgisayar Yönetimi")
+        .text("sys:services.msc", "Hizmetler")
+        .text("sys:eventvwr.msc", "Olay Görüntüleyicisi")
+        .text("sys:control.exe", "Denetim Masası")
+        .text("sys:msinfo32.exe", "Sistem Bilgisi")
+        .build()
+        .map_err(err)?;
     let menu = MenuBuilder::new(app)
-        .text("settings", "Ayarlar…")
-        .item(&theme)
+        .text("sys:ms-settings:", "Ayarlar")
+        .text("sys:ms-settings:about", "Sistem özellikleri")
+        .text("sys:taskmgr.exe", "Görev Yöneticisi")
+        .text("sys:explorer.exe", "Dosya Gezgini")
+        .text("sys:terminal", "Terminal")
+        .item(&settings_sub)
+        .item(&tools)
         .separator()
+        .text("sys:run", "Çalıştır…")
+        .text("sys:desktop", "Masaüstünü göster")
+        .separator()
+        .text("settings", "Cam Dock ayarları…")
+        .item(&theme)
         .text("quit", "Çık (taskbar geri gelir)")
         .build()
         .map_err(err)?;
     window.popup_menu(&menu).map_err(err)
+}
+
+/// Dock sağ tık menüsündeki sistem kısayolları ("sys:…").
+pub fn system_shortcut(id: &str) {
+    let Some(target) = id.strip_prefix("sys:") else { return };
+    let target = target.to_string();
+    std::thread::spawn(move || match target.as_str() {
+        "run" => platform::win_combo('R'),
+        "desktop" => platform::win_combo('D'),
+        "terminal" => {
+            if !platform::launch("wt.exe", None) {
+                platform::launch("powershell.exe", None);
+            }
+        }
+        t if t.ends_with(".msc") => {
+            platform::launch("mmc.exe", Some(t));
+        }
+        t => {
+            platform::launch(t, None);
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------

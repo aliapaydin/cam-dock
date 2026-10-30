@@ -166,20 +166,16 @@ img { -webkit-user-drag: none; }
   box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 70%, transparent);
 }
 
-/* ---------- Öndeki uygulama: simgenin çevresinde dönen renkli ışık ----------
+/* ---------- Öndeki uygulama: arka plan kutusunun çevresinde dönen renkli ışık ----------
    Vurgu renginden türetilen üç tonlu bir halka yavaşça döner (girdap), simgenin
    altında yumuşak bir ışık nefes alır. Renkler dinamik modda duvar kâğıdından gelir. */
 @property --swirl { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
 .app.is-active::before {
   content: "";
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 44px;
-  height: 44px;
-  margin: -25px 0 0 -22px;
+  inset: 0;
   border-radius: 14px;
-  padding: 2px;
+  padding: 1.5px;
   background: conic-gradient(from var(--swirl),
     var(--accent),
     color-mix(in oklch, var(--accent), #ff5fd2 55%) 22%,
@@ -198,12 +194,8 @@ img { -webkit-user-drag: none; }
 .app.is-active::after {
   content: "";
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 46px;
-  height: 46px;
-  margin: -26px 0 0 -23px;
-  border-radius: 16px;
+  inset: 3px;
+  border-radius: 14px;
   background: conic-gradient(from var(--swirl),
     color-mix(in srgb, var(--accent) 55%, transparent),
     color-mix(in srgb, color-mix(in oklch, var(--accent), #ff5fd2 55%) 45%, transparent),
@@ -600,3 +592,56 @@ button.cell.w-calendar { font: inherit; color: inherit; }
 .clipw .cnt { font-size: 10px; font-weight: 700; color: var(--text-3); min-height: 12px; line-height: 12px; }
 .clipw.pulse svg { animation: clip-pulse .5s cubic-bezier(.3, 1.6, .5, 1); }
 @keyframes clip-pulse { 40% { transform: scale(1.18); color: var(--accent); } }
+
+/* ---------- Medya: çalarken arkada kapak renklerinde dalgalanan ışık ---------- */
+.media { --m-c1: var(--accent); --m-c2: color-mix(in oklch, var(--accent), #ff5fd2 50%); }
+.media.multi { cursor: default; }
+.media.active { background: var(--cell-active-bg); border-color: var(--cell-active-border); }
+.m-fx { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .8s ease; overflow: hidden; border-radius: inherit; }
+.media.playing .m-fx { opacity: 1; }
+.m-fx i {
+  position: absolute; width: 60%; height: 160%; top: -30%; border-radius: 50%;
+  filter: blur(22px); opacity: .32; mix-blend-mode: screen;
+}
+[data-theme="light"] .m-fx i { mix-blend-mode: multiply; opacity: .22; }
+.m-fx i:nth-child(1) { left: -10%; background: var(--m-c1); animation: m-drift1 9s ease-in-out infinite alternate; }
+.m-fx i:nth-child(2) { right: -12%; background: var(--m-c2); animation: m-drift2 11s ease-in-out infinite alternate; }
+.m-wave {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 34px;
+  background: linear-gradient(90deg, var(--m-c1), var(--m-c2), var(--m-c1));
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='34' viewBox='0 0 120 34'%3E%3Cpath d='M0 20 Q15 8 30 20 T60 20 T90 20 T120 20 V34 H0Z' fill='black'/%3E%3C/svg%3E") repeat-x 0 100% / 120px 34px;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='34' viewBox='0 0 120 34'%3E%3Cpath d='M0 20 Q15 8 30 20 T60 20 T90 20 T120 20 V34 H0Z' fill='black'/%3E%3C/svg%3E") repeat-x 0 100% / 120px 34px;
+  opacity: .16;
+  animation: m-wave 4s linear infinite;
+}
+.m-wave.w2 { height: 28px; opacity: .1; -webkit-mask-size: 90px 28px; mask-size: 90px 28px; animation-duration: 6.5s; animation-direction: reverse; }
+.media:not(.playing) .m-fx * { animation-play-state: paused; }
+.media .m-view, .media .m-dots { position: relative; z-index: 1; }
+@keyframes m-wave { from { -webkit-mask-position: 0 100%; mask-position: 0 100%; } to { -webkit-mask-position: 120px 100%; mask-position: 120px 100%; } }
+@keyframes m-drift1 { 0% { transform: translate(0, 0) scale(1); } 50% { transform: translate(30%, -8%) scale(1.15); } 100% { transform: translate(60%, 6%) scale(.95); } }
+@keyframes m-drift2 { 0% { transform: translate(0, 0) scale(1.05); } 50% { transform: translate(-35%, 8%) scale(.9); } 100% { transform: translate(-60%, -6%) scale(1.1); } }
+
+/* ---------- Takvim ve ekran süresi hücrelerinde yumuşak ışık ---------- */
+.w-calendar, .w-screen { isolation: isolate; }
+.w-calendar::before, .w-screen::before {
+  content: ""; position: absolute; inset: -40%; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(35% 45% at 30% 50%, color-mix(in srgb, var(--fx1) 60%, transparent), transparent 70%),
+    radial-gradient(30% 40% at 72% 45%, color-mix(in srgb, var(--fx2) 55%, transparent), transparent 70%);
+  filter: blur(14px);
+  opacity: var(--fx-o, .22);
+  animation: aurora 16s ease-in-out infinite alternate;
+  transition: opacity 1s ease;
+}
+.w-calendar { --fx1: var(--date-red); --fx2: var(--accent); --fx-o: .16; }
+.w-calendar.holiday { --fx-o: .32; }
+.w-screen { --fx1: var(--chart); --fx2: color-mix(in oklch, var(--chart), #3ee6ff 50%); }
+[data-theme="light"] .w-calendar::before, [data-theme="light"] .w-screen::before { mix-blend-mode: multiply; }
+@keyframes aurora {
+  0% { transform: translate(-6%, 2%) rotate(0deg); }
+  50% { transform: translate(5%, -3%) rotate(8deg); }
+  100% { transform: translate(-2%, 4%) rotate(-6deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .m-fx *, .w-calendar::before, .w-screen::before { animation: none !important; }
+}

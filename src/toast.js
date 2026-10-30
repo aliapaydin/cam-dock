@@ -26,8 +26,8 @@ async function applyTheme() {
 
 function relayout() {
   requestAnimationFrame(() => {
-    const r = stack.getBoundingClientRect();
-    invoke("toast_layout", { width: Math.ceil(r.width), height: Math.ceil(r.height) }).catch(() => {});
+    // Animasyon küçültmesinden etkilenmeyen gerçek boyut
+    invoke("toast_layout", { width: stack.offsetWidth + 1, height: stack.offsetHeight + 1 }).catch(() => {});
   });
 }
 

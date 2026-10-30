@@ -71,6 +71,10 @@ fn on_menu(app: &tauri::AppHandle, id: &str) {
         commands::app_menu_action(app, id);
         return;
     }
+    if id.starts_with("sys:") {
+        commands::system_shortcut(id);
+        return;
+    }
     let state = app.state::<AppState>();
     if let Some(theme) = id.strip_prefix("theme:") {
         {
