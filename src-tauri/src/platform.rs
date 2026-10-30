@@ -143,6 +143,21 @@ mod imp {
     pub fn open_start() {
         input::open_start_menu()
     }
+    pub fn win_combo(letter: char) {
+        input::win_combo(letter)
+    }
+    pub fn press_enter() {
+        input::press_enter()
+    }
+    pub fn taskbar_peek() -> Option<Rect> {
+        taskbar::peek().map(t)
+    }
+    pub fn taskbar_rect() -> Option<Rect> {
+        taskbar::main_rect().map(t)
+    }
+    pub fn foreground_class() -> String {
+        monitor::foreground_class()
+    }
     pub fn idle_ms() -> u32 {
         input::idle_ms()
     }
@@ -234,6 +249,17 @@ mod imp {
         false
     }
     pub fn open_start() {}
+    pub fn win_combo(_letter: char) {}
+    pub fn press_enter() {}
+    pub fn taskbar_peek() -> Option<Rect> {
+        None
+    }
+    pub fn taskbar_rect() -> Option<Rect> {
+        None
+    }
+    pub fn foreground_class() -> String {
+        String::new()
+    }
     pub fn idle_ms() -> u32 {
         0
     }

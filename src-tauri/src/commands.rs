@@ -42,7 +42,7 @@ pub struct ConfigView {
     pub log_path: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_config(state: State<'_, AppState>) -> ConfigView {
     let cfg = state.cfg.lock().unwrap().clone();
     let pinned_resolved = cfg
@@ -89,7 +89,7 @@ pub struct DockInfo {
     pub primary: bool,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn dock_info(window: WebviewWindow, state: State<'_, AppState>) -> Option<DockInfo> {
     state
         .docks
@@ -103,7 +103,7 @@ pub fn dock_info(window: WebviewWindow, state: State<'_, AppState>) -> Option<Do
         })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_monitors(app: AppHandle) -> Vec<MonitorView> {
     docks::monitors(&app)
 }
@@ -113,58 +113,70 @@ pub fn list_monitors(app: AppHandle) -> Vec<MonitorView> {
 // ---------------------------------------------------------------------------
 
 /// Arayüz dock'un ölçüsünü (CSS pikseli) bildirir; pencereyi boyutlandırıp
-/// kendi ekranının alt ortasına yerleştiririz.
-#[tauri::command]
+/// kendi ekranının alt ortasına yerleştiririz. Kilitler yalnızca durum okunup
+/// yazılırken tutulur; Windows çağrıları kilit dışında yapılır.
+#[tauri::command(async)]
 pub fn layout_dock(
     window: WebviewWindow,
     state: State<'_, AppState>,
     width: f64,
     height: f64,
 ) -> Result<(), String> {
-    let cfg = state.cfg.lock().unwrap().clone();
-    let mut docks = state.docks.lock().unwrap();
-    let Some(d) = docks.get_mut(window.label()) else {
+    let (reserve, always, margin_css, radius_css) = {
+        let cfg = state.cfg.lock().unwrap();
+        (cfg.reserve_space, cfg.dock_visibility == "always", cfg.bottom_margin, cfg.radius)
+    };
+    let _ = radius_css;
+    let label = window.label().to_string();
+    let Some((hwnd, mon, scale)) = state
+        .docks
+        .lock()
+        .unwrap()
+        .get(&label)
+        .map(|d| (d.hwnd, d.mon_rect, d.scale))
+    else {
         return Ok(());
     };
-    let (mx, _my, mr, mb) = d.mon_rect;
-    let mw = mr - mx;
-    let scale = d.scale;
+    let (mx, _my, mr, mb) = mon;
     let w = (width * scale).ceil() as i32;
     let h = (height * scale).ceil() as i32;
-    let margin = (cfg.bottom_margin as f64 * scale).round() as i32;
+    let margin = (margin_css as f64 * scale).round() as i32;
 
-    let mut bottom = mb;
-    if cfg.reserve_space && cfg.dock_visibility == "always" {
-        bottom = platform::reserve(d.hwnd, d.mon_rect, h + margin * 2).3;
+    let bottom = if reserve && always {
+        platform::reserve(hwnd, mon, h + margin * 2).3
     } else {
-        platform::release(d.hwnd);
-    }
-
-    let x = mx + (mw - w) / 2;
+        platform::release(hwnd);
+        mb
+    };
+    let x = mx + (mr - mx - w) / 2;
     let y = bottom - h - margin;
-    let first = d.target.is_none();
-    d.target = Some((x, y, w, h));
 
-    // Konum ve boyutu doğrudan Windows'a veriyoruz; pencere işleyicimiz de
-    // bu dikdörtgeni kilitliyor (başka kimse taşıyamaz).
-    platform::make_popup(d.hwnd);
-    let place_y = if d.shown { y } else { mb + 40 };
-    platform::set_bounds(d.hwnd, x, place_y, w.max(1), h.max(1));
-    let label = d.label.clone();
+    let (first, snapshot) = {
+        let mut docks = state.docks.lock().unwrap();
+        let Some(d) = docks.get_mut(&label) else { return Ok(()) };
+        let first = d.target.is_none();
+        d.target = Some((x, y, w, h));
+        if first && !d.fs_hidden {
+            d.shown = true;
+            d.last_inside = Instant::now();
+        }
+        (first, d.clone())
+    };
+
+    let place_y = if snapshot.shown && !first { y } else { mb + 40 };
+    platform::set_bounds(hwnd, x, place_y, w.max(1), h.max(1));
     dlog!("{label}: yerleşim x={x} y={y} w={w} h={h} (alt sınır {bottom}, ölçek {scale})");
 
-    if first && !d.fs_hidden {
-        d.last_inside = Instant::now();
-        docks::slide_in(d);
-        d.shown = true;
+    if first && snapshot.shown {
+        docks::slide_in(&snapshot);
+        docks::emit_visibility(window.app_handle(), &label, true);
     }
-    drop(docks);
     docks::apply_glass(window.app_handle(), &label);
     Ok(())
 }
 
 /// Koyu/açık temaya göre bu dock'un cam arka planını uygular.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_theme(window: WebviewWindow, state: State<'_, AppState>, dark: bool) {
     if let Some(d) = state.docks.lock().unwrap().get_mut(window.label()) {
         d.dark = dark;
@@ -183,7 +195,7 @@ pub struct WindowsView {
     pub active: isize,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_windows(state: State<'_, AppState>) -> WindowsView {
     WindowsView {
         windows: platform::list_windows(&dock_hwnds(&state)),
@@ -191,17 +203,17 @@ pub fn list_windows(state: State<'_, AppState>) -> WindowsView {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn activate_window(state: State<'_, AppState>, hwnd: isize) {
     platform::activate(hwnd, state.last_fg.load(Ordering::SeqCst));
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn close_window(hwnd: isize) {
     platform::close(hwnd);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn launch_app(path: String, args: Option<String>) -> bool {
     platform::launch(&config::expand_env(&path), args.as_deref())
 }
@@ -296,14 +308,33 @@ pub fn fetch_text(url: String) -> Result<String, String> {
     resp.into_string().map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn screen_time(state: State<'_, AppState>) -> ScreenTime {
     state.screen.lock().unwrap().snapshot()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_start() {
     platform::open_start();
+}
+
+/// Dock'taki sistem düğmeleri.
+#[tauri::command(async)]
+pub fn system_action(app: AppHandle, action: String) {
+    match action.as_str() {
+        "quick" => platform::win_combo('A'),
+        "notifications" => platform::win_combo('N'),
+        "taskbar" => docks::start_peek(&app, 4),
+        "tray" => {
+            // Taskbar'ı göster, tepsiye odaklan (Win+B), gizli simgeleri aç (Enter).
+            docks::start_peek(&app, 6);
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            platform::win_combo('B');
+            std::thread::sleep(std::time::Duration::from_millis(180));
+            platform::press_enter();
+        }
+        _ => {}
+    }
 }
 
 #[tauri::command]

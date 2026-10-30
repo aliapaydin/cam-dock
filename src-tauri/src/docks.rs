@@ -2,6 +2,8 @@
 //! dock'un görünürlük modları (her zaman / otomatik gizle / akıllı gizle).
 
 use crate::config::{self, Config};
+#[allow(unused_imports)]
+use tauri::Emitter as _;
 use crate::platform::{self, Rect};
 use crate::{dlog, AppState};
 use serde::Serialize;
@@ -121,13 +123,13 @@ fn create_window(app: &AppHandle, label: &str, mon: Rect) -> tauri::Result<isize
         let _ = window;
         0
     };
-    // Başlık çubuğu stilini kaldır ve görünmeden önce ekranın altına (dışına)
-    // taşı: ilk gösterimde aşağıdan kayarak gelsin, üstte belirip inmesin.
-    platform::make_popup(hwnd);
+    // Görünmeden önce ekranın altına (dışına) taşı: ilk gösterimde aşağıdan
+    // kayarak gelsin, üstte belirip inmesin.
     platform::move_to(hwnd, mon.0, mon.3 + 40);
-    // Pencere işleyicisi ve cam katmanı pencerenin iş parçacığında kurulmalı.
+    // Stil, pencere işleyicisi ve cam katmanı pencerenin iş parçacığında kurulmalı.
     let label = label.to_string();
     let _ = app.run_on_main_thread(move || {
+        platform::make_popup(hwnd);
         let proc_ok = platform::install_dock_proc(hwnd);
         let glass = platform::glass_attach(hwnd);
         dlog!(
@@ -309,6 +311,9 @@ fn animate(hwnd: isize, x: i32, from: i32, to: i32) {
     }
 }
 
+/// DİKKAT: kayma fonksiyonları hiçbir kilit tutulmadan çağrılmalı. Pencere
+/// işlemleri asenkron olsa da animasyon ~100 ms sürüyor; bu sırada kilit
+/// tutmak arayüz komutlarını bekletir.
 pub fn slide_in(d: &Dock) {
     let Some((x, y, _, _)) = d.target else { return };
     let off = d.mon_rect.3;
@@ -323,84 +328,175 @@ fn slide_out(d: &Dock) {
     platform::hide(d.hwnd);
 }
 
-fn fg_rect_dbg(hwnds: &[isize]) -> Option<Rect> {
-    platform::foreground_app_rect(hwnds)
+pub fn emit_visibility(app: &AppHandle, label: &str, visible: bool) {
+    let _ = app.emit_to(label, "dock-visibility", visible);
+}
+
+/// Görünürlük ayarlarının döngüde kullanılan hafif kopyası.
+struct Vis {
+    /// 0 = her zaman, 1 = otomatik gizle, 2 = akıllı
+    mode: u8,
+    delay: Duration,
+    fullscreen: bool,
+}
+
+impl Vis {
+    fn read(state: &AppState) -> Self {
+        let cfg = state.cfg.lock().unwrap();
+        Vis {
+            mode: match cfg.dock_visibility.as_str() {
+                "autohide" => 1,
+                "smart" => 2,
+                _ => 0,
+            },
+            delay: Duration::from_millis(cfg.hide_delay_ms.max(100)),
+            fullscreen: cfg.hide_in_fullscreen,
+        }
+    }
+}
+
+enum Act {
+    Hide(Dock),
+    SlideIn(Dock, &'static str),
+    SlideOut(Dock, &'static str),
 }
 
 /// Her 100 ms'de çağrılır: tam ekran, otomatik/akıllı gizleme.
-fn update_visibility(state: &AppState, cfg: &Config, hwnds: &[isize], fg: isize) {
+/// Kararlar kilit altında verilir, pencere işlemleri kilit bırakıldıktan sonra yapılır.
+fn update_visibility(app: &AppHandle, state: &AppState, vis: &Vis, hwnds: &[isize], fg: isize) {
     let now = Instant::now();
     let cursor = platform::cursor_pos();
-    let fs_mon = if cfg.hide_in_fullscreen {
+    let fs_mon = if vis.fullscreen {
         platform::fullscreen_monitor(hwnds)
     } else {
         None
     };
-    let smart = cfg.dock_visibility == "smart";
-    let always = cfg.dock_visibility != "autohide" && !smart;
-    let fg_rect = if smart {
+    let fg_rect = if vis.mode == 2 {
         platform::foreground_app_rect(hwnds)
     } else {
         None
     };
     let fg_is_dock = hwnds.contains(&fg);
-    let delay = Duration::from_millis(cfg.hide_delay_ms);
 
-    let mut docks = state.docks.lock().unwrap();
-    for d in docks.values_mut() {
-        let Some((x, y, w, h)) = d.target else { continue };
-        let m = d.mon_rect;
+    let mut acts = Vec::new();
+    {
+        let mut docks = state.docks.lock().unwrap();
+        for d in docks.values_mut() {
+            let Some((x, y, w, h)) = d.target else { continue };
+            let m = d.mon_rect;
 
-        if fs_mon.as_deref() == Some(d.monitor.as_str()) {
-            if !d.fs_hidden {
-                dlog!("{}: tam ekran algılandı, dock gizleniyor (ön plan: {:?})", d.label, fg_rect_dbg(hwnds));
-                platform::hide(d.hwnd);
-                d.fs_hidden = true;
-                d.shown = false;
+            if fs_mon.as_deref() == Some(d.monitor.as_str()) {
+                if !d.fs_hidden {
+                    d.fs_hidden = true;
+                    d.shown = false;
+                    acts.push(Act::Hide(d.clone()));
+                }
+                continue;
             }
-            continue;
-        }
-        if d.fs_hidden {
-            d.fs_hidden = false;
-            d.last_inside = now;
-            dlog!("{}: tam ekrandan çıkıldı", d.label);
-        }
-
-        let want = if always {
-            true
-        } else {
-            let in_x = cursor.0 >= m.0 && cursor.0 < m.2;
-            let near_edge = in_x && cursor.1 >= m.3 - 3 && cursor.1 < m.3;
-            let pad = 12;
-            let inside = d.shown
-                && cursor.0 >= x - pad
-                && cursor.0 < x + w + pad
-                && cursor.1 >= y - pad
-                && cursor.1 < m.3;
-            if near_edge || inside || (fg_is_dock && d.shown) {
+            let leaving_fullscreen = d.fs_hidden;
+            if leaving_fullscreen {
+                d.fs_hidden = false;
                 d.last_inside = now;
             }
-            let recent = now.duration_since(d.last_inside) < delay;
-            if smart {
-                let overlap = fg_rect
-                    .map(|r| r.0 < x + w && x < r.2 && r.1 < y + h && y < r.3)
-                    .unwrap_or(false);
-                !overlap || recent
-            } else {
-                recent
-            }
-        };
 
-        if want && !d.shown {
-            dlog!("{}: kayarak açılıyor ({})", d.label, cfg.dock_visibility);
-            slide_in(d);
-            d.shown = true;
-        } else if !want && d.shown {
-            dlog!("{}: kayarak gizleniyor ({})", d.label, cfg.dock_visibility);
-            slide_out(d);
-            d.shown = false;
+            let want = if vis.mode == 0 {
+                true
+            } else {
+                let in_x = cursor.0 >= m.0 && cursor.0 < m.2;
+                let near_edge = in_x && cursor.1 >= m.3 - 3 && cursor.1 < m.3;
+                let pad = 12;
+                let inside = d.shown
+                    && cursor.0 >= x - pad
+                    && cursor.0 < x + w + pad
+                    && cursor.1 >= y - pad
+                    && cursor.1 < m.3;
+                if near_edge || inside || (fg_is_dock && d.shown) {
+                    d.last_inside = now;
+                }
+                let recent = now.duration_since(d.last_inside) < vis.delay;
+                if vis.mode == 2 {
+                    let overlap = fg_rect
+                        .map(|r| r.0 < x + w && x < r.2 && r.1 < y + h && y < r.3)
+                        .unwrap_or(false);
+                    !overlap || recent
+                } else {
+                    recent
+                }
+            };
+
+            if want && !d.shown {
+                d.shown = true;
+                let why = if leaving_fullscreen { "tam ekrandan çıkıldı" } else { "fare/alan boşaldı" };
+                acts.push(Act::SlideIn(d.clone(), why));
+            } else if !want && d.shown {
+                d.shown = false;
+                let why = if vis.mode == 2 { "pencere dock'a değdi" } else { "fare ayrıldı" };
+                acts.push(Act::SlideOut(d.clone(), why));
+            }
+        }
+    } // kilit burada bırakılır
+
+    for a in acts {
+        match a {
+            Act::Hide(d) => {
+                dlog!("{}: tam ekran algılandı, dock gizlendi", d.label);
+                platform::hide(d.hwnd);
+                emit_visibility(app, &d.label, false);
+            }
+            Act::SlideIn(d, why) => {
+                dlog!("{}: kayarak açılıyor ({why})", d.label);
+                slide_in(&d);
+                emit_visibility(app, &d.label, true);
+            }
+            Act::SlideOut(d, why) => {
+                dlog!("{}: kayarak gizleniyor ({why})", d.label);
+                slide_out(&d);
+                emit_visibility(app, &d.label, false);
+            }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Klasik taskbar'ı geçici gösterme (dock'taki taskbar / gizli simgeler düğmeleri)
+// ---------------------------------------------------------------------------
+
+const TRAY_CLASSES: &[&str] = &[
+    "Shell_TrayWnd",
+    "Shell_SecondaryTrayWnd",
+    "NotifyIconOverflowWindow",
+    "TopLevelWindowForOverflowXamlIsland",
+    "Xaml_WindowedPopupClass",
+    "TaskListThumbnailWnd",
+    "#32768", // sağ tık menüleri (tepsi simgesi menüsü)
+];
+
+pub fn start_peek(app: &AppHandle, secs: u64) {
+    let state = app.state::<AppState>();
+    *state.peek_until.lock().unwrap() = Some(Instant::now() + Duration::from_secs(secs));
+    let r = platform::taskbar_peek();
+    dlog!("klasik taskbar geçici olarak gösterildi ({r:?})");
+}
+
+/// Taskbar geçici gösteriliyorsa ve kullanıcı hâlâ onunla ilgileniyorsa true.
+fn peek_active(state: &AppState, cursor: (i32, i32)) -> bool {
+    let mut slot = state.peek_until.lock().unwrap();
+    let Some(until) = *slot else { return false };
+    let now = Instant::now();
+    let class = platform::foreground_class();
+    let over_bar = platform::taskbar_rect()
+        .map(|r| cursor.0 >= r.0 && cursor.0 < r.2 && cursor.1 >= r.1 - 4 && cursor.1 < r.3)
+        .unwrap_or(false);
+    if TRAY_CLASSES.contains(&class.as_str()) || over_bar {
+        *slot = Some(now + Duration::from_millis(1500));
+        return true;
+    }
+    if now < until {
+        return true;
+    }
+    *slot = None;
+    dlog!("klasik taskbar tekrar gizleniyor");
+    false
 }
 
 /// Arka plan döngüsü (100 ms): görünürlük, taskbar'ı gizli tutma, son ön plan
@@ -412,7 +508,7 @@ pub fn spawn_watcher(app: AppHandle) {
             std::thread::sleep(Duration::from_millis(100));
             tick += 1;
             let state = app.state::<AppState>();
-            let cfg = state.cfg.lock().unwrap().clone();
+            let vis = Vis::read(&state);
             let hwnds: Vec<isize> = state.docks.lock().unwrap().values().map(|d| d.hwnd).collect();
 
             let fg = platform::foreground();
@@ -420,17 +516,12 @@ pub fn spawn_watcher(app: AppHandle) {
                 state.last_fg.store(fg, std::sync::atomic::Ordering::SeqCst);
             }
 
-            update_visibility(&state, &cfg, &hwnds, fg);
+            update_visibility(&app, &state, &vis, &hwnds, fg);
 
-            if tick % 5 == 0 && state.taskbar_prev.lock().unwrap().is_some() {
-                platform::enforce_taskbar();
-            }
-            // Pencere katmanı stili geri koyarsa tekrar temizle.
-            if tick % 10 == 0 {
-                for h in &hwnds {
-                    if platform::make_popup(*h) {
-                        dlog!("pencere stili dışarıdan değişmişti, düzeltildi ({h:#x})");
-                    }
+            if tick % 5 == 0 {
+                let hidden_by_us = state.taskbar_prev.lock().unwrap().is_some();
+                if hidden_by_us && !peek_active(&state, platform::cursor_pos()) {
+                    platform::enforce_taskbar();
                 }
             }
             if tick % 10 == 0 && platform::idle_ms() < 120_000 {

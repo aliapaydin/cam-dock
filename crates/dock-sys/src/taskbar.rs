@@ -11,8 +11,10 @@ use std::sync::Mutex;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{HWND, LPARAM};
 use windows::Win32::UI::Shell::{SHAppBarMessage, ABM_GETSTATE, ABM_SETSTATE, APPBARDATA};
+use windows::Win32::Foundation::RECT;
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowExW, FindWindowW, IsWindowVisible, ShowWindow, SW_HIDE, SW_SHOW,
+    FindWindowExW, FindWindowW, GetWindowRect, IsWindowVisible, SetForegroundWindow,
+    ShowWindowAsync, SW_HIDE, SW_SHOW,
 };
 
 /// ABS_AUTOHIDE
@@ -82,10 +84,10 @@ pub fn hide(monitors: &[Rect]) -> u32 {
     for h in tray_windows() {
         unsafe {
             if on_target(h, monitors) {
-                let _ = ShowWindow(h, SW_HIDE);
+                let _ = ShowWindowAsync(h, SW_HIDE);
             } else if !IsWindowVisible(h).as_bool() {
                 // Bu monitörde artık dock yok: klasik taskbar geri gelsin.
-                let _ = ShowWindow(h, SW_SHOW);
+                let _ = ShowWindowAsync(h, SW_SHOW);
             }
         }
     }
@@ -102,7 +104,7 @@ pub fn enforce_hidden() {
     for h in tray_windows() {
         unsafe {
             if IsWindowVisible(h).as_bool() && on_target(h, &targets) {
-                let _ = ShowWindow(h, SW_HIDE);
+                let _ = ShowWindowAsync(h, SW_HIDE);
             }
         }
     }
@@ -115,11 +117,32 @@ pub fn restore(prev_state: u32) {
     set_state(state);
     for h in tray_windows() {
         unsafe {
-            let _ = ShowWindow(h, SW_SHOW);
+            let _ = ShowWindowAsync(h, SW_SHOW);
         }
     }
 }
 
 pub fn is_hidden() -> bool {
     TARGETS.lock().unwrap().is_some()
+}
+
+/// Ana taskbar'ı geçici olarak gösterir ve odaklar (otomatik gizlenen taskbar
+/// odaklanınca yukarı kayar). Dönüş: taskbar'ın ekran dikdörtgeni.
+pub fn peek() -> Option<Rect> {
+    let main = *tray_windows().first()?;
+    unsafe {
+        let _ = ShowWindowAsync(main, SW_SHOW);
+        let _ = SetForegroundWindow(main);
+        let mut r = RECT::default();
+        GetWindowRect(main, &mut r).ok()?;
+        Some(Rect::from_win(r))
+    }
+}
+
+/// Ana taskbar'ın dikdörtgeni.
+pub fn main_rect() -> Option<Rect> {
+    let main = *tray_windows().first()?;
+    let mut r = RECT::default();
+    unsafe { GetWindowRect(main, &mut r).ok()? };
+    Some(Rect::from_win(r))
 }

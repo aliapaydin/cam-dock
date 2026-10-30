@@ -9,8 +9,8 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect, IsIconic, IsZoomed,
-    IsWindowVisible, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE,
-    HWND_TOPMOST, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE,
+    IsWindowVisible, SetWindowLongPtrW, SetWindowPos, ShowWindowAsync, GWL_EXSTYLE, GWL_STYLE,
+    HWND_TOPMOST, SWP_ASYNCWINDOWPOS, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE,
     SW_SHOWNOACTIVATE, WS_CAPTION, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW, WS_EX_WINDOWEDGE,
     WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SIZEBOX, WS_SYSMENU,
 };
@@ -138,7 +138,8 @@ pub fn move_to(h: isize, x: i32, y: i32) {
             y,
             0,
             0,
-            SWP_NOSIZE | SWP_NOACTIVATE,
+            // Async: pencerenin iş parçacığı meşgulse beklemeyiz (kilitlenme olmaz).
+            SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
         );
     }
 }
@@ -154,7 +155,7 @@ pub fn set_bounds(h: isize, x: i32, y: i32, w: i32, height: i32) {
             y,
             w,
             height,
-            SWP_NOACTIVATE,
+            SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
         );
     }
 }
@@ -195,14 +196,19 @@ pub fn make_popup(h: isize) -> bool {
 /// Pencereyi odak çalmadan gösterir.
 pub fn show_no_activate(h: isize) {
     unsafe {
-        let _ = ShowWindow(hwnd(h), SW_SHOWNOACTIVATE);
+        let _ = ShowWindowAsync(hwnd(h), SW_SHOWNOACTIVATE);
     }
 }
 
 pub fn hide(h: isize) {
     unsafe {
-        let _ = ShowWindow(hwnd(h), SW_HIDE);
+        let _ = ShowWindowAsync(hwnd(h), SW_HIDE);
     }
+}
+
+/// Ön plandaki pencerenin sınıf adı (taskbar/tepsi menüsü açık mı anlamak için).
+pub fn foreground_class() -> String {
+    class_name(foreground())
 }
 
 pub fn is_visible(h: isize) -> bool {

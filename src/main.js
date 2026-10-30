@@ -33,6 +33,9 @@ let info = { monitor: "", primary: true };
 const dock = document.getElementById("dock");
 const timers = [];
 const every = (ms, fn) => { fn(); timers.push(setInterval(fn, ms)); };
+// Dock gizliyken (otomatik gizle / tam ekran) sık sorguları durdur.
+let dockVisible = true;
+const whenVisible = (fn) => () => { if (dockVisible) fn(); };
 
 // ---------------------------------------------------------------------------
 // Tema
@@ -162,7 +165,7 @@ function appsWidget() {
     }
   }
 
-  every(1000, refresh);
+  every(1000, whenVisible(refresh));
   return wrap;
 }
 
@@ -434,7 +437,7 @@ function mediaWidget() {
       art.classList.toggle("has-img", !!url);
     }
   }
-  every(1000, poll);
+  every(1000, whenVisible(poll));
   return c;
 }
 
@@ -450,7 +453,33 @@ function clockWidget() {
   return c;
 }
 
+const SYS_ICON = {
+  tray: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',
+  quick: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor"/></svg>',
+  notifications: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>',
+  taskbar: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 15.5h18M7 18h2M11 18h2"/></svg>',
+};
+
+function systemWidget() {
+  const c = $("div", "cell sys");
+  const items = [
+    ["tray", "Gizli simgeler (sistem tepsisi)"],
+    ["quick", "Hızlı ayarlar: Wi-Fi, ses, parlaklık (Win+A)"],
+    ["notifications", "Bildirimler ve takvim (Win+N)"],
+    ["taskbar", "Klasik taskbar'ı birkaç saniye göster"],
+  ];
+  for (const [action, label] of items) {
+    const b = $("button", "", SYS_ICON[action]);
+    b.title = label;
+    b.setAttribute("aria-label", label);
+    b.onclick = () => invoke("system_action", { action });
+    c.append(b);
+  }
+  return c;
+}
+
 const WIDGETS = {
+  system: systemWidget,
   calendar: calendarWidget,
   mail: mailWidget,
   claude: claudeWidget,
@@ -488,6 +517,7 @@ dock.addEventListener("contextmenu", (e) => {
 
 // Ekran eklenip çıkarılınca ya da ayar değişince yeniden yerleş.
 listen("relayout", () => queueLayout());
+listen("dock-visibility", (e) => { dockVisible = !!e.payload; });
 
 listen("config-changed", async () => {
   cfg = await invoke("get_config");
@@ -512,7 +542,7 @@ async function mockInvoke(cmd, args) {
         accent: "#2F7BFF",
         show_running: true,
         display: { mode: "primary", selected: [], apps_per_monitor: false },
-        widgets: (params.get("widgets") || "calendar,screentime,ticker,media,clock").split(","),
+        widgets: (params.get("widgets") || "calendar,screentime,ticker,media,system,clock").split(","),
         ticker: { markets: ["USD", "EUR", "gram-altin"], news: true, feeds: ["https://news.google.com/rss"], interval_sec: Number(params.get("iv") || 6), news_per_round: 3 },
         pinned_resolved: ["Dosya Gezgini", "Chrome", "VS Code", "Spotify", "Telegram"].map((n) => ({
           name: n, path: `C:\\${n}.exe`, args: null, exists: true,

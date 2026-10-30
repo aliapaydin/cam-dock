@@ -37,6 +37,7 @@ const WIDGETS = [
   { id: "screentime", name: "Ekran süresi", desc: "Bugün bilgisayar başında geçen aktif süre." },
   { id: "ticker", name: "Piyasa ve haberler", desc: "Dolar, euro, gram altın ve haber başlıkları dönüşümlü." },
   { id: "media", name: "Müzik", desc: "Spotify, YouTube ve diğer oynatıcılar için kontroller." },
+  { id: "system", name: "Sistem düğmeleri", desc: "Gizli simgeler, hızlı ayarlar, bildirimler ve klasik taskbar." },
   { id: "clock", name: "Saat", desc: "Saat ve tarih." },
   { id: "mail", name: "Mail", desc: "Önizleme — örnek veri.", preview: true },
   { id: "claude", name: "Claude kullanımı", desc: "Önizleme — örnek veri.", preview: true },
@@ -145,6 +146,7 @@ function bind() {
     $("#m-name").value = $("#m-path").value = "";
   };
 
+  for (const b of $$(".link-btn[data-href]")) b.onclick = () => invoke("launch_app", { path: b.dataset.href });
   $("#open-log").onclick = () => invoke("launch_app", { path: "notepad.exe", args: `"${view.log_path}"` });
   $("#open-cfg").onclick = () => invoke("launch_app", { path: "notepad.exe", args: `"${view.config_path}"` });
 }
@@ -487,7 +489,7 @@ async function mockInvoke(cmd) {
           { name: "Spotify", path: "C:\\Users\\ali\\AppData\\Roaming\\Spotify\\Spotify.exe", args: null },
         ],
         pinned_resolved: [{ exists: true }, { exists: true }, { exists: true }, { exists: false }],
-        widgets: ["calendar", "screentime", "ticker", "media", "clock"],
+        widgets: ["calendar", "screentime", "ticker", "media", "system", "clock"],
         ticker: { markets: ["USD", "EUR", "gram-altin"], news: true, feeds: ["https://news.google.com/rss?hl=tr&gl=TR&ceid=TR:tr", "https://example.com/feed.xml"], interval_sec: 6, news_per_round: 3 },
         config_path: "C:\\Users\\ali\\AppData\\Roaming\\com.ali.camdock\\config.json",
       };

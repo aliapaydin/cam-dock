@@ -26,6 +26,8 @@ pub struct AppState {
     pub screen: Mutex<screentime::ScreenTime>,
     pub thumb: Mutex<(String, Option<String>)>,
     pub monitor_sig: Mutex<String>,
+    /// Klasik taskbar geçici olarak gösteriliyorsa bitiş zamanı
+    pub peek_until: Mutex<Option<std::time::Instant>>,
 }
 
 pub fn emit_config(app: &tauri::AppHandle) {
@@ -84,6 +86,7 @@ fn main() {
         screen: Mutex::new(screentime::ScreenTime::load()),
         thumb: Mutex::new((String::new(), None)),
         monitor_sig: Mutex::new(String::new()),
+        peek_until: Mutex::new(None),
     };
 
     let app = tauri::Builder::default()
@@ -108,6 +111,7 @@ fn main() {
             commands::fetch_text,
             commands::screen_time,
             commands::open_start,
+            commands::system_action,
             commands::open_settings,
             commands::show_menu,
         ])

@@ -3,8 +3,37 @@
 use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetLastInputInfo, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
-    LASTINPUTINFO, VK_LWIN,
+    LASTINPUTINFO, VIRTUAL_KEY, VK_LWIN, VK_RETURN,
 };
+
+fn key(vk: VIRTUAL_KEY, up: bool) -> INPUT {
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: vk,
+                dwFlags: if up { KEYEVENTF_KEYUP } else { Default::default() },
+                ..Default::default()
+            },
+        },
+    }
+}
+
+/// Win + harf kısayolu gönderir (ör. 'A' hızlı ayarlar, 'N' bildirimler, 'B' tepsi).
+pub fn win_combo(letter: char) {
+    let vk = VIRTUAL_KEY(letter.to_ascii_uppercase() as u16);
+    let inputs = [key(VK_LWIN, false), key(vk, false), key(vk, true), key(VK_LWIN, true)];
+    unsafe {
+        SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+    }
+}
+
+pub fn press_enter() {
+    let inputs = [key(VK_RETURN, false), key(VK_RETURN, true)];
+    unsafe {
+        SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+    }
+}
 
 /// Windows tuşuna basılmış gibi Başlat menüsünü açar.
 pub fn open_start_menu() {

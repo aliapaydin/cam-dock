@@ -99,10 +99,12 @@ pub struct Config {
     pub show_running: bool,
     pub pinned: Vec<Pinned>,
     /// Sırasıyla gösterilecek widget'lar:
-    /// calendar, screentime, ticker, media, clock
+    /// calendar, screentime, ticker, media, system, clock
     /// Önizleme (örnek veri, Faz 2'de bağlanacak): mail, claude
     pub widgets: Vec<String>,
     pub ticker: Ticker,
+    /// Ayar dosyası sürüm geçişleri (kullanıcı düzenlemez)
+    pub migrations: u32,
 }
 
 impl Default for Config {
@@ -133,11 +135,12 @@ impl Default for Config {
                 p("Spotify", "%APPDATA%\\Spotify\\Spotify.exe"),
                 p("Telegram", "%APPDATA%\\Telegram Desktop\\Telegram.exe"),
             ],
-            widgets: ["calendar", "screentime", "ticker", "media", "clock"]
+            widgets: ["calendar", "screentime", "ticker", "media", "system", "clock"]
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
             ticker: Ticker::default(),
+            migrations: 1,
         }
     }
 }
@@ -169,6 +172,15 @@ pub fn load() -> Config {
                 if w == "currency" {
                     *w = "ticker".into();
                 }
+            }
+            // v0.5: sistem düğmeleri (tepsi, hızlı ayarlar, bildirimler, taskbar)
+            if cfg.migrations < 1 {
+                if !cfg.widgets.iter().any(|w| w == "system") {
+                    let at = cfg.widgets.iter().position(|w| w == "clock").unwrap_or(cfg.widgets.len());
+                    cfg.widgets.insert(at, "system".into());
+                }
+                cfg.migrations = 1;
+                save(&cfg);
             }
             cfg
         }

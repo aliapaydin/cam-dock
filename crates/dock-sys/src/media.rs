@@ -25,8 +25,21 @@ pub struct MediaState {
     pub track_key: String,
 }
 
+static MANAGER: std::sync::Mutex<Option<Manager>> = std::sync::Mutex::new(None);
+
+/// Medya yöneticisini bir kez alıp saklarız (her saniye yeniden istemek pahalı).
+fn manager() -> Result<Manager> {
+    let mut slot = MANAGER.lock().unwrap();
+    if let Some(m) = slot.as_ref() {
+        return Ok(m.clone());
+    }
+    let m = Manager::RequestAsync()?.join()?;
+    *slot = Some(m.clone());
+    Ok(m)
+}
+
 fn session() -> Result<Option<Session>> {
-    let mgr = Manager::RequestAsync()?.join()?;
+    let mgr = manager()?;
     match mgr.GetCurrentSession() {
         Ok(s) => Ok(Some(s)),
         Err(_) => Ok(None),

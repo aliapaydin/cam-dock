@@ -38,15 +38,15 @@
 /* Acrylic açıkken arka plan zaten renkli/bulanık; CSS tabakasını incelt. */
 [data-theme="dark"][data-backdrop="acrylic"],
 [data-theme="dark"][data-backdrop="blur"] {
-  --dock-bg: rgba(16, 20, 34, 0.32);
+  --dock-bg: rgba(16, 20, 34, 0.40);
 }
 
 /* ---------- Açık: "Gün camı" ---------- */
 [data-theme="light"] {
-  --dock-bg: rgba(250, 251, 255, 0.60);
-  --dock-border: rgba(255, 255, 255, 0.75);
-  --dock-highlight: rgba(255, 255, 255, 0.90);
-  --cell-bg: rgba(255, 255, 255, 0.50);
+  --dock-bg: rgba(246, 248, 252, 0.78);
+  --dock-border: rgba(255, 255, 255, 0.28);
+  --dock-highlight: rgba(255, 255, 255, 0.55);
+  --cell-bg: rgba(255, 255, 255, 0.55);
   --cell-border: rgba(14, 21, 37, 0.06);
   --cell-hover: rgba(255, 255, 255, 0.72);
   --cell-active-bg: rgba(255, 255, 255, 0.88);
@@ -66,9 +66,11 @@
   --chart-dim: rgba(29, 95, 214, 0.40);
   color-scheme: light;
 }
+/* Açık camın zemini koyu duvar kâğıdında griye dönmesin diye daha süt beyazı;
+   hücreler zeminden çok az ayrışır, kenar çizgisi silik. */
 [data-theme="light"][data-backdrop="acrylic"],
 [data-theme="light"][data-backdrop="blur"] {
-  --dock-bg: rgba(250, 251, 255, 0.38);
+  --dock-bg: rgba(246, 248, 252, 0.66);
 }
 
 /* ---------- Temel ---------- */
@@ -348,3 +350,13 @@ button.cell:hover { background: var(--cell-hover); }
 .clock { padding: 0 12px; }
 .clock .stack { align-items: flex-end; }
 .clock .t-big { font-size: 16px; }
+
+/* Sistem düğmeleri */
+.sys { display: grid; grid-template-columns: repeat(2, 30px); grid-auto-rows: 28px; gap: 4px; padding: 0 8px; align-content: center; }
+.sys button {
+  border: 0; border-radius: 9px; background: transparent; color: var(--text-2);
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  transition: background .15s, color .15s;
+}
+.sys button:hover { background: var(--cell-hover); color: var(--text); }
+.sys button:active { transform: scale(.92); }

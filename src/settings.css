@@ -246,3 +246,24 @@ input[type="range"] { width: 220px; accent-color: var(--accent); flex: 0 0 auto;
 .chip.on { background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--text); font-weight: 600; }
 .chip .x { opacity: .6; margin-left: 2px; }
 .manual-row.two { grid-template-columns: 1fr auto; margin-top: 0; }
+
+/* Geliştirici kartı */
+.dev { margin-bottom: 14px; padding: 18px; }
+.dev-head { display: flex; align-items: center; gap: 14px; }
+.avatar {
+  width: 52px; height: 52px; border-radius: 16px; flex: 0 0 auto;
+  background: linear-gradient(150deg, #3B82F6, #6D28D9); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; letter-spacing: .02em;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 6px 16px rgba(59,130,246,.30);
+}
+.dev-name { font-size: 18px; }
+.dev-links { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+.link-btn {
+  display: flex; align-items: center; gap: 10px; text-align: left; padding: 10px 12px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--card-2); color: var(--text-2); min-width: 0;
+}
+.link-btn:hover { border-color: var(--accent); color: var(--text); }
+.link-btn span { display: flex; flex-direction: column; min-width: 0; }
+.link-btn strong { color: var(--text); font-size: 13px; }
+.link-btn small { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dev-foot { margin: 14px 2px 0; font-size: 12px; color: var(--text-3); }
