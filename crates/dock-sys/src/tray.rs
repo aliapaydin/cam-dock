@@ -127,10 +127,23 @@ pub fn running_apps() -> Vec<TrayApp> {
             let Some(exe) = reg_string(key, &sub, "ExecutablePath") else { continue };
             let exe = expand_known_folder(&exe);
             let file = exe.rsplit('\\').next().unwrap_or("").to_lowercase();
-            if file.is_empty() || !running.contains(&file) || file == "explorer.exe" {
+            if file.is_empty() || !running.contains(&file) || file == "explorer.exe" || file == "cam-dock.exe" {
                 continue;
             }
-            if out.iter().any(|a| a.exe.eq_ignore_ascii_case(&exe)) {
+            // Aynı uygulamanın eski sürümleri (ör. her WhatsApp güncellemesi ayrı
+            // klasör) ayrı kayıt bırakır: exe adına göre tekilleştir, öne
+            // çıkarılmış ve simgesi olanı tercih et.
+            let promoted = reg_dword(key, &sub, "IsPromoted").unwrap_or(0) != 0;
+            if let Some(prev) = out.iter_mut().find(|a| {
+                a.exe.rsplit('\\').next().unwrap_or("").eq_ignore_ascii_case(&file)
+            }) {
+                if promoted && !prev.promoted {
+                    prev.promoted = true;
+                    prev.exe = exe.clone();
+                    if let Some(icon) = reg_binary(key, &sub, "IconSnapshot") {
+                        prev.icon = Some(icon);
+                    }
+                }
                 continue;
             }
             let tip = reg_string(key, &sub, "InitialTooltip").unwrap_or_default();
@@ -139,7 +152,7 @@ pub fn running_apps() -> Vec<TrayApp> {
                 name: if tip.trim().is_empty() { fallback } else { tip.lines().next().unwrap_or("").trim().to_string() },
                 exe,
                 icon: reg_binary(key, &sub, "IconSnapshot"),
-                promoted: reg_dword(key, &sub, "IsPromoted").unwrap_or(0) != 0,
+                promoted,
             });
         }
         let _ = RegCloseKey(key);

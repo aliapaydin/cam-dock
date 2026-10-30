@@ -1,4 +1,4 @@
-# Cam Dock — v0.8
+# Cam Dock — v0.8.1
 
 Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebView2) ile yazıldı.
 
@@ -13,7 +13,7 @@ Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebVi
 | Başlat düğmesi (Başlat menüsünü açar) | ✅ |
 | Müzik: Spotify, YouTube, Apple Music… kapak, oynat/duraklat/ileri/geri; **birden çok oynatıcıda tekerlekle dikey kaydırma** | ✅ |
 | **Sistem kaynakları**: CPU, RAM, GPU, Disk çubukları | ✅ |
-| **Klasik taskbar hiç görünmez**: tüm ekranlarda gizli, Windows göstermeye kalkarsa anında geri gizlenir | ✅ |
+| **Klasik taskbar hiç görünmez**: tüm ekranlarda boş bölgeyle kırpılır (görünmez, tıklamaları geçirir; Windows'la çekişme yok) | ✅ |
 | **Uygulama kataloğu**: Store sürümleri dahil tüm yüklü uygulamalar; bulunamayan sabitlemeler adıyla otomatik düzeltilir; Gözat ile dosya seçme | ✅ |
 | Ekran süresi (2 dk'dan uzun boşta kalınan süre sayılmaz) + saatlik çubuklar | ✅ |
 | **Piyasa ve haberler**: dolar, euro, gram altın (Truncgil) ve RSS haber başlıkları dönüşümlü kayar; habere tıklayınca tarayıcıda açılır | ✅ |

@@ -174,7 +174,10 @@ button { font: inherit; color: inherit; cursor: default; }
 .side-foot button:hover { filter: brightness(1.06); }
 
 /* ---------- Tepsi ---------- */
-.tray-grid { display: grid; grid-template-columns: repeat(4, 76px); gap: 6px; }
+.tray-grid {
+  display: grid; grid-template-columns: repeat(4, 76px); gap: 6px;
+  max-height: 336px; overflow-y: auto; scrollbar-width: thin; padding-right: 2px;
+}
 .tray-app {
   height: 76px; border: 1px solid transparent; border-radius: 14px; background: transparent;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 6px;

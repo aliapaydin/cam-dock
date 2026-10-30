@@ -87,7 +87,7 @@ mod imp {
     pub fn restore_taskbar(prev: u32) {
         taskbar::restore(prev)
     }
-    pub fn enforce_taskbar() {
+    pub fn enforce_taskbar() -> usize {
         taskbar::enforce_hidden()
     }
     pub fn reserve(hwnd: isize, m: Rect, height: i32) -> Rect {
@@ -337,7 +337,9 @@ mod imp {
         2
     }
     pub fn restore_taskbar(_prev: u32) {}
-    pub fn enforce_taskbar() {}
+    pub fn enforce_taskbar() -> usize {
+        0
+    }
     pub fn reserve(_hwnd: isize, m: Rect, _height: i32) -> Rect {
         m
     }

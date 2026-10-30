@@ -486,7 +486,10 @@ pub fn spawn_watcher(app: AppHandle) {
             crate::popover::watch(&app, fg);
 
             if tick % 5 == 0 && state.taskbar_prev.lock().unwrap().is_some() {
-                platform::enforce_taskbar();
+                let fixed = platform::enforce_taskbar();
+                if fixed > 0 && tick % 50 == 0 {
+                    dlog!("taskbar bölgesi yeniden uygulandı ({fixed} pencere)");
+                }
                 // Explorer yeniden başladıysa anında gizleme kancasını yenile.
                 if tick % 30 == 0 && !platform::taskbar_hook_current() {
                     let _ = app.run_on_main_thread(|| {

@@ -142,9 +142,15 @@ async function renderTray() {
     for (const a of apps) {
       const t = el("button", "tray-app");
       t.title = `${a.name}\n${a.exe}`;
+      a.name = a.name.replace(/\.exe$/i, "");
       t.setAttribute("aria-label", a.name);
-      if (a.icon) t.append(Object.assign(new Image(), { src: a.icon, alt: "" }));
-      else t.append(el("span", "glyph", esc(a.name.slice(0, 1).toUpperCase())));
+      // Önce uygulamanın kendi ikonu (tepsi görüntüsü koyu taskbar için beyaz
+      // çizilmiş olabiliyor), yoksa Windows'un sakladığı tepsi simgesi.
+      const glyph = a.icon ? Object.assign(new Image(), { src: a.icon, alt: "" }) : el("span", "glyph", esc(a.name.slice(0, 1).toUpperCase()));
+      t.append(glyph);
+      invoke("app_icon", { path: a.exe, aumid: null, hwnd: null }).then((url) => {
+        if (url) glyph.replaceWith(Object.assign(new Image(), { src: url, alt: "" }));
+      }).catch(() => {});
       t.append(el("span", "nm", esc(a.name)));
       t.onclick = () => {
         // Çoğu tepsi uygulaması tek örnekli: yeniden başlatmak penceresini açar.
