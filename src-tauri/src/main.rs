@@ -30,6 +30,10 @@ pub struct AppState {
     /// Klasik taskbar geçici olarak gösteriliyorsa bitiş zamanı
     pub peek_until: Mutex<Option<std::time::Instant>>,
     pub pop: Mutex<popover::PopState>,
+    /// Windows uygulama kataloğu (önbellek)
+    pub catalog: Mutex<Option<Vec<platform::CatalogApp>>>,
+    /// Son sistem kaynakları örneği
+    pub stats: Mutex<platform::SysStats>,
 }
 
 pub fn emit_config(app: &tauri::AppHandle) {
@@ -90,6 +94,8 @@ fn main() {
         monitor_sig: Mutex::new(String::new()),
         peek_until: Mutex::new(None),
         pop: Mutex::new(popover::PopState::default()),
+        catalog: Mutex::new(None),
+        stats: Mutex::new(platform::SysStats::default()),
     };
 
     let app = tauri::Builder::default()
@@ -122,6 +128,13 @@ fn main() {
             commands::media_state,
             commands::media_thumbnail,
             commands::media_control,
+            commands::media_list,
+            commands::media_control_id,
+            commands::media_thumbnail_id,
+            commands::catalog_apps,
+            commands::pick_app,
+            commands::sys_stats,
+            commands::tray_apps,
             commands::fetch_text,
             commands::screen_time,
             commands::open_start,
@@ -141,6 +154,18 @@ fn main() {
                 }
             }
             docks::sync(&handle);
+            // Sistem kaynakları: saniyede bir örnekle.
+            {
+                let h = handle.clone();
+                std::thread::spawn(move || {
+                    let mut sampler = platform::Sampler::new();
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
+                        let st = sampler.sample();
+                        *h.state::<AppState>().stats.lock().unwrap() = st;
+                    }
+                });
+            }
             docks::spawn_watcher(handle);
             Ok(())
         })

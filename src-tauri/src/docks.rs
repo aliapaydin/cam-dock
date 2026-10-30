@@ -282,6 +282,10 @@ pub fn apply_taskbar(app: &AppHandle) {
         .map(|d| d.mon_rect)
         .collect();
     let current = platform::hide_taskbar(&rects);
+    let _ = app.run_on_main_thread(|| {
+        let ok = platform::install_taskbar_hook();
+        dlog!("taskbar kancası {}", if ok { "kuruldu" } else { "KURULAMADI" });
+    });
     let mut prev = state.taskbar_prev.lock().unwrap();
     if prev.is_none() {
         // Önceki bir çalıştırma çöktüyse asıl orijinal durum dosyadadır.
@@ -469,48 +473,6 @@ fn update_visibility(app: &AppHandle, state: &AppState, vis: &Vis, hwnds: &[isiz
     }
 }
 
-// ---------------------------------------------------------------------------
-// Klasik taskbar'ı geçici gösterme (dock'taki taskbar / gizli simgeler düğmeleri)
-// ---------------------------------------------------------------------------
-
-const TRAY_CLASSES: &[&str] = &[
-    "Shell_TrayWnd",
-    "Shell_SecondaryTrayWnd",
-    "NotifyIconOverflowWindow",
-    "TopLevelWindowForOverflowXamlIsland",
-    "Xaml_WindowedPopupClass",
-    "TaskListThumbnailWnd",
-    "#32768", // sağ tık menüleri (tepsi simgesi menüsü)
-];
-
-pub fn start_peek(app: &AppHandle, secs: u64) {
-    let state = app.state::<AppState>();
-    *state.peek_until.lock().unwrap() = Some(Instant::now() + Duration::from_secs(secs));
-    let r = platform::taskbar_peek();
-    dlog!("klasik taskbar geçici olarak gösterildi ({r:?})");
-}
-
-/// Taskbar geçici gösteriliyorsa ve kullanıcı hâlâ onunla ilgileniyorsa true.
-fn peek_active(state: &AppState, cursor: (i32, i32)) -> bool {
-    let mut slot = state.peek_until.lock().unwrap();
-    let Some(until) = *slot else { return false };
-    let now = Instant::now();
-    let class = platform::foreground_class();
-    let over_bar = platform::taskbar_rect()
-        .map(|r| cursor.0 >= r.0 && cursor.0 < r.2 && cursor.1 >= r.1 - 4 && cursor.1 < r.3)
-        .unwrap_or(false);
-    if TRAY_CLASSES.contains(&class.as_str()) || over_bar {
-        *slot = Some(now + Duration::from_millis(1500));
-        return true;
-    }
-    if now < until {
-        return true;
-    }
-    *slot = None;
-    dlog!("klasik taskbar tekrar gizleniyor");
-    false
-}
-
 /// Arka plan döngüsü (100 ms): görünürlük, taskbar'ı gizli tutma, son ön plan
 /// penceresi, ekran süresi, monitör takıp çıkarma.
 pub fn spawn_watcher(app: AppHandle) {
@@ -531,10 +493,14 @@ pub fn spawn_watcher(app: AppHandle) {
             update_visibility(&app, &state, &vis, &hwnds, fg);
             crate::popover::watch(&app, fg);
 
-            if tick % 5 == 0 {
-                let hidden_by_us = state.taskbar_prev.lock().unwrap().is_some();
-                if hidden_by_us && !peek_active(&state, platform::cursor_pos()) {
-                    platform::enforce_taskbar();
+            if tick % 5 == 0 && state.taskbar_prev.lock().unwrap().is_some() {
+                platform::enforce_taskbar();
+                // Explorer yeniden başladıysa anında gizleme kancasını yenile.
+                if tick % 30 == 0 && !platform::taskbar_hook_current() {
+                    let _ = app.run_on_main_thread(|| {
+                        let ok = platform::install_taskbar_hook();
+                        dlog!("taskbar kancası {}", if ok { "kuruldu" } else { "KURULAMADI" });
+                    });
                 }
             }
             if tick % 10 == 0 && platform::idle_ms() < 120_000 {

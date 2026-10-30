@@ -12,9 +12,12 @@ use windows::core::PCWSTR;
 use windows::Win32::Foundation::{HWND, LPARAM};
 use windows::Win32::UI::Shell::{SHAppBarMessage, ABM_GETSTATE, ABM_SETSTATE, APPBARDATA};
 use windows::Win32::Foundation::RECT;
+use windows::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK};
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowExW, FindWindowW, GetWindowRect, IsWindowVisible, SetForegroundWindow,
-    ShowWindowAsync, SW_HIDE, SW_SHOW,
+    FindWindowExW, FindWindowW, GetClassNameW, GetWindowRect, GetWindowThreadProcessId,
+    IsWindowVisible, SetForegroundWindow, ShowWindowAsync, EVENT_OBJECT_LOCATIONCHANGE,
+    EVENT_OBJECT_SHOW, OBJID_WINDOW, SW_HIDE, SW_SHOW, WINEVENT_OUTOFCONTEXT,
+    WINEVENT_SKIPOWNPROCESS,
 };
 
 /// ABS_AUTOHIDE
@@ -49,10 +52,81 @@ fn tray_windows() -> Vec<HWND> {
     out
 }
 
-fn on_target(h: HWND, targets: &[Rect]) -> bool {
+/// Klasik taskbar hiçbir ekranda görünmesin: dock olmayan ekranlar dahil
+/// tüm taskbar pencereleri gizlenir (`targets` yalnızca kayıt için tutulur).
+fn on_target(_h: HWND, _targets: &[Rect]) -> bool {
+    true
+}
+
+#[allow(dead_code)]
+fn on_monitor(h: HWND, targets: &[Rect]) -> bool {
     monitor_of_window(raw(h))
         .map(|(_, r)| targets.contains(&r))
         .unwrap_or(false)
+}
+
+static HOOK: std::sync::Mutex<(isize, u32)> = std::sync::Mutex::new((0, 0));
+
+unsafe extern "system" fn on_shell_event(
+    _hook: HWINEVENTHOOK,
+    _event: u32,
+    h: HWND,
+    id_object: i32,
+    _id_child: i32,
+    _thread: u32,
+    _time: u32,
+) {
+    if id_object != OBJID_WINDOW.0 || h.is_invalid() || TARGETS.lock().map(|t| t.is_none()).unwrap_or(true) {
+        return;
+    }
+    let mut buf = [0u16; 64];
+    let n = GetClassNameW(h, &mut buf);
+    let class = String::from_utf16_lossy(&buf[..n.max(0) as usize]);
+    if (class == "Shell_TrayWnd" || class == "Shell_SecondaryTrayWnd") && IsWindowVisible(h).as_bool() {
+        let _ = ShowWindowAsync(h, SW_HIDE);
+    }
+}
+
+/// Explorer'ın taskbar'ı gösterdiği anı (Win tuşu, flyout, fare kenarda) yakalayıp
+/// anında geri gizleyen olay kancası. Mesaj döngüsü olan iş parçacığında (ana
+/// iş parçacığı) çağrılmalı. Explorer yeniden başlarsa tekrar çağrılabilir.
+pub fn install_hook() -> bool {
+    let Some(&main) = tray_windows().first() else { return false };
+    let mut pid = 0u32;
+    unsafe {
+        GetWindowThreadProcessId(main, Some(&mut pid));
+    }
+    let mut slot = HOOK.lock().unwrap();
+    if slot.1 == pid && slot.0 != 0 {
+        return true;
+    }
+    unsafe {
+        if slot.0 != 0 {
+            let _ = UnhookWinEvent(HWINEVENTHOOK(slot.0 as *mut core::ffi::c_void));
+        }
+        let hook = SetWinEventHook(
+            EVENT_OBJECT_SHOW,
+            EVENT_OBJECT_LOCATIONCHANGE,
+            None,
+            Some(on_shell_event),
+            pid,
+            0,
+            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+        );
+        *slot = (hook.0 as isize, pid);
+        !hook.is_invalid()
+    }
+}
+
+/// Kancanın bağlı olduğu explorer süreci hâlâ aynı mı? (Explorer yeniden
+/// başlarsa false; `install_hook` yeniden çağrılmalı.)
+pub fn hook_current() -> bool {
+    let Some(&main) = tray_windows().first() else { return true };
+    let mut pid = 0u32;
+    unsafe {
+        GetWindowThreadProcessId(main, Some(&mut pid));
+    }
+    HOOK.lock().map(|s| s.1 == pid && s.0 != 0).unwrap_or(false)
 }
 
 fn appbar_data() -> APPBARDATA {

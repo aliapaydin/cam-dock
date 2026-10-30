@@ -12,6 +12,10 @@ use windows::Storage::Streams::DataReader;
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct MediaState {
+    /// Oturum kimliği: kaynak uygulama + sıra ("Spotify.exe#0")
+    pub id: String,
+    /// Windows'un "şu anki" saydığı oturum mu
+    pub current: bool,
     pub active: bool,
     pub title: String,
     pub artist: String,
@@ -59,6 +63,10 @@ pub fn state() -> Result<MediaState> {
     let Some(s) = session()? else {
         return Ok(MediaState::default());
     };
+    session_state(&s)
+}
+
+fn session_state(s: &Session) -> Result<MediaState> {
     let props = s.TryGetMediaPropertiesAsync()?.join()?;
     let info = s.GetPlaybackInfo()?;
     let playing = info.PlaybackStatus()? == Status::Playing;
@@ -81,6 +89,8 @@ pub fn state() -> Result<MediaState> {
     let artist = props.Artist()?.to_string();
     let album = props.AlbumTitle().map(|a| a.to_string()).unwrap_or_default();
     Ok(MediaState {
+        id: String::new(),
+        current: false,
         active: true,
         track_key: format!("{title}\u{1}{artist}\u{1}{album}"),
         title,
@@ -125,4 +135,65 @@ pub fn control(action: &str) -> Result<bool> {
         _ => false,
     };
     Ok(ok)
+}
+
+/// Tüm medya oturumları (birden çok oynatıcı: Spotify, tarayıcı sekmeleri...).
+fn sessions() -> Result<Vec<(String, Session)>> {
+    let mgr = manager()?;
+    let list = mgr.GetSessions()?;
+    let mut out: Vec<(String, Session)> = Vec::new();
+    for i in 0..list.Size()? {
+        let s = list.GetAt(i)?;
+        let app = s.SourceAppUserModelId()?.to_string();
+        let n = out.iter().filter(|(id, _)| id.starts_with(&format!("{app}#"))).count();
+        out.push((format!("{app}#{n}"), s));
+    }
+    Ok(out)
+}
+
+pub fn states() -> Result<Vec<MediaState>> {
+    let current = manager()?
+        .GetCurrentSession()
+        .ok()
+        .and_then(|s| s.SourceAppUserModelId().ok())
+        .map(|h| h.to_string());
+    let mut out = Vec::new();
+    for (id, s) in sessions()? {
+        if let Ok(mut st) = session_state(&s) {
+            st.current = current.as_deref().map(|c| id.starts_with(&format!("{c}#"))).unwrap_or(false);
+            st.id = id;
+            out.push(st);
+        }
+    }
+    Ok(out)
+}
+
+fn find(id: &str) -> Result<Option<Session>> {
+    Ok(sessions()?.into_iter().find(|(i, _)| i == id).map(|(_, s)| s))
+}
+
+pub fn control_id(id: &str, action: &str) -> Result<bool> {
+    let Some(s) = find(id)? else { return Ok(false) };
+    Ok(match action {
+        "toggle" => s.TryTogglePlayPauseAsync()?.join()?,
+        "next" => s.TrySkipNextAsync()?.join()?,
+        "prev" => s.TrySkipPreviousAsync()?.join()?,
+        _ => false,
+    })
+}
+
+pub fn thumbnail_id(id: &str) -> Result<Option<Vec<u8>>> {
+    let Some(s) = find(id)? else { return Ok(None) };
+    let props = s.TryGetMediaPropertiesAsync()?.join()?;
+    let Ok(thumb) = props.Thumbnail() else { return Ok(None) };
+    let stream = thumb.OpenReadAsync()?.join()?;
+    let size = stream.Size()? as u32;
+    if size == 0 {
+        return Ok(None);
+    }
+    let reader = DataReader::CreateDataReader(&stream.GetInputStreamAt(0)?)?;
+    reader.LoadAsync(size)?.join()?;
+    let mut buf = vec![0u8; size as usize];
+    reader.ReadBytes(&mut buf)?;
+    Ok(Some(buf))
 }

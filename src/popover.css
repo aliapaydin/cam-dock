@@ -172,3 +172,19 @@ button { font: inherit; color: inherit; cursor: default; }
 }
 .side-foot button.primary { background: var(--accent); color: #fff; border-color: transparent; }
 .side-foot button:hover { filter: brightness(1.06); }
+
+/* ---------- Tepsi ---------- */
+.tray-grid { display: grid; grid-template-columns: repeat(4, 76px); gap: 6px; }
+.tray-app {
+  height: 76px; border: 1px solid transparent; border-radius: 14px; background: transparent;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 6px;
+  transition: background .12s, border-color .12s;
+}
+.tray-app:hover { background: var(--hover); border-color: var(--cell-line); }
+.tray-app img, .tray-app .glyph { width: 30px; height: 30px; border-radius: 8px; }
+.tray-app .glyph { background: var(--cell); display: flex; align-items: center; justify-content: center; font-weight: 700; }
+.tray-app .nm { font-size: 11px; max-width: 64px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
+.tray-empty { padding: 16px 6px; color: var(--text-2); font-size: 13px; width: 300px; }
+.tray-foot { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--cell-line); display: flex; }
+.tray-foot button { border: 0; background: transparent; color: var(--accent); font-size: 12px; font-weight: 600; padding: 4px 6px; border-radius: 8px; }
+.tray-foot button:hover { background: var(--hover); }

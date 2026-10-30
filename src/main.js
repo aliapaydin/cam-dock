@@ -490,53 +490,170 @@ function tickerWidget() {
   return c;
 }
 
+// ---------------------------------------------------------------------------
+// Medya: birden çok oynatıcı varsa tekerlekle ya da noktalarla dikey kaydır
+// ---------------------------------------------------------------------------
 function mediaWidget() {
   const c = $("div", "cell media idle");
-  c.innerHTML = `
-    <span class="art" aria-hidden="true">${ICON.wave}</span>
-    <span class="stack meta"><span class="t-strong">Çalan bir şey yok</span><span class="t-sub"></span></span>
-    <button class="ctrl" data-a="prev" aria-label="Önceki">${ICON.prev}</button>
-    <button class="ctrl main" data-a="toggle" aria-label="Oynat/Duraklat">${ICON.play}</button>
-    <button class="ctrl" data-a="next" aria-label="Sonraki">${ICON.next}</button>
-    <span class="progress" aria-hidden="true"><span></span></span>`;
-  const art = c.querySelector(".art");
-  const [title, artist] = [c.querySelector(".t-strong"), c.querySelector(".t-sub")];
-  const toggle = c.querySelector(".ctrl.main");
-  const bar = c.querySelector(".progress > span");
-  let trackKey = "";
+  c.innerHTML = `<div class="m-view"></div><div class="m-dots" aria-hidden="true"></div>`;
+  const view = c.querySelector(".m-view");
+  const dots = c.querySelector(".m-dots");
+  let sessions = [];
+  let selected = null; // oturum kimliği
+  let pickedAt = 0; // kullanıcı en son ne zaman elle seçti
+  let shownId = null;
+  let thumbs = new Map();
 
-  c.querySelectorAll(".ctrl").forEach((b) => {
-    b.onclick = async () => {
-      await invoke("media_control", { action: b.dataset.a });
-      setTimeout(poll, 250);
-    };
-  });
+  function item(m) {
+    const el = $("div", "m-item");
+    el.innerHTML = `
+      <span class="art" aria-hidden="true">${ICON.wave}</span>
+      <span class="stack meta"><span class="t-strong"></span><span class="t-sub"></span></span>
+      <button class="ctrl" data-a="prev" aria-label="Önceki">${ICON.prev}</button>
+      <button class="ctrl main" data-a="toggle" aria-label="Oynat/Duraklat">${m && m.playing ? ICON.pause : ICON.play}</button>
+      <button class="ctrl" data-a="next" aria-label="Sonraki">${ICON.next}</button>
+      <span class="progress" aria-hidden="true"><span></span></span>`;
+    el.querySelectorAll(".ctrl").forEach((b) => {
+      b.onclick = async (e) => {
+        e.stopPropagation();
+        if (!selected) return;
+        await invoke("media_control_id", { id: selected, action: b.dataset.a });
+        setTimeout(poll, 250);
+      };
+    });
+    return el;
+  }
 
-  async function poll() {
-    let m;
-    try { m = await invoke("media_state"); } catch { return; }
-    c.classList.toggle("idle", !m.active);
-    if (!m.active) {
+  function fill(el, m) {
+    const [title, artist] = [el.querySelector(".t-strong"), el.querySelector(".t-sub")];
+    if (!m) {
       title.textContent = "Çalan bir şey yok";
       artist.textContent = "";
-      art.style.backgroundImage = "";
-      art.classList.remove("has-img");
-      trackKey = "";
       return;
     }
     title.textContent = m.title || "Bilinmeyen parça";
-    artist.textContent = m.artist || m.source;
-    c.title = [m.title, m.artist, m.album].filter(Boolean).join(" — ");
-    toggle.innerHTML = m.playing ? ICON.pause : ICON.play;
-    bar.style.width = m.duration_ms > 0 ? `${(m.position_ms / m.duration_ms) * 100}%` : "0%";
-    if (m.track_key !== trackKey) {
-      trackKey = m.track_key;
-      const url = await invoke("media_thumbnail", { trackKey }).catch(() => null);
+    artist.textContent = m.artist || m.source.replace(/\.exe$/i, "").split("!").pop();
+    el.title = [m.title, m.artist, m.album].filter(Boolean).join(" — ");
+    el.querySelector(".ctrl.main").innerHTML = m.playing ? ICON.pause : ICON.play;
+    el.querySelector(".progress > span").style.width = m.duration_ms > 0 ? `${(m.position_ms / m.duration_ms) * 100}%` : "0%";
+    const art = el.querySelector(".art");
+    const k = `${m.id}\u0001${m.track_key}`;
+    const apply = (url) => {
       art.style.backgroundImage = url ? `url("${url}")` : "";
       art.classList.toggle("has-img", !!url);
+    };
+    if (thumbs.has(k)) apply(thumbs.get(k));
+    else {
+      thumbs.set(k, null);
+      invoke("media_thumbnail_id", { id: m.id, trackKey: m.track_key })
+        .then((url) => { thumbs.set(k, url); if (shownId === m.id) apply(url); })
+        .catch(() => {});
     }
   }
+
+  function show(m, dir) {
+    const prev = view.lastElementChild;
+    const same = prev && shownId === (m ? m.id : null);
+    if (same) return fill(prev, m);
+    const el = item(m);
+    fill(el, m);
+    shownId = m ? m.id : null;
+    if (!prev || !dir) {
+      view.replaceChildren(el);
+      return;
+    }
+    el.classList.add(dir > 0 ? "from-below" : "from-above");
+    view.append(el);
+    void el.offsetWidth;
+    el.classList.remove("from-below", "from-above");
+    prev.classList.add(dir > 0 ? "to-above" : "to-below");
+    setTimeout(() => prev.remove(), 380);
+  }
+
+  function renderDots() {
+    dots.replaceChildren();
+    if (sessions.length < 2) return;
+    for (const m of sessions) {
+      const d = $("span", m.id === selected ? "on" : "");
+      if (m.playing) d.classList.add("playing");
+      dots.append(d);
+    }
+  }
+
+  function step(dir) {
+    if (sessions.length < 2) return;
+    const i = Math.max(0, sessions.findIndex((m) => m.id === selected));
+    const next = sessions[(i + dir + sessions.length) % sessions.length];
+    selected = next.id;
+    pickedAt = Date.now();
+    show(next, dir);
+    renderDots();
+  }
+
+  async function poll() {
+    let list;
+    try { list = await invoke("media_list"); } catch { return; }
+    sessions = list.filter((m) => m.active);
+    c.classList.toggle("idle", !sessions.length);
+    c.classList.toggle("multi", sessions.length > 1);
+    if (!sessions.length) {
+      selected = null;
+      show(null);
+      renderDots();
+      return;
+    }
+    const keep = sessions.find((m) => m.id === selected);
+    const userRecent = Date.now() - pickedAt < 15000;
+    let pick = keep;
+    if (!userRecent || !keep) {
+      // Otomatik: çalanı (Windows'un "şu anki"sini önceleyerek) göster
+      pick = sessions.find((m) => m.playing && m.current) || sessions.find((m) => m.playing) || keep || sessions.find((m) => m.current) || sessions[0];
+    }
+    const oldIdx = sessions.findIndex((m) => m.id === selected);
+    const newIdx = sessions.findIndex((m) => m.id === pick.id);
+    selected = pick.id;
+    show(pick, shownId && shownId !== pick.id ? (newIdx >= oldIdx ? 1 : -1) : 0);
+    renderDots();
+  }
+
+  c.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    if (Math.abs(e.deltaY) < 4) return;
+    step(e.deltaY > 0 ? 1 : -1);
+  }, { passive: false });
+  dots.onclick = () => step(1);
+  c.title = "Birden çok oynatıcı varsa tekerlekle kaydır";
+
+  show(null);
   every(1000, whenVisible(poll));
+  return c;
+}
+
+// ---------------------------------------------------------------------------
+// Sistem kaynakları: CPU, RAM, GPU, Disk
+// ---------------------------------------------------------------------------
+function sysinfoWidget() {
+  const c = $("div", "cell w-sys");
+  const rows = [
+    ["cpu", "CPU"],
+    ["ram", "RAM"],
+    ["gpu", "GPU"],
+    ["disk", "Disk"],
+  ];
+  c.innerHTML = `<span class="sysgrid">${rows
+    .map(([k, l]) => `<span class="lbl">${l}</span><span class="track ${k}"><span></span></span><span class="val" data-k="${k}">–</span>`)
+    .join("")}</span>`;
+  const pct = (v) => (v < 0 ? "–" : `${Math.round(v)}%`);
+  every(1500, whenVisible(async () => {
+    let s;
+    try { s = await invoke("sys_stats"); } catch { return; }
+    for (const [k] of rows) {
+      const v = s[k];
+      c.querySelector(`.track.${k} > span`).style.width = `${Math.max(0, Math.min(100, v < 0 ? 0 : v))}%`;
+      c.querySelector(`.val[data-k="${k}"]`).textContent = pct(v);
+    }
+    c.title = `İşlemci %${Math.round(s.cpu)} · Bellek ${s.ram_used_gb.toFixed(1)} / ${s.ram_total_gb.toFixed(1)} GB · GPU ${pct(s.gpu)} · Disk ${pct(s.disk)}`;
+  }));
   return c;
 }
 
@@ -556,22 +673,27 @@ const SYS_ICON = {
   tray: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',
   quick: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor"/></svg>',
   notifications: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>',
-  taskbar: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 15.5h18M7 18h2M11 18h2"/></svg>',
+  taskview: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="8" height="14" rx="2"/><rect x="13" y="5" width="8" height="6" rx="2"/><rect x="13" y="13" width="8" height="6" rx="2"/></svg>',
 };
 
 function systemWidget() {
   const c = $("div", "cell sys");
   const items = [
-    ["tray", "Gizli simgeler (sistem tepsisi)"],
+    ["tray", "Arka planda çalışan uygulamalar (sistem tepsisi)"],
     ["quick", "Hızlı ayarlar: Wi-Fi, ses, parlaklık (Win+A)"],
-    ["notifications", "Bildirimler ve takvim (Win+N)"],
-    ["taskbar", "Klasik taskbar'ı birkaç saniye göster"],
+    ["notifications", "Bildirimler (Win+N)"],
+    ["taskview", "Görev görünümü: açık pencereler ve masaüstleri (Win+Tab)"],
   ];
   for (const [action, label] of items) {
     const b = $("button", "", SYS_ICON[action]);
     b.title = label;
     b.setAttribute("aria-label", label);
-    b.onclick = () => invoke("system_action", { action });
+    b.onclick = () => {
+      if (action === "tray") {
+        const r = b.getBoundingClientRect();
+        invoke("popover_open", { kind: "tray", key: "tray", anchor: r.left + r.width / 2, payload: null });
+      } else invoke("system_action", { action });
+    };
     c.append(b);
   }
   return c;
@@ -579,6 +701,7 @@ function systemWidget() {
 
 const WIDGETS = {
   system: systemWidget,
+  sysinfo: sysinfoWidget,
   lock: lockWidget,
   calendar: calendarWidget,
   mail: mailWidget,
@@ -643,7 +766,7 @@ async function mockInvoke(cmd, args) {
         accent: "#2F7BFF",
         show_running: true,
         display: { mode: "primary", selected: [], apps_per_monitor: false },
-        widgets: (params.get("widgets") || "calendar,screentime,ticker,media,system,clock,lock").split(","),
+        widgets: (params.get("widgets") || "calendar,screentime,ticker,media,sysinfo,system,clock,lock").split(","),
         dock_locked: params.get("locked") !== "0",
         ticker: { markets: ["USD", "EUR", "gram-altin"], news: true, feeds: ["https://news.google.com/rss"], interval_sec: Number(params.get("iv") || 6), news_per_round: 3 },
         pinned_resolved: ["Dosya Gezgini", "Chrome", "VS Code", "Spotify", "Telegram"].map((n) => ({
@@ -662,6 +785,13 @@ async function mockInvoke(cmd, args) {
       };
     case "screen_time":
       return { seconds: 6 * 3600 + 5 * 60, hours: [0,0,0,0,0,0,0,0,900,2400,3300,3000,1500,3600,2800,3400,2000,2600,0,0,0,0,0,0] };
+    case "media_list":
+      return [
+        { id: "Spotify.exe#0", current: true, active: true, title: "Gece Sürüşü", artist: "Örnek Sanatçı", album: "", playing: true, position_ms: 134000, duration_ms: 218000, source: "Spotify.exe", track_key: "a" },
+        { id: "Chrome#0", current: false, active: true, title: "Kurtlar Vadisi Pusu | 52. Bölüm", artist: "YouTube", album: "", playing: false, position_ms: 600000, duration_ms: 2400000, source: "Chrome", track_key: "b" },
+      ];
+    case "sys_stats":
+      return { cpu: 23, ram: 61, ram_used_gb: 9.7, ram_total_gb: 16, gpu: 8, disk: 3 };
     case "media_state":
       return { active: true, title: "Gece Sürüşü", artist: "Örnek Sanatçı", album: "", playing: true, position_ms: 134000, duration_ms: 218000, source: "Spotify.exe", track_key: "x" };
     case "fetch_text":

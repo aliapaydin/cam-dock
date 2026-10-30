@@ -42,8 +42,69 @@ pub struct ConfigView {
     pub log_path: String,
 }
 
+fn catalog(state: &AppState, refresh: bool) -> Vec<platform::CatalogApp> {
+    if !refresh {
+        if let Some(c) = state.catalog.lock().unwrap().as_ref() {
+            return c.clone();
+        }
+    }
+    let c = platform::catalog_apps();
+    *state.catalog.lock().unwrap() = Some(c.clone());
+    c
+}
+
+fn is_uri(path: &str) -> bool {
+    path.contains(':') && !path.contains(":\\")
+}
+
+/// Sabitlenen bir uygulama bu yolda yoksa (ör. Spotify/Telegram'ın Store sürümü
+/// ya da farklı klasöre kurulmuş hali) Windows uygulama kataloğunda adıyla ya
+/// da exe adıyla bulup yolu kalıcı olarak düzeltir.
+fn fix_missing_pinned(state: &AppState) {
+    let missing: Vec<usize> = {
+        let cfg = state.cfg.lock().unwrap();
+        cfg.pinned
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| {
+                let path = config::expand_env(&p.path);
+                !is_uri(&path) && !std::path::Path::new(&path).exists()
+            })
+            .map(|(i, _)| i)
+            .collect()
+    };
+    if missing.is_empty() {
+        return;
+    }
+    let cat = catalog(state, false);
+    let mut cfg = state.cfg.lock().unwrap();
+    let mut changed = false;
+    for i in missing {
+        let name = cfg.pinned[i].name.to_lowercase();
+        let file = config::expand_env(&cfg.pinned[i].path)
+            .rsplit('\\')
+            .next()
+            .unwrap_or("")
+            .to_lowercase();
+        let hit = cat
+            .iter()
+            .find(|a| a.name.to_lowercase() == name)
+            .or_else(|| (!file.is_empty()).then(|| cat.iter().find(|a| a.path.to_lowercase().ends_with(&format!("\\{file}")))).flatten())
+            .or_else(|| cat.iter().find(|a| a.name.to_lowercase().starts_with(&name)));
+        if let Some(a) = hit {
+            dlog!("sabitleme düzeltildi: {} → {}", cfg.pinned[i].path, a.path);
+            cfg.pinned[i].path = a.path.clone();
+            changed = true;
+        }
+    }
+    if changed {
+        config::save(&cfg);
+    }
+}
+
 #[tauri::command(async)]
 pub fn get_config(state: State<'_, AppState>) -> ConfigView {
+    fix_missing_pinned(&state);
     let cfg = state.cfg.lock().unwrap().clone();
     let pinned_resolved = cfg
         .pinned
@@ -241,7 +302,12 @@ pub fn close_window(hwnd: isize) {
 
 #[tauri::command(async)]
 pub fn launch_app(path: String, args: Option<String>) -> bool {
-    platform::launch(&config::expand_env(&path), args.as_deref())
+    let path = config::expand_env(&path);
+    if path.to_lowercase().starts_with("shell:") {
+        // Store uygulamaları ve katalog öğeleri
+        return platform::launch("explorer.exe", Some(&path));
+    }
+    platform::launch(&path, args.as_deref())
 }
 
 /// Bir uygulamanın ikonunu data URL olarak döndürür (önbellekli).
@@ -281,6 +347,86 @@ pub fn app_icon(
     if url.is_none() {
         dlog!("ikon bulunamadı: {path} {aumid}");
     }
+    url
+}
+
+/// Windows uygulama kataloğu (Başlat → Tüm uygulamalar; Store dahil).
+#[tauri::command(async)]
+pub fn catalog_apps(state: State<'_, AppState>, refresh: Option<bool>) -> Vec<platform::CatalogApp> {
+    catalog(&state, refresh.unwrap_or(false))
+}
+
+/// Dosya seçme penceresi; .lnk seçilirse hedef exe döner.
+#[tauri::command(async)]
+pub fn pick_app(window: WebviewWindow) -> Option<String> {
+    #[cfg(windows)]
+    let owner = window.hwnd().map(|h| h.0 as isize).unwrap_or(0);
+    #[cfg(not(windows))]
+    let owner = {
+        let _ = &window;
+        0
+    };
+    let path = platform::pick_app(owner)?;
+    if path.to_lowercase().ends_with(".lnk") {
+        if let Some(t) = platform::resolve_shortcut(&path) {
+            return Some(t);
+        }
+    }
+    Some(path)
+}
+
+#[tauri::command(async)]
+pub fn sys_stats(state: State<'_, AppState>) -> platform::SysStats {
+    *state.stats.lock().unwrap()
+}
+
+#[derive(Serialize)]
+pub struct TrayView {
+    pub name: String,
+    pub exe: String,
+    pub icon: Option<String>,
+    pub promoted: bool,
+}
+
+/// Tepside simgesi olan ve çalışan uygulamalar (kendi tepsi panelimiz için).
+#[tauri::command(async)]
+pub fn tray_apps() -> Vec<TrayView> {
+    platform::tray_apps()
+        .into_iter()
+        .map(|a| TrayView {
+            icon: a.icon.map(|b| format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(b))),
+            name: a.name,
+            exe: a.exe,
+            promoted: a.promoted,
+        })
+        .collect()
+}
+
+/// Tüm medya oturumları.
+#[tauri::command(async)]
+pub fn media_list() -> Vec<MediaState> {
+    platform::media_states()
+}
+
+#[tauri::command(async)]
+pub fn media_control_id(id: String, action: String) -> bool {
+    platform::media_control_id(&id, &action)
+}
+
+#[tauri::command(async)]
+pub fn media_thumbnail_id(state: State<'_, AppState>, id: String, track_key: String) -> Option<String> {
+    let key = format!("{id}\u{1}{track_key}");
+    {
+        let cache = state.thumb.lock().unwrap();
+        if cache.0 == key {
+            return cache.1.clone();
+        }
+    }
+    let url = platform::media_thumbnail_id(&id).map(|bytes| {
+        let mime = if bytes.starts_with(&[0x89, b'P', b'N', b'G']) { "image/png" } else { "image/jpeg" };
+        format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes))
+    });
+    *state.thumb.lock().unwrap() = (key, url.clone());
     url
 }
 
@@ -368,19 +514,11 @@ pub fn open_start() {
 
 /// Dock'taki sistem düğmeleri.
 #[tauri::command(async)]
-pub fn system_action(app: AppHandle, action: String) {
+pub fn system_action(action: String) {
     match action.as_str() {
         "quick" => platform::win_combo('A'),
         "notifications" => platform::win_combo('N'),
-        "taskbar" => docks::start_peek(&app, 4),
-        "tray" => {
-            // Taskbar'ı göster, tepsiye odaklan (Win+B), gizli simgeleri aç (Enter).
-            docks::start_peek(&app, 6);
-            std::thread::sleep(std::time::Duration::from_millis(250));
-            platform::win_combo('B');
-            std::thread::sleep(std::time::Duration::from_millis(180));
-            platform::press_enter();
-        }
+        "taskview" => platform::win_combo_tab(),
         _ => {}
     }
 }

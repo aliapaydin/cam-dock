@@ -153,12 +153,12 @@ impl Default for Config {
                 p("Spotify", "%APPDATA%\\Spotify\\Spotify.exe"),
                 p("Telegram", "%APPDATA%\\Telegram Desktop\\Telegram.exe"),
             ],
-            widgets: ["calendar", "screentime", "ticker", "media", "system", "clock", "lock"]
+            widgets: ["calendar", "screentime", "ticker", "media", "sysinfo", "system", "clock", "lock"]
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
             ticker: Ticker::default(),
-            migrations: 2,
+            migrations: 3,
         }
     }
 }
@@ -210,6 +210,15 @@ pub fn load() -> Config {
                     cfg.widgets.push("lock".into());
                 }
                 cfg.migrations = 2;
+                save(&cfg);
+            }
+            // v0.7: sistem kaynakları hücresi
+            if cfg.migrations < 3 {
+                if !cfg.widgets.iter().any(|w| w == "sysinfo") {
+                    let at = cfg.widgets.iter().position(|w| w == "media").map(|i| i + 1).unwrap_or(cfg.widgets.len());
+                    cfg.widgets.insert(at, "sysinfo".into());
+                }
+                cfg.migrations = 3;
                 save(&cfg);
             }
             cfg

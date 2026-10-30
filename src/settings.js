@@ -36,8 +36,9 @@ const WIDGETS = [
   { id: "calendar", name: "Takvim", desc: "Bugünün tarihi. Etkinlikler Faz 2'de bağlanacak." },
   { id: "screentime", name: "Ekran süresi", desc: "Bugün bilgisayar başında geçen aktif süre." },
   { id: "ticker", name: "Piyasa ve haberler", desc: "Dolar, euro, gram altın ve haber başlıkları dönüşümlü." },
-  { id: "media", name: "Müzik", desc: "Spotify, YouTube ve diğer oynatıcılar için kontroller." },
-  { id: "system", name: "Sistem düğmeleri", desc: "Gizli simgeler, hızlı ayarlar, bildirimler ve klasik taskbar." },
+  { id: "media", name: "Müzik", desc: "Spotify, YouTube ve diğer oynatıcılar; birden çoksa tekerlekle kaydır." },
+  { id: "sysinfo", name: "Sistem kaynakları", desc: "CPU, RAM, GPU ve disk kullanımı." },
+  { id: "system", name: "Sistem düğmeleri", desc: "Arka plan uygulamaları (tepsi), hızlı ayarlar, bildirimler, görev görünümü." },
   { id: "clock", name: "Saat", desc: "Saat ve tarih." },
   { id: "lock", name: "Kilit düğmesi", desc: "Dock'u kilitle (hep görünür) ya da otomatik gizle." },
   { id: "mail", name: "Mail", desc: "Önizleme — örnek veri.", preview: true },
@@ -146,6 +147,12 @@ function bind() {
 
   // Uygulama arama ve elle ekleme
   $("#app-search").oninput = renderResults;
+  $("#browse").onclick = async () => {
+    const path = await invoke("pick_app").catch(() => null);
+    if (!path) return;
+    const name = path.split(/[\\/]/).pop().replace(/\.(exe|lnk)$/i, "");
+    addPinned(name.charAt(0).toUpperCase() + name.slice(1), path);
+  };
   $("#m-add").onclick = async () => {
     const name = $("#m-name").value.trim();
     let path = $("#m-path").value.trim().replace(/^"|"$/g, "");
@@ -315,10 +322,11 @@ function toggleMonitor(m) {
 // Uygulamalar
 // ---------------------------------------------------------------------------
 const iconCache = new Map();
-function icon(path, name) {
+function icon(path, name, aumid) {
   const holder = el("span", "ph", esc((name || "?").slice(0, 1).toUpperCase()));
-  const key = path.toLowerCase();
-  if (!iconCache.has(key)) iconCache.set(key, invoke("app_icon", { path }).catch(() => null));
+  const key = (aumid || path).toLowerCase();
+  if (!aumid && path.toLowerCase().startsWith("shell:appsfolder\\")) aumid = path.slice(17).includes("!") ? path.slice(17) : null;
+  if (!iconCache.has(key)) iconCache.set(key, invoke("app_icon", { path, aumid: aumid || null, hwnd: null }).catch(() => null));
   iconCache.get(key).then((url) => {
     if (!url) return;
     const img = new Image();
@@ -379,7 +387,7 @@ function addPinned(name, path) {
 async function loadStartApps() {
   if (startApps) return;
   $("#results").replaceChildren(el("div", "empty", "Başlat menüsü taranıyor…"));
-  startApps = await invoke("start_menu_apps").catch(() => []);
+  startApps = await invoke("catalog_apps").catch(() => []);
   renderResults();
 }
 
@@ -395,8 +403,8 @@ function renderResults() {
   }
   for (const a of hits) {
     const row = el("div", "item");
-    row.append(icon(a.path, a.name));
-    row.append(el("div", "grow", `<strong>${esc(a.name)}</strong><small>${esc(a.path)}</small>`));
+    row.append(icon(a.path, a.name, a.aumid));
+    row.append(el("div", "grow", `<strong>${esc(a.name)}</strong><small>${esc(a.aumid ? "Microsoft Store uygulaması" : a.path)}</small>`));
     if (isPinned(a.path)) {
       row.append(el("span", "tag", "Sabitli"));
     } else {
@@ -510,8 +518,8 @@ async function mockInvoke(cmd) {
         { name: "\\\\.\\DISPLAY1", title: "Ekran 1", width: 2560, height: 1440, scale: 1.25, primary: true, rect: [0, 0, 2560, 1440] },
         { name: "\\\\.\\DISPLAY2", title: "Ekran 2", width: 1920, height: 1080, scale: 1, primary: false, rect: [2560, 200, 4480, 1280] },
       ];
-    case "start_menu_apps":
-      return ["Excel", "Figma", "Notion", "Outlook", "Power BI Desktop", "Slack", "Teams", "Word"].map((n) => ({ name: n, path: `C:\\Apps\\${n}.exe`, shortcut: "" }));
+    case "catalog_apps":
+      return ["Excel", "Figma", "Notion", "Outlook", "Power BI Desktop", "Spotify", "Teams", "WhatsApp"].map((n, i) => ({ name: n, path: i % 3 === 2 ? `shell:AppsFolder\\${n}!App` : `C:\\Apps\\${n}.exe`, aumid: i % 3 === 2 ? `${n}!App` : "" }));
     default:
       return null;
   }

@@ -1,4 +1,4 @@
-# Cam Dock — v0.6
+# Cam Dock — v0.7
 
 Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebView2) ile yazıldı.
 
@@ -11,7 +11,10 @@ Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebVi
 | Gerçek cam efekti (Windows Acrylic) + koyu/açık tema, sistem temasını takip | ✅ |
 | Sabitlenmiş uygulamalar + açık pencereler, gerçek ikonlar, tıkla öne getir/küçült | ✅ |
 | Başlat düğmesi (Başlat menüsünü açar) | ✅ |
-| Müzik: Spotify, YouTube, Apple Music… (Windows medya oturumu), kapak, oynat/duraklat/ileri/geri | ✅ |
+| Müzik: Spotify, YouTube, Apple Music… kapak, oynat/duraklat/ileri/geri; **birden çok oynatıcıda tekerlekle dikey kaydırma** | ✅ |
+| **Sistem kaynakları**: CPU, RAM, GPU, Disk çubukları | ✅ |
+| **Klasik taskbar hiç görünmez**: tüm ekranlarda gizli, Windows göstermeye kalkarsa anında geri gizlenir | ✅ |
+| **Uygulama kataloğu**: Store sürümleri dahil tüm yüklü uygulamalar; bulunamayan sabitlemeler adıyla otomatik düzeltilir; Gözat ile dosya seçme | ✅ |
 | Ekran süresi (2 dk'dan uzun boşta kalınan süre sayılmaz) + saatlik çubuklar | ✅ |
 | **Piyasa ve haberler**: dolar, euro, gram altın (Truncgil) ve RSS haber başlıkları dönüşümlü kayar; habere tıklayınca tarayıcıda açılır | ✅ |
 | Tarih / saat | ✅ |
@@ -104,7 +107,8 @@ Elle: Ayarlar → Kişiselleştirme → Görev çubuğu → Görev çubuğu davr
 
 ## Bilinen sınırlamalar
 
-- **Sistem düğmeleri** (saatin solunda): gizli simgeler (tepsi taşma menüsü), hızlı ayarlar (`Win + A`), bildirimler (`Win + N`) ve klasik taskbar'ı birkaç saniye gösterme. Taskbar, üzerinde ya da menüsü açıkken gizlenmez.
+- **Sistem düğmeleri**: arka planda çalışan (tepsideki) uygulamalar paneli, hızlı ayarlar (`Win + A`), bildirimler (`Win + N`), görev görünümü (`Win + Tab`).
+- Windows 11'in kendi "gizli simgeler" menüsü klasik taskbar'a bağlı olduğu için açılamıyor; dock'taki tepsi paneli Windows'un tepsi kaydından (NotifyIconSettings) çalışan uygulamaları listeler. Tıklamak uygulamayı yeniden başlatır (tek örnekli uygulamalarda penceresini açar); tepsi simgesinin sağ tık menüsü yoktur.
 - Cam efekti Windows Composition ile yapılıyor (`HostBackdropBrush` + yuvarlak kırpma), böylece köşeler gerçekten yuvarlak. Kurulamazsa eski yönteme (`SetWindowCompositionAttribute`) düşer; bu durum tanılama kaydına yazılır.
 - Windows ayarlarında **Saydamlık efektleri** kapalıysa cam görünmez.
 - Tanılama kaydı: `%APPDATA%\com.ali.camdock\dock.log` (Ayarlar → Hakkında → Tanılama kaydı).

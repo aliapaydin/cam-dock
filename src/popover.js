@@ -54,6 +54,7 @@ async function show(s) {
   await applyTheme();
   panel.replaceChildren();
   if (s.kind === "calendar") renderCalendar();
+  else if (s.kind === "tray") await renderTray();
   else renderWindows(s.payload);
   relayout();
 }
@@ -121,6 +122,43 @@ function sendThumbs() {
     return { hwnd: Number(c.dataset.hwnd), x: r.left + 4, y: r.top + 4, w: r.width - 8, h: r.height - 8 };
   });
   invoke("popover_thumbs", { items, serial }).catch(() => {});
+}
+
+// ---------------------------------------------------------------------------
+// Sistem tepsisi: arka planda çalışan uygulamalar
+// ---------------------------------------------------------------------------
+async function renderTray() {
+  const apps = await invoke("tray_apps").catch(() => []);
+  const head = el("div", "win-head");
+  head.append(el("div", "", `<strong>Arka planda çalışanlar</strong> <span>· ${apps.length}</span>`));
+  panel.append(head);
+  if (!apps.length) {
+    panel.append(el("div", "tray-empty", "Tepside çalışan uygulama bulunamadı."));
+  } else {
+    const grid = el("div", "tray-grid");
+    // Öne çıkarılmış (taskbar'da görünen) simgeler önce
+    apps.sort((a, b) => Number(b.promoted) - Number(a.promoted));
+    for (const a of apps) {
+      const t = el("button", "tray-app");
+      t.title = `${a.name}\n${a.exe}`;
+      t.setAttribute("aria-label", a.name);
+      if (a.icon) t.append(Object.assign(new Image(), { src: a.icon, alt: "" }));
+      else t.append(el("span", "glyph", esc(a.name.slice(0, 1).toUpperCase())));
+      t.append(el("span", "nm", esc(a.name)));
+      t.onclick = () => {
+        // Çoğu tepsi uygulaması tek örnekli: yeniden başlatmak penceresini açar.
+        invoke("launch_app", { path: a.exe });
+        invoke("popover_close");
+      };
+      grid.append(t);
+    }
+    panel.append(grid);
+  }
+  const foot = el("div", "tray-foot");
+  const set = el("button", "", "Bildirim alanı ayarları");
+  set.onclick = () => { invoke("launch_app", { path: "ms-settings:taskbar" }); invoke("popover_close"); };
+  foot.append(set);
+  panel.append(foot);
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +301,10 @@ async function mockInvoke(cmd) {
           ],
         },
       };
+    if (q.get("kind") === "tray") return { kind: "tray", serial: 1, key: "tray", payload: null };
     return { kind: "calendar", serial: 1, key: "cal", payload: null };
   }
+  if (cmd === "tray_apps")
+    return ["Steam", "Discord", "OneDrive", "Telegram", "NVIDIA", "Bluetooth"].map((n, i) => ({ name: n, exe: `C:\\${n}.exe`, icon: null, promoted: i < 2 }));
   return null;
 }

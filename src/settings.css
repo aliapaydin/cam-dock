@@ -221,8 +221,8 @@ input[type="range"] { width: 220px; accent-color: var(--accent); flex: 0 0 auto;
 .icon-btn:disabled { opacity: .3; }
 .empty { padding: 18px; color: var(--text-3); font-size: 13px; text-align: center; }
 
-.search { padding: 12px; border-bottom: 1px solid var(--line); }
-.search input { width: 100%; }
+.search { padding: 12px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; }
+.search input { flex: 1; min-width: 0; }
 .results { max-height: 280px; overflow-y: auto; }
 .results .item { cursor: default; }
 .results .item:hover { background: var(--hover); }

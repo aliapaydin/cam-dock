@@ -245,7 +245,7 @@ button.cell:hover { background: var(--cell-hover); }
 .w-calendar { width: 262px; box-sizing: border-box; }
 .w-screen { width: 214px; box-sizing: border-box; justify-content: flex-start; }
 .w-screen .stack { flex: 1; }
-.media { width: 452px; box-sizing: border-box; }
+.media { width: 376px; box-sizing: border-box; padding: 0 !important; }
 .media .meta { flex: 1; width: auto; }
 .clock { width: 104px; box-sizing: border-box; justify-content: flex-end; }
 
@@ -373,3 +373,41 @@ button.cell.w-calendar { font: inherit; color: inherit; }
 }
 .lock:hover { background: var(--cell-hover); color: var(--text); }
 .lock.on { color: var(--accent); }
+
+/* Medya kaydırıcı */
+.m-view { position: relative; flex: 1; height: 100%; overflow: hidden; }
+.m-item {
+  position: absolute; inset: 0; display: flex; align-items: center; gap: 10px; padding: 0 10px;
+  transition: transform .36s cubic-bezier(.2,.8,.2,1), opacity .36s ease;
+}
+.m-item .ctrl { width: 30px; height: 30px; }
+.m-item .ctrl.main { width: 36px; height: 36px; }
+.m-item.from-below { transform: translateY(80%); opacity: 0; transition: none; }
+.m-item.from-above { transform: translateY(-80%); opacity: 0; transition: none; }
+.m-item.to-above { transform: translateY(-80%); opacity: 0; }
+.m-item.to-below { transform: translateY(80%); opacity: 0; }
+.media.idle .m-item .ctrl, .media.idle .m-item .progress { display: none; }
+.m-dots { display: none; flex-direction: column; justify-content: center; gap: 4px; padding-right: 7px; }
+.media.multi .m-dots { display: flex; }
+.m-dots span { width: 4px; height: 4px; border-radius: 2px; background: var(--text-3); opacity: .5; transition: height .2s, opacity .2s, background .2s; }
+.m-dots span.playing { opacity: .85; }
+.m-dots span.on { height: 12px; opacity: 1; background: var(--accent); }
+
+/* Sistem kaynakları */
+.w-sys { width: 198px; box-sizing: border-box; padding: 0 12px; }
+.sysgrid {
+  display: grid; grid-template-columns: 30px 1fr 30px; column-gap: 7px; row-gap: 3px; width: 100%;
+  align-items: center; font-size: 10.5px; line-height: 1.1;
+}
+.sysgrid .lbl { font-weight: 700; color: var(--text-2); letter-spacing: .02em; }
+.sysgrid .val { font-weight: 700; text-align: right; }
+.sysgrid .track { height: 5px; }
+.sysgrid .track > span { transition: width .6s ease; }
+.track.cpu > span { background: #5B9BFF; }
+.track.ram > span { background: #A78BFA; }
+.track.gpu > span { background: #34D399; }
+.track.disk > span { background: #FBBF24; }
+[data-theme="light"] .track.cpu > span { background: #1D5FD6; }
+[data-theme="light"] .track.ram > span { background: #7C3AED; }
+[data-theme="light"] .track.gpu > span { background: #15803D; }
+[data-theme="light"] .track.disk > span { background: #B45309; }

@@ -5,6 +5,7 @@
 
 pub mod appbar;
 pub mod backdrop;
+pub mod catalog;
 pub mod glass;
 pub mod icons;
 pub mod input;
@@ -12,8 +13,10 @@ pub mod media;
 pub mod monitor;
 pub mod shortcut;
 pub mod subclass;
+pub mod sysinfo;
 pub mod taskbar;
 pub mod thumbs;
+pub mod tray;
 pub mod winlist;
 
 use windows::Win32::Foundation::HWND;

@@ -21,7 +21,35 @@ pub struct StartApp {
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
+pub struct CatalogApp {
+    pub name: String,
+    pub path: String,
+    pub aumid: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Default)]
+pub struct SysStats {
+    pub cpu: f32,
+    pub ram: f32,
+    pub ram_used_gb: f32,
+    pub ram_total_gb: f32,
+    pub gpu: f32,
+    pub disk: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct TrayApp {
+    pub name: String,
+    pub exe: String,
+    #[serde(skip)]
+    pub icon: Option<Vec<u8>>,
+    pub promoted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct MediaState {
+    pub id: String,
+    pub current: bool,
     pub active: bool,
     pub title: String,
     pub artist: String,
@@ -147,6 +175,8 @@ mod imp {
     pub fn media_state() -> MediaState {
         match media::state() {
             Ok(m) => MediaState {
+                id: m.id,
+                current: m.current,
                 active: m.active,
                 title: m.title,
                 artist: m.artist,
@@ -163,6 +193,68 @@ mod imp {
     pub fn media_thumbnail() -> Option<Vec<u8>> {
         media::thumbnail().ok().flatten()
     }
+    pub fn media_states() -> Vec<MediaState> {
+        media::states()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|m| MediaState {
+                id: m.id,
+                current: m.current,
+                active: m.active,
+                title: m.title,
+                artist: m.artist,
+                album: m.album,
+                playing: m.playing,
+                position_ms: m.position_ms,
+                duration_ms: m.duration_ms,
+                source: m.source,
+                track_key: m.track_key,
+            })
+            .collect()
+    }
+    pub fn media_control_id(id: &str, action: &str) -> bool {
+        media::control_id(id, action).unwrap_or(false)
+    }
+    pub fn media_thumbnail_id(id: &str) -> Option<Vec<u8>> {
+        media::thumbnail_id(id).ok().flatten()
+    }
+    /// Katalog COM (STA) ister: kendi iş parçacığında çalıştır.
+    pub fn catalog_apps() -> Vec<CatalogApp> {
+        std::thread::spawn(|| {
+            catalog::apps()
+                .into_iter()
+                .map(|a| CatalogApp { name: a.name, path: a.path, aumid: a.aumid })
+                .collect()
+        })
+        .join()
+        .unwrap_or_default()
+    }
+    pub fn pick_app(owner: isize) -> Option<String> {
+        catalog::pick_app(owner)
+    }
+    pub fn tray_apps() -> Vec<TrayApp> {
+        tray::running_apps()
+            .into_iter()
+            .map(|a| TrayApp { name: a.name, exe: a.exe, icon: a.icon, promoted: a.promoted })
+            .collect()
+    }
+    /// Ana iş parçacığında çağrılmalı.
+    pub fn install_taskbar_hook() -> bool {
+        taskbar::install_hook()
+    }
+    pub fn taskbar_hook_current() -> bool {
+        taskbar::hook_current()
+    }
+    pub struct Sampler(sysinfo::Sampler);
+    impl Sampler {
+        pub fn new() -> Self {
+            Sampler(sysinfo::Sampler::new())
+        }
+        pub fn sample(&mut self) -> SysStats {
+            let s = self.0.sample();
+            SysStats { cpu: s.cpu, ram: s.ram, ram_used_gb: s.ram_used_gb, ram_total_gb: s.ram_total_gb, gpu: s.gpu, disk: s.disk }
+        }
+    }
     pub fn media_control(action: &str) -> bool {
         media::control(action).unwrap_or(false)
     }
@@ -172,17 +264,8 @@ mod imp {
     pub fn win_combo(letter: char) {
         input::win_combo(letter)
     }
-    pub fn press_enter() {
-        input::press_enter()
-    }
-    pub fn taskbar_peek() -> Option<Rect> {
-        taskbar::peek().map(t)
-    }
-    pub fn taskbar_rect() -> Option<Rect> {
-        taskbar::main_rect().map(t)
-    }
-    pub fn foreground_class() -> String {
-        monitor::foreground_class()
+    pub fn win_combo_tab() {
+        input::win_tab()
     }
     pub fn idle_ms() -> u32 {
         input::idle_ms()
@@ -289,21 +372,45 @@ mod imp {
     pub fn media_thumbnail() -> Option<Vec<u8>> {
         None
     }
+    pub fn media_states() -> Vec<MediaState> {
+        Vec::new()
+    }
+    pub fn media_control_id(_id: &str, _action: &str) -> bool {
+        false
+    }
+    pub fn media_thumbnail_id(_id: &str) -> Option<Vec<u8>> {
+        None
+    }
+    pub fn catalog_apps() -> Vec<CatalogApp> {
+        Vec::new()
+    }
+    pub fn pick_app(_owner: isize) -> Option<String> {
+        None
+    }
+    pub fn tray_apps() -> Vec<TrayApp> {
+        Vec::new()
+    }
+    pub fn install_taskbar_hook() -> bool {
+        false
+    }
+    pub fn taskbar_hook_current() -> bool {
+        true
+    }
+    pub struct Sampler;
+    impl Sampler {
+        pub fn new() -> Self {
+            Sampler
+        }
+        pub fn sample(&mut self) -> SysStats {
+            SysStats::default()
+        }
+    }
     pub fn media_control(_action: &str) -> bool {
         false
     }
     pub fn open_start() {}
     pub fn win_combo(_letter: char) {}
-    pub fn press_enter() {}
-    pub fn taskbar_peek() -> Option<Rect> {
-        None
-    }
-    pub fn taskbar_rect() -> Option<Rect> {
-        None
-    }
-    pub fn foreground_class() -> String {
-        String::new()
-    }
+    pub fn win_combo_tab() {}
     pub fn idle_ms() -> u32 {
         0
     }
