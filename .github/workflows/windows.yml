@@ -43,13 +43,25 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           REPO: aliapaydin/cam-dock-releases
         run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
           if (-not $env:GH_TOKEN) { Write-Host "RELEASES_TOKEN yok, yayın atlandı"; exit 0 }
           $ver = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           $tag = "v$ver"
+          $repoInfo = gh api "repos/$env:REPO" 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error title=Yayın deposuna erişilemedi::$env:REPO okunamadı. Anahtarın bu depoya erişimi var mı? $($repoInfo -join ' ')"
+            exit 1
+          }
           gh release view $tag --repo $env:REPO *> $null
           if ($LASTEXITCODE -eq 0) { Write-Host "$tag zaten yayınlanmış"; exit 0 }
           $setup = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          if (-not $setup) { Write-Host "::error title=Kurulum dosyası yok::NSIS çıktısı bulunamadı"; exit 1 }
           $notes = (git log -1 --pretty=%B) -join "`n"
           $notes = ($notes -split "`n" | Where-Object { $_ -notmatch '^(Co-Authored-By|Claude-Session):' }) -join "`n"
-          gh release create $tag $setup.FullName --repo $env:REPO --title "Cam Dock $ver" --notes $notes
-          exit $LASTEXITCODE
+          $out = gh release create $tag $setup.FullName --repo $env:REPO --title "Cam Dock $ver" --notes $notes 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error title=Sürüm oluşturulamadı::$($out -join ' ')"
+            exit 1
+          }
+          Write-Host "::notice title=Yayınlandı::$tag → $env:REPO"
