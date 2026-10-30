@@ -1,4 +1,4 @@
-# Cam Dock — v0.5
+# Cam Dock — v0.6
 
 Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebView2) ile yazıldı.
 
@@ -21,8 +21,12 @@ Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebVi
 | **Çoklu ekran**: sadece ana ekran / tüm ekranlar / seçili ekranlar, ekran takıp çıkarınca otomatik uyum | ✅ |
 | Her dock yalnızca kendi ekranındaki pencereleri gösterebilir | ✅ |
 | Başlat menüsünden arayıp uygulama sabitleme, sıralama | ✅ |
-| Takvim etkinlikleri, mail, Claude kullanımı | ⏳ Faz 2 (mail ve Claude şimdilik örnek verili önizleme olarak açılabilir) |
-| Açılır paneller (takvim, müzik) | ⏳ Faz 2 |
+| **Takvim paneli**: takvim hücresine tıkla; ay görünümü, hafta numaraları, Türkiye resmî tatilleri, yaklaşan tatiller | ✅ |
+| **Pencere önizlemeleri**: birden çok pencereli uygulamanın üstüne gelince canlı küçük resimler; tıkla öne getir, × ile kapat | ✅ |
+| **Kilit düğmesi**: kilitli = hep görünür, pencereler altına girmez; açık = otomatik gizle, pencereler tüm ekranı kaplar | ✅ |
+| Simgeye tıkla: öndeyse küçült, tekrar tıkla eski konumuna getir; açık uygulamaların sırası sabit | ✅ |
+| Başlat menüsü, arama, hızlı ayarlar açıkken dock gizlenmez | ✅ |
+| Takvim etkinlikleri (Outlook/Google), mail, Claude kullanımı | ⏳ Sonraki aşama |
 
 ## Kurulum (bir kerelik)
 

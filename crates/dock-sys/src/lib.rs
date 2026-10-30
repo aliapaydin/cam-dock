@@ -13,6 +13,7 @@ pub mod monitor;
 pub mod shortcut;
 pub mod subclass;
 pub mod taskbar;
+pub mod thumbs;
 pub mod winlist;
 
 use windows::Win32::Foundation::HWND;

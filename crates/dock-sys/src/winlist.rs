@@ -17,7 +17,8 @@ use windows::Win32::System::Threading::{
 };
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumChildWindows, EnumWindows, GetForegroundWindow, GetWindow, GetWindowLongPtrW,
+    BringWindowToTop, EnumChildWindows, EnumWindows, GetAncestor, GetForegroundWindow, GetWindow,
+    GetWindowLongPtrW, GA_ROOTOWNER,
     GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
     PostMessageW, SetForegroundWindow, ShowWindow, GWL_EXSTYLE, GW_OWNER, SW_MINIMIZE, SW_RESTORE,
     SW_SHOWNORMAL, WM_CLOSE, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
@@ -224,6 +225,84 @@ pub fn list(exclude: &[isize]) -> Vec<AppWindow> {
         let _ = EnumWindows(Some(enum_cb), LPARAM(&mut ctx as *mut _ as isize));
     }
     ctx.out
+}
+
+/// Bizim küçülttüğümüz son pencereler (geri getirirken aynısını seçmek için).
+static RECENT_MIN: std::sync::Mutex<Vec<isize>> = std::sync::Mutex::new(Vec::new());
+
+fn remember_min(h: isize) {
+    let mut v = RECENT_MIN.lock().unwrap();
+    v.retain(|x| *x != h);
+    v.push(h);
+    if v.len() > 64 {
+        v.remove(0);
+    }
+}
+
+fn focus(h: HWND) {
+    unsafe {
+        if !SetForegroundWindow(h).as_bool() {
+            crate::input::tap_alt();
+            let _ = SetForegroundWindow(h);
+        }
+        let _ = BringWindowToTop(h);
+    }
+}
+
+/// Bir uygulamanın (birden çok penceresi olabilir) dock simgesine tıklama:
+/// - Uygulama öndeyse → öndeki penceresini küçült.
+/// - Hiç görünür penceresi yoksa → en son küçültüleni eski konumuna getir.
+/// - Görünür ama arkadaysa → öne getir.
+/// `windows` Z sırasına göre (en üstteki ilk), `last_foreground` dock'a
+/// tıklanmadan önceki ön plan penceresi.
+pub fn activate_group(windows: &[isize], last_foreground: isize) {
+    if windows.is_empty() {
+        return;
+    }
+    unsafe {
+        let fg_root = raw(GetAncestor(hwnd(last_foreground), GA_ROOTOWNER));
+        let active = windows
+            .iter()
+            .copied()
+            .find(|w| *w == last_foreground || (fg_root != 0 && *w == fg_root));
+        if let Some(a) = active {
+            if !IsIconic(hwnd(a)).as_bool() {
+                let _ = ShowWindow(hwnd(a), SW_MINIMIZE);
+                remember_min(a);
+                return;
+            }
+        }
+        let visible: Vec<isize> = windows
+            .iter()
+            .copied()
+            .filter(|w| !IsIconic(hwnd(*w)).as_bool())
+            .collect();
+        if let Some(&top) = visible.first() {
+            focus(hwnd(top));
+            return;
+        }
+        // Hepsi küçültülmüş: en son bizim küçülttüğümüzü (yoksa ilkini) geri getir.
+        let recent = RECENT_MIN.lock().unwrap().clone();
+        let target = recent
+            .iter()
+            .rev()
+            .copied()
+            .find(|h| windows.contains(h))
+            .unwrap_or(windows[0]);
+        let _ = ShowWindow(hwnd(target), SW_RESTORE);
+        focus(hwnd(target));
+    }
+}
+
+/// Tek bir pencereyi öne getirir (önizleme kartına tıklama).
+pub fn bring_front(window: isize) {
+    unsafe {
+        let h = hwnd(window);
+        if IsIconic(h).as_bool() {
+            let _ = ShowWindow(h, SW_RESTORE);
+        }
+        focus(h);
+    }
 }
 
 /// Taskbar gibi davranır: küçültülmüşse geri getir, zaten öndeyse küçült,

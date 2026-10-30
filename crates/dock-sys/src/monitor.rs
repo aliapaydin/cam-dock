@@ -214,3 +214,44 @@ pub fn foreground_class() -> String {
 pub fn is_visible(h: isize) -> bool {
     unsafe { IsWindowVisible(hwnd(h)).as_bool() }
 }
+
+/// Ön planda Başlat menüsü, arama, hızlı ayarlar, bildirim merkezi, tepsi menüsü
+/// gibi bir kabuk paneli mi açık? (Açıkken dock otomatik gizlenmesin.)
+pub fn foreground_is_shell_flyout() -> bool {
+    let fg = foreground();
+    if fg == 0 {
+        return false;
+    }
+    let class = class_name(fg);
+    if matches!(
+        class.as_str(),
+        "Shell_TrayWnd"
+            | "Shell_SecondaryTrayWnd"
+            | "NotifyIconOverflowWindow"
+            | "TopLevelWindowForOverflowXamlIsland"
+            | "Xaml_WindowedPopupClass"
+            | "#32768"
+            | "Shell_InputSwitchTopLevelWindow"
+            | "ControlCenterWindow"
+    ) {
+        return true;
+    }
+    if class == "Windows.UI.Core.CoreWindow" {
+        let mut pid = 0u32;
+        unsafe {
+            windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(hwnd(fg), Some(&mut pid));
+        }
+        if let Some(exe) = crate::winlist::exe_of_pid(pid) {
+            let name = exe.rsplit('\\').next().unwrap_or("").to_ascii_lowercase();
+            return matches!(
+                name.as_str(),
+                "startmenuexperiencehost.exe"
+                    | "searchhost.exe"
+                    | "searchapp.exe"
+                    | "shellexperiencehost.exe"
+                    | "shellhost.exe"
+            );
+        }
+    }
+    false
+}

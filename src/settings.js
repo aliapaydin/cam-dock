@@ -39,6 +39,7 @@ const WIDGETS = [
   { id: "media", name: "Müzik", desc: "Spotify, YouTube ve diğer oynatıcılar için kontroller." },
   { id: "system", name: "Sistem düğmeleri", desc: "Gizli simgeler, hızlı ayarlar, bildirimler ve klasik taskbar." },
   { id: "clock", name: "Saat", desc: "Saat ve tarih." },
+  { id: "lock", name: "Kilit düğmesi", desc: "Dock'u kilitle (hep görünür) ya da otomatik gizle." },
   { id: "mail", name: "Mail", desc: "Önizleme — örnek veri.", preview: true },
   { id: "claude", name: "Claude kullanımı", desc: "Önizleme — örnek veri.", preview: true },
 ];
@@ -87,10 +88,18 @@ async function save() {
 // ---------------------------------------------------------------------------
 function bind() {
   // Tek seçimli düğme grupları
-  for (const group of $$(".seg[data-bind], .choices[data-bind], .radios[data-bind]")) {
+  for (const group of $$(".seg[data-bind], .radios[data-bind]")) {
     for (const b of $$("button[data-v]", group)) {
       b.onclick = () => set(group.dataset.bind, b.dataset.v);
     }
+  }
+  // "Her zaman görünür" = kilitli; diğerleri kilit açıkken kullanılacak mod.
+  for (const b of $$(".choices[data-bind] button[data-v]")) {
+    b.onclick = () => {
+      if (b.dataset.v === "always") cfg.dock_locked = true;
+      else { cfg.dock_visibility = b.dataset.v; cfg.dock_locked = false; }
+      changed();
+    };
   }
   for (const input of $$("input[type=checkbox][data-bind]")) {
     input.onchange = () => set(input.dataset.bind, input.checked);
@@ -180,12 +189,14 @@ function refresh() {
   $("#margin-val").textContent = `${cfg.bottom_margin} px`;
   $("#delay-val").textContent = `${(cfg.hide_delay_ms / 1000).toLocaleString("tr-TR")} sn sonra gizlenir`;
 
-  const always = cfg.dock_visibility === "always";
+  const effective = cfg.dock_locked ? "always" : cfg.dock_visibility === "always" ? "autohide" : cfg.dock_visibility;
+  $$(".choices button[data-v]").forEach((b) => b.classList.toggle("on", b.dataset.v === effective));
+  const always = effective === "always";
   $("#delay-row").classList.toggle("disabled", always);
   $("#reserve-row").classList.toggle("disabled", !always);
   $("#reserve-desc").textContent = always
     ? "Maximize edilen pencereler dock'un altına girmez."
-    : "Yalnızca \"Her zaman görünür\" modunda geçerli.";
+    : "Yalnızca dock kilitliyken (\"Her zaman görünür\") geçerli.";
 
   $("#iv-val").textContent = `${cfg.ticker.interval_sec} saniye`;
   $("#npr-val").textContent = `${cfg.ticker.news_per_round} haber, sonra kurlar tekrar`;
@@ -489,7 +500,8 @@ async function mockInvoke(cmd) {
           { name: "Spotify", path: "C:\\Users\\ali\\AppData\\Roaming\\Spotify\\Spotify.exe", args: null },
         ],
         pinned_resolved: [{ exists: true }, { exists: true }, { exists: true }, { exists: false }],
-        widgets: ["calendar", "screentime", "ticker", "media", "system", "clock"],
+        widgets: ["calendar", "screentime", "ticker", "media", "system", "clock", "lock"],
+        dock_locked: false,
         ticker: { markets: ["USD", "EUR", "gram-altin"], news: true, feeds: ["https://news.google.com/rss?hl=tr&gl=TR&ceid=TR:tr", "https://example.com/feed.xml"], interval_sec: 6, news_per_round: 3 },
         config_path: "C:\\Users\\ali\\AppData\\Roaming\\com.ali.camdock\\config.json",
       };

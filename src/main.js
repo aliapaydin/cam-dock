@@ -92,6 +92,12 @@ const groupKey = (w) => (w.aumid ? "aumid:" + w.aumid : w.exe).toLowerCase();
 
 const baseName = (p) => p.split(/[\\/]/).pop().replace(/\.exe$/i, "");
 
+// Uygulama sırası ve önizleme zamanlayıcısı (widget yeniden çizilse de korunur)
+const seenOrder = new Map();
+const seenWin = new Map();
+let seenCounter = 0;
+let hoverTimer = null;
+
 function appsWidget() {
   const wrap = $("div", "apps");
   const start = $("button", "app start", `<span class="glyph">${ICON.start}</span>`);
@@ -137,12 +143,24 @@ function appsWidget() {
       next.push({ key: k, name: p.name, path: p.path, args: p.args, aumid: aum ? aum.slice(6) : "", wins: groups.get(k) || [] });
     }
     if (cfg.show_running) {
+      const running = [];
       for (const [k, wins] of groups) {
         if (used.has(k)) continue;
         const w0 = wins[0];
         const name = w0.aumid || isHost(w0.exe) ? (w0.title.split(" - ").pop() || w0.title) : baseName(w0.exe);
-        next.push({ key: k, name, path: w0.exe, args: null, aumid: w0.aumid, wins });
+        if (!seenOrder.has(k)) seenOrder.set(k, ++seenCounter);
+        running.push({ key: k, name, path: w0.exe, args: null, aumid: w0.aumid, wins });
       }
+      // Açık uygulamalar ilk göründükleri sırada kalır (öne gelen öne kaymaz).
+      running.sort((a, b) => seenOrder.get(a.key) - seenOrder.get(b.key));
+      next.push(...running);
+    }
+    // Kapanan uygulamanın sırası unutulsun; tekrar açılınca sona eklenir.
+    for (const k of [...seenOrder.keys()]) if (!groups.has(k)) seenOrder.delete(k);
+    // Pencereler: Z sırası (tıklama için) ve ilk görülme sırası (önizleme için)
+    for (const it of next) {
+      for (const w of it.wins) if (!seenWin.has(w.hwnd)) seenWin.set(w.hwnd, ++seenCounter);
+      it.stable = [...it.wins].sort((a, b) => seenWin.get(a.hwnd) - seenWin.get(b.hwnd));
     }
     items = next;
     const activeKey = items.find((i) => i.wins.some((w) => w.hwnd === data.active))?.key || "";
@@ -174,11 +192,35 @@ function appsWidget() {
       if (item.wins.length) b.append($("span", "run"));
 
       b.onclick = () => {
+        clearTimeout(hoverTimer);
         if (!item.wins.length) return invoke("launch_app", { path: item.path, args: item.args });
-        // Birden çok pencere varsa ve biri öndeyse sıradakine geç.
-        const i = item.wins.findIndex((w) => w.hwnd === active);
-        const target = item.wins.length > 1 && i >= 0 ? item.wins[(i + 1) % item.wins.length] : item.wins[0];
-        invoke("activate_window", { hwnd: target.hwnd }).then(() => setTimeout(refresh, 150));
+        // Öndeyse küçült, küçültülmüşse eski konumuna getir, arkadaysa öne getir.
+        invoke("activate_app", { hwnds: item.wins.map((w) => w.hwnd) }).then(() => setTimeout(refresh, 150));
+      };
+      // Birden çok penceresi olan uygulamanın üstüne gelince tüm pencereleri göster.
+      b.onmouseenter = () => {
+        clearTimeout(hoverTimer);
+        if (item.wins.length < 2) return;
+        invoke("popover_dock_hover", { hover: true }).catch(() => {});
+        hoverTimer = setTimeout(async () => {
+          const r = b.getBoundingClientRect();
+          const icon = await iconFor(item);
+          const cur = items.find((i) => i.key === item.key) || item;
+          invoke("popover_open", {
+            kind: "windows",
+            key: item.key,
+            anchor: r.left + r.width / 2,
+            payload: {
+              name: item.name,
+              icon,
+              windows: cur.stable.map((w) => ({ hwnd: w.hwnd, title: w.title, minimized: w.minimized })),
+            },
+          }).catch(console.error);
+        }, 380);
+      };
+      b.onmouseleave = () => {
+        clearTimeout(hoverTimer);
+        if (item.wins.length >= 2) invoke("popover_dock_hover", { hover: false }).catch(() => {});
       };
       // Orta tık: yeni pencere aç
       b.onauxclick = (e) => {
@@ -198,18 +240,52 @@ function appsWidget() {
 const trDate = (d, o) => d.toLocaleDateString("tr-TR", o);
 
 function calendarWidget() {
-  const c = $("div", "cell w-calendar");
+  const c = $("button", "cell w-calendar");
+  c.setAttribute("aria-label", "Takvimi aç");
   c.innerHTML = `
     <span class="datebox"><span class="dow"></span><span class="day"></span></span>
-    <span class="stack"><span class="t-strong"></span><span class="t-sub">Takvim bağlantısı yakında</span></span>`;
-  const [dow, day, title] = [c.querySelector(".dow"), c.querySelector(".day"), c.querySelector(".t-strong")];
+    <span class="stack"><span class="t-strong"></span><span class="t-sub"></span></span>`;
+  const [dow, day, title, sub] = ["dow", "day", "t-strong", "t-sub"].map((k) => c.querySelector("." + k));
   every(60_000, () => {
     const d = new Date();
     dow.textContent = trDate(d, { weekday: "short" }).toLocaleUpperCase("tr-TR").slice(0, 3);
     day.textContent = d.getDate();
     title.textContent = trDate(d, { day: "numeric", month: "long", weekday: "long" });
+    const h = CAL.holiday(d);
+    const next = CAL.upcoming(d, 1)[0];
+    sub.textContent = h
+      ? h.name
+      : next && next.days <= 45
+        ? `${CAL.isoWeek(d)}. hafta · ${next.name.split(" ")[0]} ${next.days} gün sonra`
+        : `${CAL.isoWeek(d)}. hafta · yılın ${CAL.dayOfYear(d)}. günü`;
   });
+  c.onclick = async () => {
+    const r = c.getBoundingClientRect();
+    const res = await invoke("popover_open", { kind: "calendar", key: "cal", anchor: r.left + r.width / 2, payload: null }).catch(() => "");
+    c.classList.toggle("active", res === "opened" || res === "open");
+  };
+  calendarCell = c;
   return c;
+}
+let calendarCell = null;
+
+const LOCK_ICON = {
+  on: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/></svg>',
+  off: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 0 1 7.5-1.9"/></svg>',
+};
+
+// Kilit: kilitliyken dock hep görünür ve pencereler altına girmez;
+// açıkken dock otomatik gizlenir, pencereler tüm ekranı kaplar.
+function lockWidget() {
+  const b = $("button", "lock" + (cfg.dock_locked ? " on" : ""), cfg.dock_locked ? LOCK_ICON.on : LOCK_ICON.off);
+  const label = cfg.dock_locked
+    ? "Dock kilitli: hep görünür, pencereler altına girmez. Tıkla: otomatik gizle"
+    : "Otomatik gizleme açık: pencereler tüm ekranı kaplar. Tıkla: kilitle";
+  b.title = label;
+  b.setAttribute("aria-label", label);
+  b.setAttribute("aria-pressed", cfg.dock_locked ? "true" : "false");
+  b.onclick = () => invoke("toggle_lock");
+  return b;
 }
 
 function mailWidget() {
@@ -503,6 +579,7 @@ function systemWidget() {
 
 const WIDGETS = {
   system: systemWidget,
+  lock: lockWidget,
   calendar: calendarWidget,
   mail: mailWidget,
   claude: claudeWidget,
@@ -541,6 +618,7 @@ dock.addEventListener("contextmenu", (e) => {
 // Ekran eklenip çıkarılınca ya da ayar değişince yeniden yerleş.
 listen("relayout", () => queueLayout());
 listen("dock-visibility", (e) => { dockVisible = !!e.payload; });
+listen("popover-closed", (e) => { if (e.payload === "calendar") calendarCell?.classList.remove("active"); });
 
 listen("config-changed", async () => {
   cfg = await invoke("get_config");
@@ -565,7 +643,8 @@ async function mockInvoke(cmd, args) {
         accent: "#2F7BFF",
         show_running: true,
         display: { mode: "primary", selected: [], apps_per_monitor: false },
-        widgets: (params.get("widgets") || "calendar,screentime,ticker,media,system,clock").split(","),
+        widgets: (params.get("widgets") || "calendar,screentime,ticker,media,system,clock,lock").split(","),
+        dock_locked: params.get("locked") !== "0",
         ticker: { markets: ["USD", "EUR", "gram-altin"], news: true, feeds: ["https://news.google.com/rss"], interval_sec: Number(params.get("iv") || 6), news_per_round: 3 },
         pinned_resolved: ["Dosya Gezgini", "Chrome", "VS Code", "Spotify", "Telegram"].map((n) => ({
           name: n, path: `C:\\${n}.exe`, args: null, exists: true,

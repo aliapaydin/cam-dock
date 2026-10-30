@@ -4,7 +4,8 @@
 use crate::config::{self, Config};
 #[allow(unused_imports)]
 use tauri::Emitter as _;
-use crate::platform::{self, Rect};
+pub use crate::platform::Rect;
+use crate::platform;
 use crate::{dlog, AppState};
 use serde::Serialize;
 use std::time::{Duration, Instant};
@@ -101,10 +102,11 @@ fn targets<'a>(cfg: &Config, mons: &'a [MonitorView]) -> Vec<&'a MonitorView> {
     }
 }
 
-fn create_window(app: &AppHandle, label: &str, mon: Rect) -> tauri::Result<isize> {
-    let window = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
+pub fn create_window(app: &AppHandle, label: &str, mon: Rect, page: &str) -> tauri::Result<isize> {
+    let (w, h) = if page == "index.html" { (1600.0, 84.0) } else { (640.0, 420.0) };
+    let window = WebviewWindowBuilder::new(app, label, WebviewUrl::App(page.into()))
         .title("Cam Dock")
-        .inner_size(1600.0, 84.0)
+        .inner_size(w, h)
         .transparent(true)
         .decorations(false)
         .always_on_top(true)
@@ -145,17 +147,23 @@ fn create_window(app: &AppHandle, label: &str, mon: Rect) -> tauri::Result<isize
 }
 
 /// Cam katmanını dock'un güncel boyutu, köşe yarıçapı ve temasına göre uygular.
-/// Composition kurulamadıysa eski yönteme (accent + pencere bölgesi) düşer.
 pub fn apply_glass(app: &AppHandle, label: &str) {
     let state = app.state::<AppState>();
-    let cfg = state.cfg.lock().unwrap().clone();
+    let (radius_css, mode) = {
+        let cfg = state.cfg.lock().unwrap();
+        (cfg.radius, cfg.backdrop.clone())
+    };
     let Some(d) = state.docks.lock().unwrap().get(label).cloned() else {
         return;
     };
     let Some((_, _, w, h)) = d.target else { return };
-    let radius = (cfg.radius as f64 * d.scale) as f32;
-    let mode = cfg.backdrop.clone();
-    let (hwnd, dark) = (d.hwnd, d.dark);
+    let radius = (radius_css as f64 * d.scale) as f32;
+    glass_raw(app, d.hwnd, w, h, radius, d.dark, mode);
+}
+
+/// Herhangi bir penceremize cam uygular (dock ya da panel). Composition
+/// kurulamadıysa eski yönteme (accent + pencere bölgesi) düşer.
+pub fn glass_raw(app: &AppHandle, hwnd: isize, w: i32, h: i32, radius: f32, dark: bool, mode: String) {
     let tint = if dark { (16, 20, 34, 0x38) } else { (245, 247, 252, 0x48) };
     let _ = app.run_on_main_thread(move || {
         if platform::glass_attached(hwnd) {
@@ -205,7 +213,7 @@ pub fn sync(app: &AppHandle) {
             d.primary = m.primary;
             continue;
         }
-        match create_window(app, &label, m.rect) {
+        match create_window(app, &label, m.rect, "index.html") {
             Ok(hwnd) => {
                 dlog!(
                     "{label}: oluşturuldu, ekran {} {:?} ölçek {}",
@@ -344,7 +352,7 @@ impl Vis {
     fn read(state: &AppState) -> Self {
         let cfg = state.cfg.lock().unwrap();
         Vis {
-            mode: match cfg.dock_visibility.as_str() {
+            mode: match cfg.effective_visibility() {
                 "autohide" => 1,
                 "smart" => 2,
                 _ => 0,
@@ -377,6 +385,9 @@ fn update_visibility(app: &AppHandle, state: &AppState, vis: &Vis, hwnds: &[isiz
         None
     };
     let fg_is_dock = hwnds.contains(&fg);
+    // Başlat menüsü, arama, hızlı ayarlar, tepsi menüsü açıkken gizlenme.
+    let flyout = vis.mode != 0 && platform::shell_flyout_open();
+    let pop_dock = state.pop.lock().unwrap().open.as_ref().map(|o| o.dock.clone());
 
     let mut acts = Vec::new();
     {
@@ -410,7 +421,8 @@ fn update_visibility(app: &AppHandle, state: &AppState, vis: &Vis, hwnds: &[isiz
                     && cursor.0 < x + w + pad
                     && cursor.1 >= y - pad
                     && cursor.1 < m.3;
-                if near_edge || inside || (fg_is_dock && d.shown) {
+                let pinned_open = flyout || pop_dock.as_deref() == Some(d.label.as_str());
+                if near_edge || inside || (fg_is_dock && d.shown) || (pinned_open && d.shown) {
                     d.last_inside = now;
                 }
                 let recent = now.duration_since(d.last_inside) < vis.delay;
@@ -517,6 +529,7 @@ pub fn spawn_watcher(app: AppHandle) {
             }
 
             update_visibility(&app, &state, &vis, &hwnds, fg);
+            crate::popover::watch(&app, fg);
 
             if tick % 5 == 0 {
                 let hidden_by_us = state.taskbar_prev.lock().unwrap().is_some();

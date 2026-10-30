@@ -124,7 +124,7 @@ pub fn layout_dock(
 ) -> Result<(), String> {
     let (reserve, always, margin_css, radius_css) = {
         let cfg = state.cfg.lock().unwrap();
-        (cfg.reserve_space, cfg.dock_visibility == "always", cfg.bottom_margin, cfg.radius)
+        (cfg.reserve_space, cfg.effective_visibility() == "always", cfg.bottom_margin, cfg.radius)
     };
     let _ = radius_css;
     let label = window.label().to_string();
@@ -206,6 +206,32 @@ pub fn list_windows(state: State<'_, AppState>) -> WindowsView {
 #[tauri::command(async)]
 pub fn activate_window(state: State<'_, AppState>, hwnd: isize) {
     platform::activate(hwnd, state.last_fg.load(Ordering::SeqCst));
+}
+
+/// Uygulama simgesine tıklama: öndeyse küçült, küçültülmüşse geri getir,
+/// arkadaysa öne getir (pencereler Z sırasına göre).
+#[tauri::command(async)]
+pub fn activate_app(state: State<'_, AppState>, hwnds: Vec<isize>) {
+    platform::activate_group(&hwnds, state.last_fg.load(Ordering::SeqCst));
+}
+
+/// Dock'taki kilit düğmesi: kilitli ↔ otomatik gizle.
+#[tauri::command(async)]
+pub fn toggle_lock(app: AppHandle) -> bool {
+    let locked = {
+        let state = app.state::<AppState>();
+        let mut cfg = state.cfg.lock().unwrap();
+        cfg.dock_locked = !cfg.dock_locked;
+        config::save(&cfg);
+        let now = Instant::now();
+        for d in state.docks.lock().unwrap().values_mut() {
+            d.last_inside = now;
+        }
+        cfg.dock_locked
+    };
+    dlog!("kilit {}", if locked { "kapatıldı (hep görünür)" } else { "açıldı (otomatik gizle)" });
+    crate::emit_config(&app);
+    locked
 }
 
 #[tauri::command(async)]

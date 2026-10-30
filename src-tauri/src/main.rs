@@ -6,6 +6,7 @@ mod config;
 mod docks;
 mod log;
 mod platform;
+mod popover;
 mod screentime;
 
 use config::Config;
@@ -28,6 +29,7 @@ pub struct AppState {
     pub monitor_sig: Mutex<String>,
     /// Klasik taskbar geçici olarak gösteriliyorsa bitiş zamanı
     pub peek_until: Mutex<Option<std::time::Instant>>,
+    pub pop: Mutex<popover::PopState>,
 }
 
 pub fn emit_config(app: &tauri::AppHandle) {
@@ -87,6 +89,7 @@ fn main() {
         thumb: Mutex::new((String::new(), None)),
         monitor_sig: Mutex::new(String::new()),
         peek_until: Mutex::new(None),
+        pop: Mutex::new(popover::PopState::default()),
     };
 
     let app = tauri::Builder::default()
@@ -100,6 +103,17 @@ fn main() {
             commands::set_theme,
             commands::list_windows,
             commands::activate_window,
+            commands::activate_app,
+            commands::toggle_lock,
+            popover::popover_open,
+            popover::popover_pending,
+            popover::popover_layout,
+            popover::popover_close,
+            popover::popover_hidden,
+            popover::popover_hover,
+            popover::popover_dock_hover,
+            popover::popover_thumbs,
+            popover::popover_activate,
             commands::close_window,
             commands::launch_app,
             commands::app_icon,

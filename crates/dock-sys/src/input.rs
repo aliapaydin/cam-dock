@@ -2,9 +2,26 @@
 
 use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetLastInputInfo, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
-    LASTINPUTINFO, VIRTUAL_KEY, VK_LWIN, VK_RETURN,
+    GetAsyncKeyState, GetLastInputInfo, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
+    KEYEVENTF_KEYUP, LASTINPUTINFO, VIRTUAL_KEY, VK_LBUTTON, VK_LWIN, VK_MENU, VK_RBUTTON,
+    VK_RETURN,
 };
+
+/// Sol ya da sağ fare tuşu şu an basılı mı?
+pub fn mouse_down() -> bool {
+    unsafe {
+        (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0
+            || (GetAsyncKeyState(VK_RBUTTON.0 as i32) as u16 & 0x8000) != 0
+    }
+}
+
+/// SetForegroundWindow reddedilirse kullanılan bilinen yöntem: Alt'a bas-bırak.
+pub fn tap_alt() {
+    let inputs = [key(VK_MENU, false), key(VK_MENU, true)];
+    unsafe {
+        SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+    }
+}
 
 fn key(vk: VIRTUAL_KEY, up: bool) -> INPUT {
     INPUT {

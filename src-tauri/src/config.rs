@@ -79,9 +79,13 @@ pub struct Config {
     pub backdrop: String,
     /// Klasik taskbar'ı gizle (dock olan ekranlarda)
     pub hide_taskbar: bool,
-    /// "always" (her zaman görünür) | "autohide" (otomatik gizle) |
-    /// "smart" (akıllı: bir pencere dock'a değince gizlen)
+    /// Kilit açıkken kullanılan gizlenme modu: "autohide" (otomatik gizle) |
+    /// "smart" (akıllı: bir pencere dock'a değince gizlen). Eski "always" değeri
+    /// kilitli kabul edilir.
     pub dock_visibility: String,
+    /// Kilitli: dock hep görünür ve ekranın altında alan ayrılır (pencereler
+    /// dock'un altına girmez). Dock'taki kilit düğmesiyle açılıp kapanır.
+    pub dock_locked: bool,
     /// Fare dock'tan ayrıldıktan sonra gizlenme gecikmesi (ms)
     pub hide_delay_ms: u64,
     /// Tam ekran uygulamada (oyun, video) dock'u gizle
@@ -107,6 +111,19 @@ pub struct Config {
     pub migrations: u32,
 }
 
+impl Config {
+    /// Şu an geçerli görünürlük: "always" | "autohide" | "smart"
+    pub fn effective_visibility(&self) -> &str {
+        if self.dock_locked {
+            "always"
+        } else if self.dock_visibility == "always" {
+            "autohide"
+        } else {
+            &self.dock_visibility
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         let p = |name: &str, path: &str| Pinned {
@@ -118,7 +135,8 @@ impl Default for Config {
             theme: "system".into(),
             backdrop: "acrylic".into(),
             hide_taskbar: true,
-            dock_visibility: "always".into(),
+            dock_visibility: "autohide".into(),
+            dock_locked: true,
             hide_delay_ms: 600,
             hide_in_fullscreen: true,
             display: Display::default(),
@@ -135,12 +153,12 @@ impl Default for Config {
                 p("Spotify", "%APPDATA%\\Spotify\\Spotify.exe"),
                 p("Telegram", "%APPDATA%\\Telegram Desktop\\Telegram.exe"),
             ],
-            widgets: ["calendar", "screentime", "ticker", "media", "system", "clock"]
+            widgets: ["calendar", "screentime", "ticker", "media", "system", "clock", "lock"]
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
             ticker: Ticker::default(),
-            migrations: 1,
+            migrations: 2,
         }
     }
 }
@@ -180,6 +198,18 @@ pub fn load() -> Config {
                     cfg.widgets.insert(at, "system".into());
                 }
                 cfg.migrations = 1;
+                save(&cfg);
+            }
+            // v0.6: "her zaman görünür" artık kilit düğmesi
+            if cfg.migrations < 2 {
+                cfg.dock_locked = cfg.dock_visibility == "always";
+                if cfg.dock_visibility == "always" {
+                    cfg.dock_visibility = "autohide".into();
+                }
+                if !cfg.widgets.iter().any(|w| w == "lock") {
+                    cfg.widgets.push("lock".into());
+                }
+                cfg.migrations = 2;
                 save(&cfg);
             }
             cfg

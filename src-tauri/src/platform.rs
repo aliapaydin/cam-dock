@@ -111,6 +111,24 @@ mod imp {
     pub fn activate(hwnd: isize, last_fg: isize) {
         winlist::activate(hwnd, last_fg)
     }
+    pub fn activate_group(hwnds: &[isize], last_fg: isize) {
+        winlist::activate_group(hwnds, last_fg)
+    }
+    pub fn bring_front(hwnd: isize) {
+        winlist::bring_front(hwnd)
+    }
+    pub fn mouse_down() -> bool {
+        input::mouse_down()
+    }
+    pub fn shell_flyout_open() -> bool {
+        monitor::foreground_is_shell_flyout()
+    }
+    pub fn thumb_show(dest: isize, src: isize, x: i32, y: i32, w: i32, h: i32) -> Option<isize> {
+        thumbs::show(dest, src, x, y, w, h)
+    }
+    pub fn thumb_remove(t: isize) {
+        thumbs::remove(t)
+    }
     pub fn close(hwnd: isize) {
         winlist::close(hwnd)
     }
@@ -240,6 +258,18 @@ mod imp {
         None
     }
     pub fn activate(_hwnd: isize, _last_fg: isize) {}
+    pub fn activate_group(_hwnds: &[isize], _last_fg: isize) {}
+    pub fn bring_front(_hwnd: isize) {}
+    pub fn mouse_down() -> bool {
+        false
+    }
+    pub fn shell_flyout_open() -> bool {
+        false
+    }
+    pub fn thumb_show(_dest: isize, _src: isize, _x: i32, _y: i32, _w: i32, _h: i32) -> Option<isize> {
+        None
+    }
+    pub fn thumb_remove(_t: isize) {}
     pub fn close(_hwnd: isize) {}
     pub fn launch(_target: &str, _args: Option<&str>) -> bool {
         false
