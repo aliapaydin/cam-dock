@@ -179,12 +179,12 @@ pub async fn popover_layout(app: AppHandle, window: WebviewWindow, width: f64, h
             _ => return Ok(()),
         }
     };
-    let Some((target, scale, mon, dark)) = state
+    let Some((target, scale, mon, dark, tint)) = state
         .docks
         .lock()
         .unwrap()
         .get(&dock)
-        .map(|d| (d.target, d.scale, d.mon_rect, d.dark))
+        .map(|d| (d.target, d.scale, d.mon_rect, d.dark, d.tint))
     else {
         return Ok(());
     };
@@ -203,7 +203,7 @@ pub async fn popover_layout(app: AppHandle, window: WebviewWindow, width: f64, h
 
     platform::set_bounds(hwnd, x, y, w, h);
     let mode = state.cfg.lock().unwrap().backdrop.clone();
-    docks::glass_raw(&app, hwnd, w, h, (20.0 * scale) as f32, dark, mode);
+    docks::glass_raw(&app, hwnd, w, h, (20.0 * scale) as f32, dark, tint, mode);
     platform::show_no_activate(hwnd);
     if let Some(o) = state.pop.lock().unwrap().open.as_mut() {
         o.rect = Some((x, y, x + w, y + h));

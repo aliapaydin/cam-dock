@@ -49,6 +49,68 @@ impl Default for Ticker {
     }
 }
 
+/// Dinamik mod: renkler duvar kâğıdından, koyu/açık tema saate göre.
+/// Kapalıyken `theme` ve `accent` aynen kullanılır (hiçbiri değiştirilmez).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Dynamic {
+    pub enabled: bool,
+    /// Duvar kâğıdı renginin cama karışma oranı (0–100)
+    pub tint: u32,
+    /// Koyu/açık geçişini saate göre yap
+    pub auto_theme: bool,
+    /// "sun" (gün doğumu/batımı, konum hava durumundan) | "fixed"
+    pub schedule: String,
+    /// "fixed" iken: açık tema başlangıcı ve koyu tema başlangıcı ("HH:MM")
+    pub light_at: String,
+    pub dark_at: String,
+}
+
+impl Default for Dynamic {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            tint: 45,
+            auto_theme: true,
+            schedule: "sun".into(),
+            light_at: "07:00".into(),
+            dark_at: "19:30".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Weather {
+    pub enabled: bool,
+    /// Konumu internet bağlantısından bul
+    pub auto_location: bool,
+    pub city: String,
+    pub lat: f64,
+    pub lon: f64,
+}
+
+impl Default for Weather {
+    fn default() -> Self {
+        Self { enabled: true, auto_location: true, city: "İstanbul".into(), lat: 41.0082, lon: 28.9784 }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Update {
+    /// Açılışta ve 6 saatte bir yeni sürüm denetle
+    pub auto_check: bool,
+    /// Yeni sürümü indirip bilgisayar boştayken kendiliğinden kur
+    pub auto_install: bool,
+}
+
+impl Default for Update {
+    fn default() -> Self {
+        Self { auto_check: true, auto_install: true }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Display {
@@ -107,6 +169,11 @@ pub struct Config {
     /// Önizleme (örnek veri, Faz 2'de bağlanacak): mail, claude
     pub widgets: Vec<String>,
     pub ticker: Ticker,
+    pub dynamic: Dynamic,
+    pub weather: Weather,
+    pub update: Update,
+    /// Windows açılınca başlat
+    pub autostart: bool,
     /// Ayar dosyası sürüm geçişleri (kullanıcı düzenlemez)
     pub migrations: u32,
 }
@@ -158,7 +225,11 @@ impl Default for Config {
                 .map(|s| s.to_string())
                 .collect(),
             ticker: Ticker::default(),
-            migrations: 4,
+            dynamic: Dynamic::default(),
+            weather: Weather::default(),
+            update: Update::default(),
+            autostart: true,
+            migrations: 5,
         }
     }
 }
@@ -229,6 +300,12 @@ pub fn load() -> Config {
                     cfg.widgets.insert(0, "screentime".into());
                 }
                 cfg.migrations = 4;
+                save(&cfg);
+            }
+            // v0.10: Windows ile başla (taskbar'ın yerine geçtiği için varsayılan açık)
+            if cfg.migrations < 5 {
+                cfg.autostart = true;
+                cfg.migrations = 5;
                 save(&cfg);
             }
             cfg

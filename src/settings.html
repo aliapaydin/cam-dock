@@ -41,7 +41,41 @@
           </div>
         </div>
 
-        <div class="card">
+        <div class="card dyn-card">
+          <div class="row">
+            <div class="label"><strong>Dinamik mod</strong><span>Renkler duvar kâğıdına göre yumuşakça değişir, koyu/açık tema saate göre kendiliğinden geçer. Kapatınca kendi tema ve vurgu rengin aynen geri gelir.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="dynamic.enabled"><span></span></label>
+          </div>
+          <div class="dyn-body">
+            <div class="row">
+              <div class="label"><strong>Duvar kâğıdı rengi</strong><span id="dyn-pal-desc">Her ekran kendi duvar kâğıdının rengini alır.</span></div>
+              <span class="dyn-swatches" id="dyn-pal"></span>
+            </div>
+            <div class="row">
+              <div class="label"><strong>Renk yoğunluğu</strong><span id="tint-val"></span></div>
+              <input type="range" min="0" max="100" step="5" data-bind="dynamic.tint" aria-label="Renk yoğunluğu">
+            </div>
+            <div class="row">
+              <div class="label"><strong>Saate göre koyu/açık</strong><span>Kapalıysa yukarıdaki tema seçimi kullanılır.</span></div>
+              <label class="switch"><input type="checkbox" data-bind="dynamic.auto_theme"><span></span></label>
+            </div>
+            <div class="row" id="sched-row">
+              <div class="label"><strong>Geçiş zamanı</strong><span id="sched-desc"></span></div>
+              <div class="seg" data-bind="dynamic.schedule">
+                <button data-v="sun">Gün doğumu/batımı</button><button data-v="fixed">Sabit saat</button>
+              </div>
+            </div>
+            <div class="row" id="fixed-row">
+              <div class="label"><strong>Saatler</strong><span>Açık tema başlangıcı ve koyu tema başlangıcı</span></div>
+              <div class="times">
+                <label>☀︎ <input type="time" data-bind="dynamic.light_at" aria-label="Açık tema başlangıcı"></label>
+                <label>☾ <input type="time" data-bind="dynamic.dark_at" aria-label="Koyu tema başlangıcı"></label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" id="manual-theme">
           <div class="row">
             <div class="label"><strong>Tema</strong><span>Sistem, Windows'un koyu/açık ayarını takip eder.</span></div>
             <div class="seg" data-bind="theme">
@@ -103,6 +137,14 @@
           <div class="row" id="reserve-row">
             <div class="label"><strong>Dock için alan ayır</strong><span id="reserve-desc">Maximize edilen pencereler dock'un altına girmez.</span></div>
             <label class="switch"><input type="checkbox" data-bind="reserve_space"><span></span></label>
+          </div>
+        </div>
+
+        <h2>Başlangıç</h2>
+        <div class="card">
+          <div class="row">
+            <div class="label"><strong>Windows ile başlat</strong><span>Oturum açınca Cam Dock kendiliğinden açılır.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="autostart"><span></span></label>
           </div>
         </div>
 
@@ -170,6 +212,26 @@
         <h1>Widget'lar</h1>
         <p class="hint">Açık olanlar dock'ta bu sırayla görünür.</p>
         <div class="card list" id="widgets"></div>
+        <h2>Hava durumu</h2>
+        <div class="card">
+          <div class="row">
+            <div class="label"><strong>Saatte hava durumu</strong><span>Saat hücresinde sıcaklık ve simge; tıklayınca saatlik ve 6 günlük tahmin. Kaynak: Open-Meteo.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="weather.enabled"><span></span></label>
+          </div>
+          <div class="row">
+            <div class="label"><strong>Konumu otomatik bul</strong><span id="loc-desc"></span></div>
+            <label class="switch"><input type="checkbox" data-bind="weather.auto_location"><span></span></label>
+          </div>
+          <div class="row stack" id="city-row">
+            <div class="label"><strong>Şehir</strong><span>Şehir ya da ilçe adı yaz, listeden seç.</span></div>
+            <div class="manual-row two">
+              <input id="city-q" placeholder="ör. Karşıyaka, İzmir" aria-label="Şehir ara">
+              <button class="btn ghost" id="city-go">Ara</button>
+            </div>
+            <div class="chips" id="city-res"></div>
+          </div>
+        </div>
+
         <h2>Piyasa ve haberler</h2>
         <div class="card">
           <div class="row stack">
@@ -177,7 +239,7 @@
             <div class="chips" id="markets"></div>
           </div>
           <div class="row">
-            <div class="label"><strong>Haber başlıkları</strong><span>Kurların arasında kısa haber başlıkları döner. Tıklayınca haber tarayıcıda açılır.</span></div>
+            <div class="label"><strong>Haber başlıkları</strong><span>Kurların arasında kısa haber başlıkları döner. Hücreye tıklayınca kategorili haber ve piyasa paneli açılır.</span></div>
             <label class="switch"><input type="checkbox" data-bind="ticker.news"><span></span></label>
           </div>
           <div class="row stack" id="feeds-row">
@@ -223,8 +285,25 @@
           </div>
           <p class="dev-foot">© 2026 Ali Apaydın · Tauri, Rust ve WebView2 ile geliştirildi.</p>
         </div>
+        <h2>Güncellemeler</h2>
         <div class="card">
-          <div class="row"><div class="label"><strong>Cam Dock</strong><span>Sürüm 0.9.0</span></div></div>
+          <div class="row">
+            <div class="label"><strong id="upd-title">Cam Dock 0.10.0</strong><span id="upd-desc"></span>
+              <span class="upd-bar" id="upd-bar"><i></i></span></div>
+            <div class="upd-btns"><button class="btn ghost" id="upd-check">Denetle</button><button class="btn" id="upd-install">Şimdi güncelle</button></div>
+          </div>
+          <div class="row">
+            <div class="label"><strong>Güncellemeleri denetle</strong><span>Açılışta ve 6 saatte bir.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="update.auto_check"><span></span></label>
+          </div>
+          <div class="row">
+            <div class="label"><strong>Kendiliğinden kur</strong><span>Yeni sürüm arka planda indirilir; bilgisayar 3 dakika boşta kalınca kurulur ve dock birkaç saniyeliğine yeniden açılır.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="update.auto_install"><span></span></label>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row"><div class="label"><strong>Cam Dock</strong><span>Sürüm 0.10.0</span></div></div>
           <div class="row"><div class="label"><strong>Ayar dosyası</strong><span id="cfg-path" class="mono"></span></div>
             <button class="btn ghost" id="open-cfg">Aç</button></div>
           <div class="row"><div class="label"><strong>Tanılama kaydı</strong><span>Dock'un ne zaman neden hareket ettiğini ve cam katmanının durumunu yazar. Bir sorun olursa bu dosyayı gönder.</span><span id="log-path" class="mono"></span></div>
@@ -234,6 +313,7 @@
       </section>
     </main>
   </div>
+  <script src="shared.js"></script>
   <script src="settings.js"></script>
 </body>
 </html>

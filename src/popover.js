@@ -26,16 +26,20 @@ let spec = null;
 // ---------------------------------------------------------------------------
 // Tema (dock ile aynı)
 // ---------------------------------------------------------------------------
-async function applyTheme() {
+let pcfg = null;
+async function applyTheme(animate) {
   const cfg = await invoke("get_config").catch(() => null);
   if (!cfg) return;
+  pcfg = cfg;
   const root = document.documentElement;
-  const sys = await invoke("system_theme").catch(() => matchMedia("(prefers-color-scheme: dark)").matches);
-  const dark = cfg.theme === "dark" || (cfg.theme !== "light" && sys);
+  const dark = !!(await invoke("theme_dark").catch(() => matchMedia("(prefers-color-scheme: dark)").matches));
+  if (animate) Dyn.animate(root);
   root.dataset.theme = dark ? "dark" : "light";
   root.dataset.backdrop = cfg.backdrop;
   root.style.setProperty("--accent", cfg.accent || "#2F7BFF");
+  await Dyn.apply(root, cfg, dark, "popover");
 }
+Dyn.watch(() => pcfg, () => applyTheme(true));
 
 // ---------------------------------------------------------------------------
 // Yerleşim
@@ -59,6 +63,7 @@ async function show(s) {
   else if (s.kind === "tray") await renderTray();
   else if (s.kind === "usage") await renderUsage();
   else if (s.kind === "news") await renderNews(s.payload);
+  else if (s.kind === "weather") await renderWeather();
   else renderWindows(s.payload);
   relayout();
 }
@@ -74,8 +79,8 @@ listen("popover-out", () => {
   panel.classList.remove("in");
   setTimeout(() => invoke("popover_hidden").catch(() => {}), 200);
 });
-listen("config-changed", applyTheme);
-listen("system-theme", applyTheme);
+listen("config-changed", () => applyTheme(true));
+listen("theme-dark", () => applyTheme(true));
 
 panel.addEventListener("mouseenter", () => invoke("popover_hover", { hover: true }).catch(() => {}));
 panel.addEventListener("mouseleave", () => invoke("popover_hover", { hover: false }).catch(() => {}));
@@ -604,6 +609,92 @@ async function renderNews(p) {
 }
 
 // ---------------------------------------------------------------------------
+// Hava durumu paneli
+// ---------------------------------------------------------------------------
+const hhmm = (iso) => (iso || "").slice(11, 16);
+async function renderWeather() {
+  const cfg = pcfg || (await invoke("get_config").catch(() => ({})));
+  let w;
+  try { w = await Weather.get(cfg); } catch (e) {
+    panel.append(el("div", "tray-empty", "Hava durumu alınamadı. İnternet bağlantını kontrol et."));
+    return;
+  }
+  const cur = w.current, d = w.daily, h = w.hourly;
+  const now = new Date();
+  // Şu anki saatten başlayan 24 saat
+  const pad = (n) => String(n).padStart(2, "0");
+  const key = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:00`;
+  let i0 = h.time.indexOf(key);
+  if (i0 < 0) i0 = 0;
+  const hrs = Array.from({ length: 25 }, (_, k) => i0 + k).filter((i) => i < h.time.length);
+  const temps = hrs.map((i) => h.temperature_2m[i]);
+  const tMin = Math.min(...temps), tMax = Math.max(...temps);
+  const W = 640, H = 70, padY = 10;
+  const xs = (k) => (k / (hrs.length - 1)) * W;
+  const ys = (t) => padY + (1 - (t - tMin) / Math.max(1, tMax - tMin)) * (H - padY * 2);
+  const line = hrs.map((_, k) => `${k ? "L" : "M"}${xs(k).toFixed(1)},${ys(temps[k]).toFixed(1)}`).join("");
+  const area = `${line}L${W},${H}L0,${H}Z`;
+  const rain = hrs.map((i, k) => {
+    const p = h.precipitation_probability[i] || 0;
+    return p ? `<rect x="${(xs(k) - 6).toFixed(1)}" y="${H - (p / 100) * 26}" width="12" height="${(p / 100) * 26}" rx="2" class="rain"/>` : "";
+  }).join("");
+  const hits = hrs.map((i, k) => `<rect x="${(xs(k) - W / hrs.length / 2).toFixed(1)}" y="0" width="${(W / hrs.length).toFixed(1)}" height="${H}" fill="transparent"
+      data-tip="<b>${hhmm(h.time[i])}</b> · ${esc(wxText(h.weather_code[i]))}<br>${Math.round(h.temperature_2m[i])}° · yağış %${h.precipitation_probability[i] ?? 0}"/>`).join("");
+  const ticks = hrs.filter((_, k) => k % 3 === 0).map((i) => {
+    const k = hrs.indexOf(i);
+    return `<div class="hr" style="left:${(xs(k) / W) * 100}%">
+      <small>${k === 0 ? "Şimdi" : hhmm(h.time[i])}</small>${wxIcon(h.weather_code[i], h.is_day[i] === 1, 22)}<b>${Math.round(h.temperature_2m[i])}°</b></div>`;
+  }).join("");
+
+  // Günlük: bugün + 5 gün; aralık çubuğu haftanın en düşük/en yüksek değerine göre
+  const days = d.time.slice(0, 6).map((t, i) => ({ t, i }));
+  const wMin = Math.min(...d.temperature_2m_min.slice(0, 6)), wMax = Math.max(...d.temperature_2m_max.slice(0, 6));
+  const pos = (t) => ((t - wMin) / Math.max(1, wMax - wMin)) * 100;
+  const rows = days.map(({ t, i }) => {
+    const dt = new Date(t + "T12:00");
+    const name = i === 0 ? "Bugün" : i === 1 ? "Yarın" : CAL.DAYNAMES[dt.getDay()];
+    const lo = d.temperature_2m_min[i], hi = d.temperature_2m_max[i];
+    const p = d.precipitation_probability_max[i] ?? 0;
+    const dot = i === 0 ? `<i class="now" style="left:${pos(cur.temperature_2m)}%"></i>` : "";
+    return `<div class="day-row" data-tip="<b>${name}</b> · ${esc(wxText(d.weather_code[i]))}<br>${Math.round(lo)}° / ${Math.round(hi)}° · yağış %${p}${d.uv_index_max ? ` · UV ${Math.round(d.uv_index_max[i])}` : ""}">
+      <span class="dn">${name}<small>${dt.getDate()} ${CAL.MONTHS[dt.getMonth()].slice(0, 3)}</small></span>
+      ${wxIcon(d.weather_code[i], true, 24)}
+      <span class="pp${p >= 40 ? " hi" : ""}">${p >= 10 ? `%${p}` : ""}</span>
+      <span class="lo">${Math.round(lo)}°</span>
+      <span class="range"><span class="fill" style="left:${pos(lo)}%;right:${100 - pos(hi)}%"></span>${dot}</span>
+      <span class="hi">${Math.round(hi)}°</span>
+    </div>`;
+  }).join("");
+
+  const box = el("div", "wxp");
+  box.innerHTML = `
+    <div class="wx-now">
+      <div class="wx-big">${wxIcon(cur.weather_code, cur.is_day === 1, 58)}
+        <div><b>${Math.round(cur.temperature_2m)}°</b><span>${esc(wxText(cur.weather_code))}</span></div></div>
+      <div class="wx-facts">
+        <span><small>Hissedilen</small>${Math.round(cur.apparent_temperature)}°</span>
+        <span><small>Nem</small>%${cur.relative_humidity_2m}</span>
+        <span><small>Rüzgâr</small>${Math.round(cur.wind_speed_10m)} km/s</span>
+        <span><small>Gün doğumu</small>${hhmm(d.sunrise[0])}</span>
+        <span><small>Gün batımı</small>${hhmm(d.sunset[0])}</span>
+      </div>
+      <div class="wx-place"><b>${esc(w.city || "")}</b><small>En yüksek ${Math.round(d.temperature_2m_max[0])}° · en düşük ${Math.round(d.temperature_2m_min[0])}°</small></div>
+    </div>
+    <h4>SONRAKİ 24 SAAT</h4>
+    <div class="hours">
+      <div class="hr-row">${ticks}</div>
+      <svg class="tchart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${rain}<path class="ar" d="${area}"/><path class="ln" d="${line}"/>${hits}</svg>
+      <div class="legend-s"><span><i class="ln"></i>Sıcaklık</span><span><i class="rn"></i>Yağış olasılığı</span></div>
+    </div>
+    <h4>6 GÜNLÜK TAHMİN</h4>
+    <div class="days">${rows}</div>
+    <div class="wx-foot"><span>Kaynak: Open-Meteo · ${now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</span><button class="loc">Konum ayarları</button></div>`;
+  panel.append(box);
+  box.querySelector(".loc").onclick = () => { invoke("open_settings"); invoke("popover_close"); };
+  bindTips(panel);
+}
+
+// ---------------------------------------------------------------------------
 // Başlangıç
 // ---------------------------------------------------------------------------
 (async () => {
@@ -614,7 +705,7 @@ async function renderNews(p) {
 // Tarayıcıda önizleme (popover.html?kind=calendar | windows)
 async function mockInvoke(cmd, args) {
   const q = new URLSearchParams(location.search);
-  if (cmd === "get_config") return { theme: q.get("theme") || "dark", backdrop: "acrylic", accent: "#2F7BFF" };
+  if (cmd === "get_config") return { theme: q.get("theme") || "dark", backdrop: "acrylic", accent: "#2F7BFF", dynamic: { enabled: q.has("wall"), tint: 45 }, weather: { enabled: true, auto_location: true, city: "İstanbul", lat: 41, lon: 29 } };
   if (cmd === "popover_pending") {
     setTimeout(() => panel.classList.add("in"), 50);
     if (q.get("kind") === "windows")
@@ -630,6 +721,7 @@ async function mockInvoke(cmd, args) {
         },
       };
     if (q.get("kind") === "tray") return { kind: "tray", serial: 1, key: "tray", payload: null };
+    if (q.get("kind") === "weather") return { kind: "weather", serial: 1, key: "weather", payload: null };
     if (q.get("kind") === "usage") return { kind: "usage", serial: 1, key: "usage", payload: null };
     if (q.get("kind") === "news") return { kind: "news", serial: 1, key: "news", payload: { markets: ["USD", "EUR", "gram-altin"], feeds: [], focus: null } };
     return { kind: "calendar", serial: 1, key: "cal", payload: null };
@@ -653,7 +745,9 @@ async function mockInvoke(cmd, args) {
       info: { uptime_sec: 273000, disk_free_gb: 312, disk_total_gb: 951, battery: -1, charging: false, procs: 284, cores: 16, cpu_name: "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics", os: "Windows 11 25H2 · derleme 26200" },
     };
   }
-  if (cmd === "fetch_text") return mockFetch(args.url);
+  if (cmd === "theme_dark") return (q.get("theme") || "dark") === "dark";
+  if (cmd === "wallpaper") return MOCK.wallpaper(q.get("wall"));
+  if (cmd === "fetch_text") return /open-meteo|geojs/.test(args.url) ? MOCK.fetch(args.url) : mockFetch(args.url);
   if (cmd === "tray_apps")
     return ["Steam", "Discord", "OneDrive", "Telegram", "NVIDIA", "Bluetooth"].map((n, i) => ({ name: n, exe: `C:\\${n}.exe`, icon: null, promoted: i < 2 }));
   return null;

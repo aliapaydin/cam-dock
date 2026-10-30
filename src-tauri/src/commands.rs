@@ -148,11 +148,15 @@ pub async fn save_config(app: AppHandle, cfg: Config) -> Result<(), String> {
         state.icons.lock().unwrap().clear();
     }
     config::save(&cfg);
+    if cfg.autostart != platform::autostart_get() {
+        apply_autostart(cfg.autostart);
+    }
     // Ekran seçimi değiştiyse dock'ları aç/kapat, taskbar'ı güncelle
     // (pencere oluşturma bloklayıcı: komut havuzunun dışında).
     run(move || {
         docks::sync(&app);
         crate::emit_config(&app);
+        docks::refresh_theme(&app);
     })
     .await
 }
@@ -267,12 +271,13 @@ pub async fn layout_dock(app: AppHandle, window: WebviewWindow, width: f64, heig
 
 /// Koyu/açık temaya göre bu dock'un cam arka planını uygular.
 #[tauri::command]
-pub async fn set_theme(app: AppHandle, window: WebviewWindow, dark: bool) {
+pub async fn set_theme(app: AppHandle, window: WebviewWindow, dark: bool, tint: Option<[u8; 3]>) {
     let _ = run(move || {
         let state = app.state::<AppState>();
 
     if let Some(d) = state.docks.lock().unwrap().get_mut(window.label()) {
         d.dark = dark;
+        d.tint = tint.map(|t| (t[0], t[1], t[2]));
     }
     docks::apply_glass(window.app_handle(), window.label());
 
@@ -672,6 +677,121 @@ pub async fn usage_data(app: AppHandle) -> UsageData {
     })
     .await
     .unwrap_or_default()
+}
+
+/// Tüm pencerelerin kullanacağı tema (dinamik mod ve Windows teması dahil).
+#[tauri::command]
+pub fn theme_dark(app: AppHandle) -> bool {
+    let state = app.state::<AppState>();
+    let sys = *state.system_light.lock().unwrap();
+    let sys = sys.or_else(platform::light_theme);
+    let cfg = state.cfg.lock().unwrap().clone();
+    crate::theme::effective_dark(&cfg, sys)
+}
+
+/// Dinamik modda gün doğumu/batımı (dakika) — ayarlarda bilgi olarak gösterilir.
+#[tauri::command]
+pub fn sun_times(app: AppHandle) -> Option<(f64, f64)> {
+    let cfg = app.state::<AppState>().cfg.lock().unwrap().clone();
+    crate::theme::sun_times(cfg.weather.lat, cfg.weather.lon)
+}
+
+#[derive(Serialize, Default)]
+pub struct WallpaperView {
+    /// Dosya yolu + değişiklik zamanı + boyut: değişmediyse görüntü tekrar gönderilmez
+    pub sig: String,
+    /// data: URL (dosya duvar kâğıdı)
+    pub image: Option<String>,
+    /// Düz renk arka plan
+    pub solid: Option<[u8; 3]>,
+}
+
+/// Bu pencerenin bulunduğu ekranın duvar kâğıdı. `known` imzası aynıysa
+/// görüntü gönderilmez.
+#[tauri::command]
+pub async fn wallpaper(app: AppHandle, window: WebviewWindow, known: Option<String>) -> WallpaperView {
+    let label = window.label().to_string();
+    run(move || {
+        let state = app.state::<AppState>();
+        let dock = label.strip_prefix("pop-").unwrap_or(&label).to_string();
+        let rect = {
+            let docks = state.docks.lock().unwrap();
+            docks
+                .get(&dock)
+                .map(|d| d.mon_rect)
+                .or_else(|| docks.values().find(|d| d.primary).map(|d| d.mon_rect))
+                .or_else(|| docks.values().next().map(|d| d.mon_rect))
+        };
+        let Some(rect) = rect else { return WallpaperView::default() };
+        match platform::wallpaper(rect) {
+            Some(platform::Wall::Solid(r, g, b)) => WallpaperView {
+                sig: format!("solid:{r},{g},{b}"),
+                image: None,
+                solid: Some([r, g, b]),
+            },
+            Some(platform::Wall::File(path)) => {
+                let meta = std::fs::metadata(&path).ok();
+                let mtime = meta
+                    .as_ref()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let sig = format!("{path}|{mtime}|{}", meta.map(|m| m.len()).unwrap_or(0));
+                if known.as_deref() == Some(sig.as_str()) {
+                    return WallpaperView { sig, image: None, solid: None };
+                }
+                let Ok(bytes) = std::fs::read(&path) else { return WallpaperView::default() };
+                let mime = match bytes.get(..4) {
+                    Some([0x89, b'P', b'N', b'G']) => "image/png",
+                    Some([b'B', b'M', ..]) => "image/bmp",
+                    Some([b'R', b'I', b'F', b'F']) => "image/webp",
+                    Some([b'G', b'I', b'F', _]) => "image/gif",
+                    _ => "image/jpeg",
+                };
+                use base64::Engine as _;
+                let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                WallpaperView { sig, image: Some(format!("data:{mime};base64,{data}")), solid: None }
+            }
+            None => WallpaperView::default(),
+        }
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// Otomatik bulunan konumu kaydeder (hava durumu ve gün doğumu/batımı için).
+#[tauri::command]
+pub async fn set_weather_location(app: AppHandle, city: String, lat: f64, lon: f64) {
+    let _ = run(move || {
+        let state = app.state::<AppState>();
+        let cfg = {
+            let mut cfg = state.cfg.lock().unwrap();
+            if !cfg.weather.auto_location {
+                return;
+            }
+            cfg.weather.city = city.clone();
+            cfg.weather.lat = lat;
+            cfg.weather.lon = lon;
+            cfg.clone()
+        };
+        config::save(&cfg);
+        let _ = tauri::Emitter::emit(&app, "location-changed", serde_json::json!({ "city": city, "lat": lat, "lon": lon }));
+        docks::refresh_theme(&app);
+    })
+    .await;
+}
+
+#[tauri::command]
+pub fn autostart_state() -> bool {
+    platform::autostart_get()
+}
+
+/// Ayardaki "Windows ile başlat" seçimini kayıt defterine uygular.
+pub fn apply_autostart(enabled: bool) {
+    let exe = std::env::current_exe().ok().map(|p| p.to_string_lossy().to_string());
+    let ok = platform::autostart_set(if enabled { exe.as_deref() } else { None });
+    crate::dlog!("Windows ile başlat: {} ({})", if enabled { "açık" } else { "kapalı" }, if ok { "uygulandı" } else { "UYGULANAMADI" });
 }
 
 #[tauri::command]

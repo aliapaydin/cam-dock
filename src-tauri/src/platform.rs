@@ -74,6 +74,12 @@ pub struct MediaState {
     pub track_key: String,
 }
 
+#[allow(dead_code)]
+pub enum Wall {
+    File(String),
+    Solid(u8, u8, u8),
+}
+
 /// Monitör dikdörtgeni (fiziksel piksel): sol, üst, sağ, alt
 pub type Rect = (i32, i32, i32, i32);
 
@@ -361,6 +367,21 @@ mod imp {
     pub fn app_of_window(hwnd: isize) -> Option<(String, String)> {
         winlist::app_of_window(hwnd)
     }
+    pub fn wallpaper(m: Rect) -> Option<Wall> {
+        match dock_sys::wallpaper::for_monitor(r(m))? {
+            wallpaper::Source::File(p) => Some(Wall::File(p)),
+            wallpaper::Source::Solid(a, b, c) => Some(Wall::Solid(a, b, c)),
+        }
+    }
+    pub fn autostart_get() -> bool {
+        autostart::get().is_some()
+    }
+    pub fn single_instance() -> bool {
+        dock_sys::single_instance()
+    }
+    pub fn autostart_set(exe: Option<&str>) -> bool {
+        autostart::set(exe)
+    }
 }
 
 #[cfg(not(windows))]
@@ -512,6 +533,18 @@ mod imp {
     }
     pub fn app_of_window(_hwnd: isize) -> Option<(String, String)> {
         None
+    }
+    pub fn wallpaper(_m: Rect) -> Option<Wall> {
+        None
+    }
+    pub fn autostart_get() -> bool {
+        false
+    }
+    pub fn single_instance() -> bool {
+        true
+    }
+    pub fn autostart_set(_exe: Option<&str>) -> bool {
+        false
     }
 }
 

@@ -23,7 +23,7 @@ const SVG = {
 };
 
 const ACCENTS = ["#2F7BFF", "#7C5CFF", "#14B8A6", "#F97316", "#EC4899"];
-const MARKETS = [
+const MARKET_OPTIONS = [
   ["USD", "Dolar"], ["EUR", "Euro"], ["GBP", "Sterlin"], ["CHF", "İsviçre frangı"],
   ["gram-altin", "Gram altın"], ["ceyrek-altin", "Çeyrek altın"],
 ];
@@ -38,7 +38,7 @@ const WIDGETS = [
   { id: "ticker", name: "Piyasa ve haberler", desc: "Döviz, altın ve haber başlıkları dönüşümlü; tıklayınca kategorili haber paneli." },
   { id: "media", name: "Müzik", desc: "Spotify, YouTube ve diğer oynatıcılar; birden çoksa tekerlekle kaydır." },
   { id: "system", name: "Sistem düğmeleri", desc: "Arka plan uygulamaları (tepsi), hızlı ayarlar, bildirimler, görev görünümü." },
-  { id: "clock", name: "Saat", desc: "Saat ve tarih." },
+  { id: "clock", name: "Saat ve hava durumu", desc: "Saat, tarih, sıcaklık; tıklayınca saatlik ve 6 günlük tahmin." },
   { id: "lock", name: "Kilit düğmesi", desc: "Dock'u kilitle (hep görünür) ya da otomatik gizle." },
   { id: "mail", name: "Mail", desc: "Önizleme — örnek veri.", preview: true },
   { id: "claude", name: "Claude kullanımı", desc: "Önizleme — örnek veri.", preview: true },
@@ -110,6 +110,40 @@ function bind() {
   for (const input of $$("input[type=number][data-bind]")) {
     input.onchange = () => set(input.dataset.bind, Math.max(1, Number(input.value) || 1));
   }
+  for (const input of $$("input[type=time][data-bind]")) {
+    input.onchange = () => { if (/^\d\d:\d\d$/.test(input.value)) set(input.dataset.bind, input.value); };
+  }
+  // Hava durumu: şehir arama (Open-Meteo geocoding)
+  const searchCity = async () => {
+    const q = $("#city-q").value.trim();
+    const box = $("#city-res");
+    if (q.length < 2) return;
+    box.replaceChildren(el("span", "muted", "Aranıyor…"));
+    try {
+      const r = JSON.parse(await invoke("fetch_text", { url: `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=tr&format=json` }));
+      const list = r.results || [];
+      box.replaceChildren(...(list.length ? list.map((c) => chip(
+        [c.name, c.admin1 && c.admin1 !== c.name ? c.admin1 : "", c.country_code !== "TR" ? c.country : ""].filter(Boolean).join(", "),
+        false,
+        () => {
+          cfg.weather.city = c.name;
+          cfg.weather.lat = c.latitude;
+          cfg.weather.lon = c.longitude;
+          cfg.weather.auto_location = false;
+          box.replaceChildren();
+          $("#city-q").value = "";
+          changed();
+        },
+      )) : [el("span", "muted", "Bulunamadı")]));
+    } catch {
+      box.replaceChildren(el("span", "muted", "Arama yapılamadı"));
+    }
+  };
+  $("#city-go").onclick = searchCity;
+  $("#city-q").onkeydown = (e) => { if (e.key === "Enter") searchCity(); };
+  // Güncellemeler
+  $("#upd-check").onclick = () => invoke("update_check").catch(() => {});
+  $("#upd-install").onclick = () => invoke("update_install").catch(() => {});
   $("#feed-add").onclick = () => {
     const url = $("#feed-url").value.trim();
     if (!/^https:\/\//.test(url) || cfg.ticker.feeds.includes(url)) return;
@@ -169,14 +203,66 @@ function bind() {
 // ---------------------------------------------------------------------------
 // Ekranı güncelle
 // ---------------------------------------------------------------------------
-let systemDark = matchMedia("(prefers-color-scheme: dark)").matches;
-invoke("system_theme").then((d) => { systemDark = !!d; if (cfg) refresh(); }).catch(() => {});
-listen("system-theme", (e) => { systemDark = !!e.payload; if (cfg) refresh(); });
+// Tema Rust'tan gelir (dinamik mod ve Windows teması dahil).
+let effDark = matchMedia("(prefers-color-scheme: dark)").matches;
+const refreshDark = () => invoke("theme_dark").then((d) => { effDark = !!d; if (cfg) refresh(); }).catch(() => {});
+refreshDark();
+listen("theme-dark", (e) => { effDark = !!e.payload; if (cfg) { Dyn.animate(document.documentElement); refresh(); } });
+listen("location-changed", (e) => {
+  if (!cfg) return;
+  Object.assign(cfg.weather, { city: e.payload.city, lat: e.payload.lat, lon: e.payload.lon });
+  refresh();
+  loadSun();
+});
+Dyn.watch(() => cfg, () => refresh());
+
+let sun = null;
+const fmtMin = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(Math.round(m % 60)).padStart(2, "0")}`;
+const loadSun = () => invoke("sun_times").then((t) => { sun = t; if (cfg) refresh(); }).catch(() => {});
+loadSun();
+
+let upd = null;
+invoke("update_status").then((u) => { upd = u; drawUpdate(); }).catch(() => {});
+listen("update-status", (e) => { upd = e.payload; drawUpdate(); });
+function drawUpdate() {
+  if (!upd) return;
+  const desc = {
+    idle: "Henüz denetlenmedi.",
+    checking: "Yeni sürüm denetleniyor…",
+    uptodate: `Güncelsin.${upd.checked ? " Son denetim " + upd.checked : ""}`,
+    downloading: `Sürüm ${upd.latest} indiriliyor… %${Math.round(upd.progress * 100)}`,
+    ready: `Sürüm ${upd.latest} hazır. Bilgisayar boştayken kurulacak ya da şimdi kurabilirsin.`,
+    installing: "Kuruluyor; dock birkaç saniye içinde yeniden açılacak…",
+    error: upd.error || "Denetlenemedi.",
+  }[upd.state] || "";
+  $("#upd-title").textContent = `Cam Dock ${upd.current}`;
+  $("#upd-desc").textContent = desc;
+  $("#upd-bar").style.display = upd.state === "downloading" ? "block" : "none";
+  $("#upd-bar i").style.width = `${Math.round(upd.progress * 100)}%`;
+  $("#upd-install").style.display = upd.state === "ready" ? "" : "none";
+  $("#upd-check").disabled = ["checking", "downloading", "installing"].includes(upd.state);
+}
 
 function refresh() {
   const root = document.documentElement;
-  root.dataset.theme = cfg.theme === "dark" || (cfg.theme !== "light" && systemDark) ? "dark" : "light";
+  root.dataset.theme = effDark ? "dark" : "light";
   root.style.setProperty("--accent", cfg.accent);
+  Dyn.apply(root, cfg, effDark, "settings").then(drawPalette);
+
+  const dyn = cfg.dynamic;
+  $(".dyn-card").classList.toggle("on", dyn.enabled);
+  $("#tint-val").textContent = dyn.tint <= 15 ? "Çok hafif" : dyn.tint <= 40 ? "Hafif" : dyn.tint <= 70 ? "Belirgin" : "Güçlü";
+  $("#sched-row").classList.toggle("disabled", !dyn.auto_theme);
+  $("#fixed-row").style.display = dyn.auto_theme && dyn.schedule === "fixed" ? "" : "none";
+  $("#sched-desc").textContent = dyn.schedule === "fixed"
+    ? `Açık ${dyn.light_at}, koyu ${dyn.dark_at}`
+    : sun ? `${cfg.weather.city || "Konum"}: bugün gün doğumu ${fmtMin(sun[0])}, batımı ${fmtMin(sun[1])}` : "Konum hava durumu ayarından alınır.";
+  for (const inp of $$("input[type=time][data-bind]")) if (document.activeElement !== inp) inp.value = get(inp.dataset.bind);
+  $("#manual-theme").classList.toggle("dyn-dim", dyn.enabled);
+  $("#loc-desc").textContent = cfg.weather.auto_location
+    ? `İnternet bağlantısından bulunur${cfg.weather.city ? " · şu an " + cfg.weather.city : ""}`
+    : `Elle seçildi: ${cfg.weather.city || "–"}`;
+  $("#city-row").classList.toggle("disabled", !cfg.weather.enabled);
   root.style.setProperty("--pv-radius", `${Math.round(cfg.radius * 0.66)}px`);
   root.style.setProperty("--pv-margin", `${Math.max(4, cfg.bottom_margin)}px`);
 
@@ -213,6 +299,17 @@ function refresh() {
   renderWidgets();
 }
 
+function drawPalette() {
+  const p = Dyn.preview();
+  const box = $("#dyn-pal");
+  if (!box) return;
+  if (!p || !cfg.dynamic.enabled) { box.replaceChildren(); return; }
+  const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+  box.innerHTML = p.gray
+    ? `<i style="background:#8a8f99"></i><small>Renksiz duvar kâğıdı: vurgu rengin korunur</small>`
+    : `<i style="background:hsl(${Math.round(p.hue)} ${Math.round(Math.min(p.sat, 0.85) * 100)}% 50%)"></i><i style="background:${accent}"></i>`;
+}
+
 function chip(label, on, onclick, removable) {
   const b = el("button", "chip" + (on ? " on" : ""));
   b.textContent = label;
@@ -225,12 +322,12 @@ function chip(label, on, onclick, removable) {
 function renderChips() {
   const m = $("#markets");
   m.replaceChildren();
-  for (const [key, label] of MARKETS) {
+  for (const [key, label] of MARKET_OPTIONS) {
     const on = cfg.ticker.markets.includes(key);
     m.append(chip(label, on, () => {
       // Sırayı listedeki sırada tut
       const next = on ? cfg.ticker.markets.filter((k) => k !== key) : [...cfg.ticker.markets, key];
-      cfg.ticker.markets = MARKETS.map(([k]) => k).filter((k) => next.includes(k));
+      cfg.ticker.markets = MARKET_OPTIONS.map(([k]) => k).filter((k) => next.includes(k));
       changed();
     }));
   }
@@ -512,7 +609,15 @@ async function mockInvoke(cmd) {
         dock_locked: false,
         ticker: { markets: ["USD", "EUR", "gram-altin"], news: true, feeds: ["https://news.google.com/rss?hl=tr&gl=TR&ceid=TR:tr", "https://example.com/feed.xml"], interval_sec: 6, news_per_round: 3 },
         config_path: "C:\\Users\\ali\\AppData\\Roaming\\com.ali.camdock\\config.json",
+        dynamic: { enabled: q.has("wall"), tint: 45, auto_theme: true, schedule: q.get("sched") || "sun", light_at: "07:00", dark_at: "19:30" },
+        weather: { enabled: true, auto_location: true, city: "İzmir", lat: 38.42, lon: 27.14 },
+        update: { auto_check: true, auto_install: true },
+        autostart: true,
       };
+    case "theme_dark": return (q.get("theme") || "dark") === "dark";
+    case "wallpaper": return MOCK.wallpaper(q.get("wall"));
+    case "sun_times": return [458, 1094];
+    case "update_status": return { state: q.get("upd") || "uptodate", current: "0.10.0", latest: "0.10.1", progress: 0.42, checked: "30.10 20:55", error: "" };
     case "list_monitors":
       return [
         { name: "\\\\.\\DISPLAY1", title: "Ekran 1", width: 2560, height: 1440, scale: 1.25, primary: true, rect: [0, 0, 2560, 1440] },

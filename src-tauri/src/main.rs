@@ -8,6 +8,8 @@ mod log;
 mod platform;
 mod popover;
 mod screentime;
+mod theme;
+mod updater;
 
 use config::Config;
 use std::collections::HashMap;
@@ -38,6 +40,9 @@ pub struct AppState {
     pub stats_hist: Mutex<std::collections::VecDeque<platform::SysStats>>,
     /// Son okunan Windows teması (açık mı)
     pub system_light: Mutex<Option<bool>>,
+    /// Tüm pencerelerin kullandığı geçerli tema (dinamik mod dahil)
+    pub eff_dark: Mutex<Option<bool>>,
+    pub update: Mutex<updater::Status>,
     /// Sağ tık menüsü açılan uygulama
     pub app_menu: Mutex<Option<commands::AppMenuItem>>,
 }
@@ -67,6 +72,7 @@ fn on_menu(app: &tauri::AppHandle, id: &str) {
             config::save(&cfg);
         }
         emit_config(app);
+        docks::refresh_theme(app);
     } else if id == "settings" {
         // Pencere oluşturmayı ana iş parçacığının dışında yap.
         let app = app.clone();
@@ -83,6 +89,11 @@ fn on_menu(app: &tauri::AppHandle, id: &str) {
 fn main() {
     if std::env::args().any(|a| a == "--restore-taskbar") {
         docks::emergency_restore();
+        return;
+    }
+
+    // Windows ile başlatma + elle açma iki dock oluşturmasın.
+    if !platform::single_instance() {
         return;
     }
 
@@ -108,6 +119,8 @@ fn main() {
         stats: Mutex::new(platform::SysStats::default()),
         stats_hist: Mutex::new(std::collections::VecDeque::with_capacity(120)),
         system_light: Mutex::new(None),
+        eff_dark: Mutex::new(None),
+        update: Mutex::new(updater::Status::default()),
         app_menu: Mutex::new(None),
     };
 
@@ -152,6 +165,14 @@ fn main() {
             commands::fetch_text,
             commands::screen_time,
             commands::usage_data,
+            commands::theme_dark,
+            commands::wallpaper,
+            commands::sun_times,
+            commands::autostart_state,
+            commands::set_weather_location,
+            updater::update_status,
+            updater::update_check,
+            updater::update_install,
             commands::open_start,
             commands::system_action,
             commands::open_settings,
@@ -170,6 +191,18 @@ fn main() {
                 }
             }
             docks::sync(&handle);
+            {
+                // Windows ile başlat: exe yeri değişmiş olabilir, her açılışta yenile.
+                let want = handle.state::<AppState>().cfg.lock().unwrap().autostart;
+                if want || platform::autostart_get() {
+                    commands::apply_autostart(want);
+                }
+            }
+            if let Some(light) = platform::light_theme() {
+                *handle.state::<AppState>().system_light.lock().unwrap() = Some(light);
+            }
+            docks::refresh_theme(&handle);
+            updater::spawn(handle.clone());
             // Sistem kaynakları: saniyede bir örnekle.
             {
                 let h = handle.clone();

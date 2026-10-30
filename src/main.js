@@ -50,23 +50,30 @@ const whenVisible = (fn) => { const g = single(fn); return () => { if (dockVisib
 // ---------------------------------------------------------------------------
 // Tema
 // ---------------------------------------------------------------------------
-// "Sistemle aynı": Windows'un kendi ayarı (kayıt defteri) — WebView'in
-// prefers-color-scheme'i her zaman doğru değeri vermiyordu.
-let systemDark = matchMedia("(prefers-color-scheme: dark)").matches;
-invoke("system_theme").then((d) => { systemDark = !!d; if (cfg) applyTheme(); }).catch(() => {});
-listen("system-theme", (e) => { systemDark = !!e.payload; if (cfg) applyTheme(); });
-const isDark = () => cfg.theme === "dark" || (cfg.theme !== "light" && systemDark);
+// Geçerli tema Rust'tan gelir: kullanıcı seçimi, Windows teması ya da dinamik
+// moddaki saat planı. Tüm pencereler aynı değeri kullanır.
+let effDark = matchMedia("(prefers-color-scheme: dark)").matches;
+const isDark = () => effDark;
+invoke("theme_dark").then((d) => { effDark = !!d; if (cfg) applyTheme(); }).catch(() => {});
+listen("theme-dark", (e) => {
+  if (!!e.payload === effDark) return;
+  effDark = !!e.payload;
+  if (cfg) applyTheme(true);
+});
 
-function applyTheme() {
+async function applyTheme(animate) {
   const root = document.documentElement;
   const dark = isDark();
+  if (animate) Dyn.animate(root);
   root.dataset.theme = dark ? "dark" : "light";
   root.dataset.backdrop = cfg.backdrop;
   root.style.setProperty("--accent", cfg.accent || "#2F7BFF");
   root.style.setProperty("--radius", `${cfg.radius ?? 26}px`);
-  invoke("set_theme", { dark }).catch(() => {});
+  // Dinamik mod: duvar kâğıdı renkleri (kapalıysa değişkenler temizlenir).
+  const tint = await Dyn.apply(root, cfg, dark, "dock");
+  invoke("set_theme", { dark, tint }).catch(() => {});
 }
-
+Dyn.watch(() => cfg, () => applyTheme(true));
 
 // ---------------------------------------------------------------------------
 // Yerleşim: dock'un ölçüsü değişince pencereyi yeniden boyutlandır
@@ -790,15 +797,46 @@ function mediaWidget() {
 // ---------------------------------------------------------------------------
 // Sistem kaynakları: CPU, RAM, GPU, Disk
 // ---------------------------------------------------------------------------
+// Saat + hava durumu: sıcaklık ve simge; tıklayınca saatlik ve 5 günlük tahmin.
+let clockCell = null;
 function clockWidget() {
-  const c = $("div", "cell plain clock");
-  c.innerHTML = `<span class="stack"><span class="t-big"></span><span class="t-sub"></span></span>`;
-  const [time, date] = [c.querySelector(".t-big"), c.querySelector(".t-sub")];
+  const withWx = cfg.weather?.enabled !== false;
+  const c = $(withWx ? "button" : "div", "cell plain clock" + (withWx ? " has-wx" : ""));
+  c.innerHTML = `${withWx ? `<span class="wx"><span class="wx-i"></span><span class="stack"><span class="wx-t">–°</span><span class="t-sub wx-c"></span></span></span>` : ""}
+    <span class="stack"><span class="t-big"></span><span class="t-sub"></span></span>`;
+  const time = c.querySelector(":scope > .stack .t-big");
+  const date = c.querySelector(":scope > .stack .t-sub");
   every(5_000, () => {
     const d = new Date();
     time.textContent = d.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
     date.textContent = trDate(d, { day: "numeric", month: "short", year: "numeric" });
   });
+  if (withWx) {
+    c.setAttribute("aria-label", "Saat ve hava durumu — tahmini aç");
+    const icon = c.querySelector(".wx-i"), temp = c.querySelector(".wx-t"), city = c.querySelector(".wx-c");
+    const load = async () => {
+      try {
+        const w = await Weather.get(cfg);
+        const cur = w.current;
+        icon.innerHTML = wxIcon(cur.weather_code, cur.is_day === 1, 28);
+        temp.textContent = `${Math.round(cur.temperature_2m)}°`;
+        city.textContent = w.city || wxText(cur.weather_code);
+        const today = w.daily;
+        c.title = `${w.city || ""} · ${wxText(cur.weather_code)}, ${Math.round(cur.temperature_2m)}° (hissedilen ${Math.round(cur.apparent_temperature)}°)\n` +
+          `Bugün en yüksek ${Math.round(today.temperature_2m_max[0])}°, en düşük ${Math.round(today.temperature_2m_min[0])}°\nTahmin için tıkla`;
+      } catch (e) {
+        console.warn("hava durumu alınamadı", e);
+      }
+    };
+    load();
+    timers.push(setInterval(load, 15 * 60_000));
+    c.onclick = async () => {
+      const r = c.getBoundingClientRect();
+      const res = await invoke("popover_open", { kind: "weather", key: "weather", anchor: r.left + r.width / 2, payload: null }).catch(() => "");
+      c.classList.toggle("active", res === "opened" || res === "open");
+    };
+  }
+  clockCell = c;
   return c;
 }
 
@@ -875,14 +913,16 @@ dock.addEventListener("contextmenu", (e) => {
 listen("relayout", () => { lastSize = ""; queueLayout(); });
 listen("dock-visibility", (e) => { dockVisible = !!e.payload; });
 listen("popover-closed", (e) => {
-  const cell = { calendar: calendarCell, usage: screenCell, news: tickerCell }[e.payload];
+  const cell = { calendar: calendarCell, usage: screenCell, news: tickerCell, weather: clockCell }[e.payload];
   cell?.classList.remove("active");
 });
 
 listen("config-changed", async () => {
+  const before = JSON.stringify([cfg?.dynamic, cfg?.theme]);
   cfg = await invoke("get_config");
   iconCache.clear();
-  applyTheme();
+  effDark = !!(await invoke("theme_dark").catch(() => effDark));
+  applyTheme(before !== JSON.stringify([cfg.dynamic, cfg.theme]));
   render();
 });
 
@@ -904,6 +944,8 @@ async function mockInvoke(cmd, args) {
         display: { mode: "primary", selected: [], apps_per_monitor: false },
         widgets: (params.get("widgets") || "calendar,screentime,ticker,media,system,clock,lock").split(","),
         dock_locked: params.get("locked") !== "0",
+        dynamic: { enabled: params.has("wall"), tint: Number(params.get("tint") || 45), auto_theme: false, schedule: "sun", light_at: "07:00", dark_at: "19:30" },
+        weather: { enabled: true, auto_location: true, city: "İstanbul", lat: 41, lon: 29 },
         ticker: { markets: ["USD", "EUR", "gram-altin"], news: true, feeds: ["https://news.google.com/rss"], interval_sec: Number(params.get("iv") || 6), news_per_round: 3 },
         pinned_resolved: ["Dosya Gezgini", "Chrome", "VS Code", "Spotify", "Telegram"].map((n) => ({
           name: n, path: `C:\\${n}.exe`, args: null, exists: true,
@@ -926,11 +968,16 @@ async function mockInvoke(cmd, args) {
         { id: "Spotify.exe#0", current: true, active: true, title: "Gece Sürüşü", artist: "Örnek Sanatçı", album: "", playing: true, position_ms: 134000, duration_ms: 218000, source: "Spotify.exe", track_key: "a" },
         { id: "Chrome#0", current: false, active: true, title: "Kurtlar Vadisi Pusu | 52. Bölüm", artist: "YouTube", album: "", playing: false, position_ms: 600000, duration_ms: 2400000, source: "Chrome", track_key: "b" },
       ];
+    case "theme_dark":
+      return (params.get("theme") || "dark") === "dark";
+    case "wallpaper":
+      return MOCK.wallpaper(params.get("wall"));
     case "sys_stats":
       return { cpu: 23, ram: 61, ram_used_gb: 9.7, ram_total_gb: 16, gpu: 8, disk: 3 };
     case "media_state":
       return { active: true, title: "Gece Sürüşü", artist: "Örnek Sanatçı", album: "", playing: true, position_ms: 134000, duration_ms: 218000, source: "Spotify.exe", track_key: "x" };
     case "fetch_text":
+      if (args.url.includes("open-meteo") || args.url.includes("geojs")) return MOCK.fetch(args.url);
       if (args.url.includes("truncgil"))
         return JSON.stringify({
           USD: { "Satış": "49,8407", "Değişim": "%0,00" },

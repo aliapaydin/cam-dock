@@ -267,3 +267,22 @@ input[type="range"] { width: 220px; accent-color: var(--accent); flex: 0 0 auto;
 .link-btn strong { color: var(--text); font-size: 13px; }
 .link-btn small { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dev-foot { margin: 14px 2px 0; font-size: 12px; color: var(--text-3); }
+
+/* ---------- Dinamik mod ---------- */
+.dyn-card .dyn-body { display: none; }
+.dyn-card.on .dyn-body { display: block; }
+.dyn-dim { opacity: .55; }
+.dyn-dim::after { content: "Dinamik mod açıkken tema saate göre, vurgu rengi duvar kâğıdına göre belirlenir."; display: block; padding: 0 18px 12px; font-size: 12px; color: var(--text-2); }
+.dyn-swatches { display: flex; align-items: center; gap: 6px; }
+.dyn-swatches i { width: 22px; height: 22px; border-radius: 7px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); }
+.dyn-swatches small { font-size: 11.5px; color: var(--text-2); max-width: 180px; }
+.times { display: flex; gap: 10px; }
+.times label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); }
+.times input { font: inherit; color: var(--text); background: var(--card-2); border: 1px solid var(--line-2); border-radius: 8px; padding: 5px 8px; color-scheme: inherit; }
+.upd-btns { display: flex; gap: 8px; flex: 0 0 auto; }
+.upd-bar { display: none; height: 5px; border-radius: 3px; background: var(--line-2); overflow: hidden; margin-top: 6px; width: 260px; }
+.upd-bar i { display: block; height: 100%; background: var(--accent); transition: width .3s; }
+.muted { font-size: 12px; color: var(--text-2); }
+.retheme body, .retheme .card, .retheme .sidebar, .retheme .tab { transition: background-color 1.1s ease, color .9s ease, border-color 1.1s ease !important; }
+.dyn-body .row:first-child { border-top: 1px solid var(--line); }
+.card + .card { margin-top: 14px; }

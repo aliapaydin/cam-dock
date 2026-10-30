@@ -340,6 +340,21 @@ button.cell.ticker { font: inherit; color: inherit; text-align: left; }
 .media { width: 376px; box-sizing: border-box; padding: 0 !important; }
 .media .meta { flex: 1; width: auto; }
 .clock { width: 104px; box-sizing: border-box; justify-content: flex-end; }
+.clock.has-wx { width: 206px; font: inherit; color: inherit; justify-content: space-between; gap: 8px; }
+button.clock:hover { background: var(--cell-hover); }
+.clock.active { background: var(--cell-active-bg); border-color: var(--cell-active-border); }
+.wx { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.wx-i { display: flex; flex: 0 0 auto; }
+.clock .wx .stack { align-items: flex-start; }
+.wx-t { font-size: 17px; font-weight: 700; line-height: 1.05; }
+.wx-c { max-width: 66px; }
+[data-theme="light"] { --wx-cloud: #B9C4D6; --wx-cloud2: #8D99AE; }
+
+/* Tema değişirken (dinamik mod, gece/gündüz) renkler yumuşakça geçsin */
+.retheme #dock, .retheme .cell, .retheme .app, .retheme .sys button, .retheme .lock,
+.retheme .t-sub, .retheme .t-strong, .retheme .t-big, .retheme .bars span, .retheme .run {
+  transition: background-color 1.1s ease, border-color 1.1s ease, color .9s ease, box-shadow 1.1s ease !important;
+}
 
 /* Piyasa ve haberler */
 .ticker { width: 336px; box-sizing: border-box; padding: 0; cursor: default; }

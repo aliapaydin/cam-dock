@@ -31,3 +31,25 @@ jobs:
           path: |
             src-tauri/target/release/cam-dock.exe
             src-tauri/target/release/bundle/nsis/*.exe
+
+      # Otomatik güncelleme: kurulum dosyasını açık "cam-dock-releases"
+      # deposunda yayınla (kod gizli kalır). RELEASES_TOKEN gizli anahtarı
+      # yoksa bu adım atlanır. Aynı sürüm zaten yayınlandıysa dokunmaz;
+      # yeni sürüm için tauri.conf.json'daki version artırılmalı.
+      - name: Sürümü yayınla
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          REPO: aliapaydin/cam-dock-releases
+        run: |
+          if (-not $env:GH_TOKEN) { Write-Host "RELEASES_TOKEN yok, yayın atlandı"; exit 0 }
+          $ver = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $tag = "v$ver"
+          gh release view $tag --repo $env:REPO *> $null
+          if ($LASTEXITCODE -eq 0) { Write-Host "$tag zaten yayınlanmış"; exit 0 }
+          $setup = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          $notes = (git log -1 --pretty=%B) -join "`n"
+          $notes = ($notes -split "`n" | Where-Object { $_ -notmatch '^(Co-Authored-By|Claude-Session):' }) -join "`n"
+          gh release create $tag $setup.FullName --repo $env:REPO --title "Cam Dock $ver" --notes $notes
+          exit $LASTEXITCODE

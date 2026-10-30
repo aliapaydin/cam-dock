@@ -28,6 +28,8 @@ pub struct Dock {
     pub last_inside: Instant,
     /// Arayüzün bildirdiği tema (cam renk tabakası için)
     pub dark: bool,
+    /// Dinamik modda duvar kâğıdından gelen cam rengi
+    pub tint: Option<(u8, u8, u8)>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -148,13 +150,18 @@ pub fn apply_glass(app: &AppHandle, label: &str) {
     };
     let Some((_, _, w, h)) = d.target else { return };
     let radius = (radius_css as f64 * d.scale) as f32;
-    glass_raw(app, d.hwnd, w, h, radius, d.dark, mode);
+    glass_raw(app, d.hwnd, w, h, radius, d.dark, d.tint, mode);
 }
 
 /// Herhangi bir penceremize cam uygular (dock ya da panel). Composition
 /// kurulamadıysa eski yönteme (accent + pencere bölgesi) düşer.
-pub fn glass_raw(app: &AppHandle, hwnd: isize, w: i32, h: i32, radius: f32, dark: bool, mode: String) {
-    let tint = if dark { (16, 20, 34, 0x38) } else { (245, 247, 252, 0x48) };
+pub fn glass_raw(app: &AppHandle, hwnd: isize, w: i32, h: i32, radius: f32, dark: bool, tint: Option<(u8, u8, u8)>, mode: String) {
+    let tint = match (tint, dark) {
+        (Some((r, g, b)), true) => (r, g, b, 0x40),
+        (Some((r, g, b)), false) => (r, g, b, 0x50),
+        (None, true) => (16, 20, 34, 0x38),
+        (None, false) => (245, 247, 252, 0x48),
+    };
     let _ = app.run_on_main_thread(move || {
         if platform::glass_attached(hwnd) {
             platform::apply_backdrop(hwnd, "none", dark);
@@ -166,6 +173,25 @@ pub fn glass_raw(app: &AppHandle, hwnd: isize, w: i32, h: i32, radius: f32, dark
             platform::round_region(hwnd, w, h, radius as i32);
         }
     });
+}
+
+/// Geçerli temayı (Windows teması, dinamik moddaki saat planı) yeniden
+/// hesaplar; değiştiyse tüm pencerelere "theme-dark" yayınlar.
+pub fn refresh_theme(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let sys = *state.system_light.lock().unwrap();
+    let cfg = state.cfg.lock().unwrap().clone();
+    let dark = crate::theme::effective_dark(&cfg, sys);
+    let mut last = state.eff_dark.lock().unwrap();
+    if *last != Some(dark) {
+        let first = last.is_none();
+        *last = Some(dark);
+        drop(last);
+        if !first {
+            dlog!("tema değişti: {}", if dark { "koyu" } else { "açık" });
+        }
+        let _ = app.emit("theme-dark", dark);
+    }
 }
 
 /// Ayarlara ve bağlı monitörlere göre dock pencerelerini oluşturur/kapatır.
@@ -223,6 +249,7 @@ pub fn sync(app: &AppHandle) {
                         fs_hidden: false,
                         last_inside: Instant::now(),
                         dark: true,
+                        tint: None,
                     },
                 );
             }
@@ -595,13 +622,9 @@ pub fn spawn_watcher(app: AppHandle) {
             // Windows teması değişti mi? (Ayarlar → Kişiselleştirme → Renkler)
             if tick % 20 == 0 {
                 if let Some(light) = platform::light_theme() {
-                    let mut last = state.system_light.lock().unwrap();
-                    if *last != Some(light) {
-                        *last = Some(light);
-                        drop(last);
-                        let _ = app.emit("system-theme", !light);
-                    }
+                    *state.system_light.lock().unwrap() = Some(light);
                 }
+                refresh_theme(&app);
             }
             if tick % 10 == 0 && platform::idle_ms() < 120_000 {
                 let fg_app = platform::app_of_window(state.last_fg.load(std::sync::atomic::Ordering::SeqCst));

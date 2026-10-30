@@ -1,4 +1,4 @@
-# Cam Dock — v0.9.0
+# Cam Dock — v0.10.0
 
 Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebView2) ile yazıldı.
 
@@ -16,7 +16,9 @@ Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebVi
 | **Uygulama kataloğu**: Store sürümleri dahil tüm yüklü uygulamalar; bulunamayan sabitlemeler adıyla otomatik düzeltilir; Gözat ile dosya seçme | ✅ |
 | **Ekran süresi + kaynaklar** tek hücrede dönüşümlü (halka gösterge + canlı çizgi); tıklayınca **kullanım paneli**: saatlik ve 7 günlük sütunlar, uygulama halkası, CPU/RAM/GPU/Disk son 2 dk, sistem bilgisi | ✅ |
 | **Piyasa ve haberler**: dolar, euro, gram altın (Truncgil) ve RSS haber başlıkları dönüşümlü kayar; tıklayınca **haber ve piyasa paneli** (tüm kurlar/altın, alış-satış-değişim; Gündem, Ekonomi, Teknoloji, Spor… kategorileri; haberden tarayıcıya) | ✅ |
-| Tarih / saat | ✅ |
+| Tarih / saat + **hava durumu** (Open-Meteo): sıcaklık ve simge; tıklayınca saatlik ve 6 günlük tahmin, konum otomatik ya da şehir arama | ✅ |
+| **Dinamik mod**: renkler duvar kâğıdından (her ekran kendi duvar kâğıdından), koyu/açık tema gün doğumu-batımına ya da sabit saate göre; kapatınca kendi ayarların geri gelir | ✅ |
+| **Windows ile başlat** ve **otomatik güncelleme** (açık `cam-dock-releases` deposundan; boştayken sessiz kurulum) | ✅ |
 | Tam ekran oyun/video açılınca dock'un kendini gizlemesi | ✅ |
 | **Ayarlar penceresi** (sağ tık → Ayarlar…): görünüm, dock/taskbar, ekranlar, uygulamalar, widget'lar | ✅ |
 | **Dock görünürlüğü**: her zaman görünür / otomatik gizle / akıllı gizle, kayarak açılıp kapanma | ✅ |
@@ -129,3 +131,13 @@ Tarayıcıda hızlı önizleme (örnek verilerle): `src/index.html?theme=dark`, 
 ## Geliştirici
 
 Ali Apaydın — [GitHub](https://github.com/aliapaydin/cam-dock) · apaydin.a@gmail.com · [sifirgecikme.com](https://sifirgecikme.com)
+
+## Otomatik güncelleme kurulumu (bir kez)
+
+Kaynak kod gizli kalsın diye kurulum dosyaları ayrı, açık bir depoda yayınlanır:
+
+1. GitHub'da **public** `aliapaydin/cam-dock-releases` deposunu oluştur (boş olabilir, README ile başlatmak yeterli).
+2. Settings → Developer settings → Fine-grained tokens → yeni anahtar: depo erişimi yalnızca `cam-dock-releases`, izin **Contents: Read and write**.
+3. `cam-dock` deposunda Settings → Secrets and variables → Actions → **RELEASES_TOKEN** adıyla bu anahtarı ekle.
+
+Bundan sonra `tauri.conf.json` içindeki sürüm her artırıldığında CI kurulum dosyasını yeni sürüm olarak yayınlar; uygulamalar 6 saat içinde bulur.
