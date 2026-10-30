@@ -10,7 +10,7 @@ use serde::Serialize;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, SubmenuBuilder};
-use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow};
+use tauri::{AppHandle, Manager, State, WebviewWindow};
 
 fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
@@ -124,7 +124,7 @@ pub fn layout_dock(
     let Some(d) = docks.get_mut(window.label()) else {
         return Ok(());
     };
-    let (mx, my, mr, mb) = d.mon_rect;
+    let (mx, _my, mr, mb) = d.mon_rect;
     let mw = mr - mx;
     let scale = d.scale;
     let w = (width * scale).ceil() as i32;
@@ -137,28 +137,25 @@ pub fn layout_dock(
     } else {
         platform::release(d.hwnd);
     }
-    let _ = my;
 
     let x = mx + (mw - w) / 2;
     let y = bottom - h - margin;
     let first = d.target.is_none();
     d.target = Some((x, y, w, h));
 
-    // Önce konum (farklı DPI'lı ekrana geçiş boyutu değiştirebilir), sonra boyut.
-    if d.shown || first {
-        window
-            .set_position(PhysicalPosition::new(x, y))
-            .map_err(err)?;
-    }
-    window
-        .set_size(PhysicalSize::new(w.max(1) as u32, h.max(1) as u32))
-        .map_err(err)?;
+    // Konum ve boyutu doğrudan Windows'a veriyoruz (Tauri'nin set_size/
+    // set_position'ı pencere stilini yeniden uygulayabiliyor). Farklı DPI'lı
+    // ekrana geçiş boyutu değiştirebildiği için ikinci kez uyguluyoruz.
+    platform::make_popup(d.hwnd);
+    let place_y = if d.shown { y } else { mb + 40 };
+    platform::set_bounds(d.hwnd, x, place_y, w.max(1), h.max(1));
+    platform::set_bounds(d.hwnd, x, place_y, w.max(1), h.max(1));
     platform::round_region(d.hwnd, w, h, (cfg.radius as f64 * scale).round() as i32);
 
     if first && !d.fs_hidden {
-        platform::show_no_activate(d.hwnd);
-        d.shown = true;
         d.last_inside = Instant::now();
+        docks::slide_in(d);
+        d.shown = true;
     }
     Ok(())
 }
@@ -278,6 +275,22 @@ pub fn media_thumbnail(state: State<'_, AppState>, track_key: String) -> Option<
 #[tauri::command(async)]
 pub fn media_control(action: String) -> bool {
     platform::media_control(&action)
+}
+
+/// Piyasa verisi ve RSS için basit HTTPS GET. Tarayıcı içinden yapılan
+/// istekler CORS'a takıldığı için Rust tarafında indiriyoruz.
+#[tauri::command(async)]
+pub fn fetch_text(url: String) -> Result<String, String> {
+    if !url.starts_with("https://") {
+        return Err("yalnızca https adreslerine izin var".into());
+    }
+    let resp = ureq::get(&url)
+        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CamDock/0.3")
+        .set("Accept", "application/json, application/rss+xml, application/xml, text/xml, */*")
+        .timeout(std::time::Duration::from_secs(12))
+        .call()
+        .map_err(err)?;
+    resp.into_string().map_err(err)
 }
 
 #[tauri::command]

@@ -22,20 +22,29 @@ impl Default for Pinned {
     }
 }
 
+/// Dock'taki kayan "piyasa ve haberler" hücresi.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct Currency {
-    pub amount: f64,
-    pub from: String,
-    pub to: String,
+pub struct Ticker {
+    /// truncgil anahtarları: USD, EUR, GBP, CHF, gram-altin, ceyrek-altin
+    pub markets: Vec<String>,
+    pub news: bool,
+    /// RSS/Atom adresleri
+    pub feeds: Vec<String>,
+    /// Her öğenin ekranda kalma süresi (sn)
+    pub interval_sec: u64,
+    /// Her turda piyasalar arasına kaç haber girsin
+    pub news_per_round: u32,
 }
 
-impl Default for Currency {
+impl Default for Ticker {
     fn default() -> Self {
         Self {
-            amount: 100.0,
-            from: "USD".into(),
-            to: "TRY".into(),
+            markets: vec!["USD".into(), "EUR".into(), "gram-altin".into()],
+            news: true,
+            feeds: vec!["https://news.google.com/rss?hl=tr&gl=TR&ceid=TR:tr".into()],
+            interval_sec: 6,
+            news_per_round: 3,
         }
     }
 }
@@ -90,10 +99,10 @@ pub struct Config {
     pub show_running: bool,
     pub pinned: Vec<Pinned>,
     /// Sırasıyla gösterilecek widget'lar:
-    /// calendar, screentime, currency, media, clock
+    /// calendar, screentime, ticker, media, clock
     /// Önizleme (örnek veri, Faz 2'de bağlanacak): mail, claude
     pub widgets: Vec<String>,
-    pub currency: Currency,
+    pub ticker: Ticker,
 }
 
 impl Default for Config {
@@ -124,11 +133,11 @@ impl Default for Config {
                 p("Spotify", "%APPDATA%\\Spotify\\Spotify.exe"),
                 p("Telegram", "%APPDATA%\\Telegram Desktop\\Telegram.exe"),
             ],
-            widgets: ["calendar", "screentime", "currency", "media", "clock"]
+            widgets: ["calendar", "screentime", "ticker", "media", "clock"]
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
-            currency: Currency::default(),
+            ticker: Ticker::default(),
         }
     }
 }
@@ -150,10 +159,19 @@ pub fn config_path() -> PathBuf {
 pub fn load() -> Config {
     let path = config_path();
     match std::fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str(&text).unwrap_or_else(|e| {
-            eprintln!("config.json okunamadı ({e}); varsayılanlar kullanılıyor");
-            Config::default()
-        }),
+        Ok(text) => {
+            let mut cfg: Config = serde_json::from_str(&text).unwrap_or_else(|e| {
+                eprintln!("config.json okunamadı ({e}); varsayılanlar kullanılıyor");
+                Config::default()
+            });
+            // v0.2'deki tek başına döviz hücresi artık "piyasa ve haberler".
+            for w in cfg.widgets.iter_mut() {
+                if w == "currency" {
+                    *w = "ticker".into();
+                }
+            }
+            cfg
+        }
         Err(_) => {
             let cfg = Config::default();
             save(&cfg);

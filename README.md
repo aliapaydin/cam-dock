@@ -1,4 +1,4 @@
-# Cam Dock — v0.2
+# Cam Dock — v0.3
 
 Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebView2) ile yazıldı.
 
@@ -13,7 +13,7 @@ Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebVi
 | Başlat düğmesi (Başlat menüsünü açar) | ✅ |
 | Müzik: Spotify, YouTube, Apple Music… (Windows medya oturumu), kapak, oynat/duraklat/ileri/geri | ✅ |
 | Ekran süresi (2 dk'dan uzun boşta kalınan süre sayılmaz) + saatlik çubuklar | ✅ |
-| Döviz (Frankfurter API, 30 dk'da bir) | ✅ |
+| **Piyasa ve haberler**: dolar, euro, gram altın (Truncgil) ve RSS haber başlıkları dönüşümlü kayar; habere tıklayınca tarayıcıda açılır | ✅ |
 | Tarih / saat | ✅ |
 | Tam ekran oyun/video açılınca dock'un kendini gizlemesi | ✅ |
 | **Ayarlar penceresi** (sağ tık → Ayarlar…): görünüm, dock/taskbar, ekranlar, uygulamalar, widget'lar | ✅ |
@@ -73,8 +73,14 @@ Ayarlar penceresi şu dosyaya yazar: `%APPDATA%\com.ali.camdock\config.json` (el
   "pinned": [
     { "name": "Chrome", "path": "%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe" }
   ],
-  "widgets": ["calendar", "screentime", "currency", "media", "clock"],
-  "currency": { "amount": 100, "from": "USD", "to": "TRY" }
+  "widgets": ["calendar", "screentime", "ticker", "media", "clock"],
+  "ticker": {
+    "markets": ["USD", "EUR", "gram-altin"],   // + GBP, CHF, ceyrek-altin
+    "news": true,
+    "feeds": ["https://news.google.com/rss?hl=tr&gl=TR&ceid=TR:tr"],
+    "interval_sec": 6,
+    "news_per_round": 3
+  }
 }
 ```
 

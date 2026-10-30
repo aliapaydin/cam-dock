@@ -169,19 +169,31 @@
         <h1>Widget'lar</h1>
         <p class="hint">Açık olanlar dock'ta bu sırayla görünür.</p>
         <div class="card list" id="widgets"></div>
-        <h2>Döviz</h2>
+        <h2>Piyasa ve haberler</h2>
         <div class="card">
-          <div class="row">
-            <div class="label"><strong>Çevrilecek miktar</strong></div>
-            <input class="num" type="number" min="1" step="1" data-bind="currency.amount" aria-label="Miktar">
+          <div class="row stack">
+            <div class="label"><strong>Gösterilecek kurlar</strong><span>Kaynak: Truncgil Finans (TL satış fiyatı ve günlük değişim)</span></div>
+            <div class="chips" id="markets"></div>
           </div>
           <div class="row">
-            <div class="label"><strong>Para birimleri</strong><span>Kur kaynağı: Frankfurter (Avrupa Merkez Bankası verisi)</span></div>
-            <div class="pair">
-              <select data-bind="currency.from" aria-label="Kaynak para birimi"></select>
-              <span aria-hidden="true">→</span>
-              <select data-bind="currency.to" aria-label="Hedef para birimi"></select>
+            <div class="label"><strong>Haber başlıkları</strong><span>Kurların arasında kısa haber başlıkları döner. Tıklayınca haber tarayıcıda açılır.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="ticker.news"><span></span></label>
+          </div>
+          <div class="row stack" id="feeds-row">
+            <div class="label"><strong>Haber kaynakları</strong></div>
+            <div class="chips" id="feeds"></div>
+            <div class="manual-row two">
+              <input id="feed-url" placeholder="Başka bir RSS adresi: https://…" aria-label="RSS adresi">
+              <button class="btn ghost" id="feed-add">Ekle</button>
             </div>
+          </div>
+          <div class="row">
+            <div class="label"><strong>Her öğe ekranda</strong><span id="iv-val"></span></div>
+            <input type="range" min="3" max="15" step="1" data-bind="ticker.interval_sec" aria-label="Öğe süresi">
+          </div>
+          <div class="row">
+            <div class="label"><strong>Her turda haber sayısı</strong><span id="npr-val"></span></div>
+            <input type="range" min="1" max="6" step="1" data-bind="ticker.news_per_round" aria-label="Turdaki haber sayısı">
           </div>
         </div>
       </section>
@@ -190,7 +202,7 @@
       <section class="page" data-page="about">
         <h1>Hakkında</h1>
         <div class="card">
-          <div class="row"><div class="label"><strong>Cam Dock</strong><span>Sürüm 0.2</span></div></div>
+          <div class="row"><div class="label"><strong>Cam Dock</strong><span>Sürüm 0.3</span></div></div>
           <div class="row"><div class="label"><strong>Ayar dosyası</strong><span id="cfg-path" class="mono"></span></div>
             <button class="btn ghost" id="open-cfg">Aç</button></div>
           <div class="row"><div class="label"><strong>Taskbar geri gelmezse</strong><span class="mono">cam-dock.exe --restore-taskbar</span></div></div>

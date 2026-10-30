@@ -1,7 +1,7 @@
 {
   "name": "cam-dock",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Windows 11 için cam dock (klasik taskbar yerine)",
   "scripts": {
     "tauri": "tauri",

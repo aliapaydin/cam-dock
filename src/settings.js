@@ -23,11 +23,19 @@ const SVG = {
 };
 
 const ACCENTS = ["#2F7BFF", "#7C5CFF", "#14B8A6", "#F97316", "#EC4899"];
-const CURRENCIES = ["TRY", "USD", "EUR", "GBP", "CHF", "JPY", "CAD", "AUD", "SEK", "NOK", "DKK", "PLN", "CNY"];
+const MARKETS = [
+  ["USD", "Dolar"], ["EUR", "Euro"], ["GBP", "Sterlin"], ["CHF", "İsviçre frangı"],
+  ["gram-altin", "Gram altın"], ["ceyrek-altin", "Çeyrek altın"],
+];
+const FEEDS = [
+  ["https://news.google.com/rss?hl=tr&gl=TR&ceid=TR:tr", "Google Haberler"],
+  ["https://feeds.bbci.co.uk/turkce/rss.xml", "BBC Türkçe"],
+  ["https://www.ntv.com.tr/gundem.rss", "NTV Gündem"],
+];
 const WIDGETS = [
   { id: "calendar", name: "Takvim", desc: "Bugünün tarihi. Etkinlikler Faz 2'de bağlanacak." },
   { id: "screentime", name: "Ekran süresi", desc: "Bugün bilgisayar başında geçen aktif süre." },
-  { id: "currency", name: "Döviz", desc: "Seçtiğin para birimleri arasında güncel kur." },
+  { id: "ticker", name: "Piyasa ve haberler", desc: "Dolar, euro, gram altın ve haber başlıkları dönüşümlü." },
   { id: "media", name: "Müzik", desc: "Spotify, YouTube ve diğer oynatıcılar için kontroller." },
   { id: "clock", name: "Saat", desc: "Saat ve tarih." },
   { id: "mail", name: "Mail", desc: "Önizleme — örnek veri.", preview: true },
@@ -92,10 +100,13 @@ function bind() {
   for (const input of $$("input[type=number][data-bind]")) {
     input.onchange = () => set(input.dataset.bind, Math.max(1, Number(input.value) || 1));
   }
-  for (const sel of $$("select[data-bind]")) {
-    sel.innerHTML = CURRENCIES.map((c) => `<option>${c}</option>`).join("");
-    sel.onchange = () => set(sel.dataset.bind, sel.value);
-  }
+  $("#feed-add").onclick = () => {
+    const url = $("#feed-url").value.trim();
+    if (!/^https:\/\//.test(url) || cfg.ticker.feeds.includes(url)) return;
+    cfg.ticker.feeds.push(url);
+    $("#feed-url").value = "";
+    changed();
+  };
 
   // Sekmeler
   for (const t of $$(".tab")) {
@@ -173,8 +184,53 @@ function refresh() {
     ? "Maximize edilen pencereler dock'un altına girmez."
     : "Yalnızca \"Her zaman görünür\" modunda geçerli.";
 
+  $("#iv-val").textContent = `${cfg.ticker.interval_sec} saniye`;
+  $("#npr-val").textContent = `${cfg.ticker.news_per_round} haber, sonra kurlar tekrar`;
+  $("#feeds-row").classList.toggle("disabled", !cfg.ticker.news);
+  renderChips();
   renderMonitors();
   renderWidgets();
+}
+
+function chip(label, on, onclick, removable) {
+  const b = el("button", "chip" + (on ? " on" : ""));
+  b.textContent = label;
+  if (removable) b.append(el("span", "x", "✕"));
+  b.setAttribute("aria-pressed", on ? "true" : "false");
+  b.onclick = onclick;
+  return b;
+}
+
+function renderChips() {
+  const m = $("#markets");
+  m.replaceChildren();
+  for (const [key, label] of MARKETS) {
+    const on = cfg.ticker.markets.includes(key);
+    m.append(chip(label, on, () => {
+      // Sırayı listedeki sırada tut
+      const next = on ? cfg.ticker.markets.filter((k) => k !== key) : [...cfg.ticker.markets, key];
+      cfg.ticker.markets = MARKETS.map(([k]) => k).filter((k) => next.includes(k));
+      changed();
+    }));
+  }
+  const f = $("#feeds");
+  f.replaceChildren();
+  const known = FEEDS.map(([u]) => u);
+  for (const [url, label] of FEEDS) {
+    const on = cfg.ticker.feeds.includes(url);
+    f.append(chip(label, on, () => {
+      cfg.ticker.feeds = on ? cfg.ticker.feeds.filter((u) => u !== url) : [...cfg.ticker.feeds, url];
+      changed();
+    }));
+  }
+  for (const url of cfg.ticker.feeds.filter((u) => !known.includes(u))) {
+    let host = url;
+    try { host = new URL(url).hostname.replace(/^www\./, ""); } catch {}
+    f.append(chip(host, true, () => {
+      cfg.ticker.feeds = cfg.ticker.feeds.filter((u) => u !== url);
+      changed();
+    }, true));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -387,6 +443,8 @@ async function init() {
   const { pinned_resolved, config_path, ...rest } = view;
   cfg = rest;
   cfg.display ??= { mode: "primary", selected: [], apps_per_monitor: false };
+  cfg.ticker ??= { markets: ["USD", "EUR", "gram-altin"], news: true, feeds: [FEEDS[0][0]], interval_sec: 6, news_per_round: 3 };
+  cfg.widgets = cfg.widgets.map((w) => (w === "currency" ? "ticker" : w));
   $("#cfg-path").textContent = config_path;
   bind();
   refresh();
@@ -427,8 +485,8 @@ async function mockInvoke(cmd) {
           { name: "Spotify", path: "C:\\Users\\ali\\AppData\\Roaming\\Spotify\\Spotify.exe", args: null },
         ],
         pinned_resolved: [{ exists: true }, { exists: true }, { exists: true }, { exists: false }],
-        widgets: ["calendar", "screentime", "currency", "media", "clock"],
-        currency: { amount: 100, from: "USD", to: "TRY" },
+        widgets: ["calendar", "screentime", "ticker", "media", "clock"],
+        ticker: { markets: ["USD", "EUR", "gram-altin"], news: true, feeds: ["https://news.google.com/rss?hl=tr&gl=TR&ceid=TR:tr", "https://example.com/feed.xml"], interval_sec: 6, news_per_round: 3 },
         config_path: "C:\\Users\\ali\\AppData\\Roaming\\com.ali.camdock\\config.json",
       };
     case "list_monitors":

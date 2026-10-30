@@ -172,7 +172,7 @@ function appsWidget() {
 const trDate = (d, o) => d.toLocaleDateString("tr-TR", o);
 
 function calendarWidget() {
-  const c = $("div", "cell");
+  const c = $("div", "cell w-calendar");
   c.innerHTML = `
     <span class="datebox"><span class="dow"></span><span class="day"></span></span>
     <span class="stack"><span class="t-strong"></span><span class="t-sub">Takvim bağlantısı yakında</span></span>`;
@@ -207,7 +207,7 @@ function claudeWidget() {
 }
 
 function screenTimeWidget() {
-  const c = $("div", "cell");
+  const c = $("div", "cell w-screen");
   c.style.paddingLeft = "12px";
   c.innerHTML = `
     <span style="color:var(--chart);display:flex">${ICON.clock}</span>
@@ -234,37 +234,157 @@ function screenTimeWidget() {
   return c;
 }
 
-function currencyWidget() {
-  const c = $("div", "cell");
-  c.style.padding = "0 10px 0 16px";
-  let { amount, from, to } = cfg.currency;
-  c.innerHTML = `
-    <span class="stack"><span class="t-sub" style="font-size:12px"></span><span class="t-big">—</span></span>
-    <button class="swap" aria-label="Para birimlerini değiştir"><span class="a"></span>${ICON.swap}<span class="b"></span></button>`;
-  const [label, value] = [c.querySelector(".t-sub"), c.querySelector(".t-big")];
-  const fmt = (n) => n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const rates = {};
+// ---------------------------------------------------------------------------
+// Piyasa ve haberler: dolar, euro, gram altın ve haber başlıkları dönüşümlü
+// ---------------------------------------------------------------------------
+const MARKETS = {
+  USD: { name: "Dolar", pair: "USD/TRY", glyph: "$", bg: "#1E9E63" },
+  EUR: { name: "Euro", pair: "EUR/TRY", glyph: "€", bg: "#2F7BFF" },
+  GBP: { name: "Sterlin", pair: "GBP/TRY", glyph: "£", bg: "#7C5CFF" },
+  CHF: { name: "İsviçre frangı", pair: "CHF/TRY", glyph: "₣", bg: "#E5484D" },
+  "gram-altin": { name: "Gram altın", pair: "TL", glyph: "g", bg: "linear-gradient(135deg,#F6C744,#B7791F)" },
+  "ceyrek-altin": { name: "Çeyrek altın", pair: "TL", glyph: "¼", bg: "linear-gradient(135deg,#F6C744,#B7791F)" },
+};
+const NEWS_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h13v14H6a2 2 0 0 1-2-2z"/><path d="M17 9h3v8a2 2 0 0 1-2 2"/><path d="M8 9h5M8 13h5"/></svg>';
 
-  async function update() {
-    label.textContent = `${fmt(amount).replace(/,00$/, "")} ${from}`;
-    c.querySelector(".a").textContent = from;
-    c.querySelector(".b").textContent = to;
-    const key = `${from}/${to}`;
+const trNum = (s) => Number(String(s).replace(/[%\s]/g, "").replace(/\./g, "").replace(",", "."));
+const fmt2 = (n) => n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function timeAgo(d) {
+  const m = Math.round((Date.now() - d) / 60000);
+  if (!isFinite(m) || m < 0) return "";
+  if (m < 1) return "şimdi";
+  if (m < 60) return `${m} dk önce`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h} sa önce` : `${Math.round(h / 24)} gün önce`;
+}
+
+function parseFeed(xml, fallbackSource) {
+  const doc = new DOMParser().parseFromString(xml, "text/xml");
+  const txt = (el, sel) => el.querySelector(sel)?.textContent?.trim() || "";
+  const channel = txt(doc, "channel > title") || txt(doc, "feed > title") || fallbackSource;
+  const items = [...doc.querySelectorAll("item, entry")].map((it) => {
+    const source = txt(it, "source") || channel;
+    let title = txt(it, "title");
+    if (source && title.endsWith(` - ${source}`)) title = title.slice(0, -(source.length + 3));
+    const link = txt(it, "link") || it.querySelector("link")?.getAttribute("href") || "";
+    const date = new Date(txt(it, "pubDate") || txt(it, "published") || txt(it, "updated"));
+    return { kind: "news", title, link, source, date };
+  });
+  return items.filter((i) => i.title);
+}
+
+function tickerWidget() {
+  const t = cfg.ticker || { markets: ["USD", "EUR", "gram-altin"], news: true, feeds: [], interval_sec: 6, news_per_round: 3 };
+  const c = $("div", "cell ticker");
+  const view = $("div", "tk-view");
+  c.append(view);
+  let markets = [];
+  let news = [];
+  let newsCursor = 0;
+  let queue = [];
+  let paused = false;
+  let current = null;
+
+  async function loadMarkets() {
     try {
-      if (!rates[key] || Date.now() - rates[key].at > 30 * 60_000) {
-        const r = await fetch(`https://api.frankfurter.dev/v2/rate/${from.toLowerCase()}/${to.toLowerCase()}`);
-        const j = await r.json();
-        rates[key] = { rate: j.rate, at: Date.now() };
-      }
-      value.textContent = `${fmt(amount * rates[key].rate)} ${to}`;
-      c.title = `1 ${from} = ${rates[key].rate} ${to} (Frankfurter)`;
-    } catch {
-      value.textContent = "—";
-      c.title = "Kur alınamadı";
+      const data = JSON.parse(await invoke("fetch_text", { url: "https://finans.truncgil.com/today.json" }));
+      markets = t.markets
+        .filter((k) => data[k] && MARKETS[k])
+        .map((k) => ({ kind: "market", key: k, value: trNum(data[k]["Satış"]), change: trNum(data[k]["Değişim"]) }));
+    } catch (e) {
+      console.warn("piyasa verisi alınamadı", e);
     }
   }
-  c.querySelector(".swap").onclick = () => { [from, to] = [to, from]; update(); };
-  every(30 * 60_000, update);
+
+  async function loadNews() {
+    if (!t.news || !t.feeds.length) { news = []; return; }
+    const all = [];
+    for (const url of t.feeds) {
+      try {
+        all.push(...parseFeed(await invoke("fetch_text", { url }), new URL(url).hostname));
+      } catch (e) {
+        console.warn("haber kaynağı okunamadı", url, e);
+      }
+    }
+    const seen = new Set();
+    news = all
+      .filter((n) => !seen.has(n.title) && seen.add(n.title))
+      .sort((a, b) => (b.date || 0) - (a.date || 0))
+      .slice(0, 40);
+    newsCursor = 0;
+  }
+
+  function nextRound() {
+    const round = [...markets];
+    const n = Math.min(t.news_per_round || 3, news.length);
+    for (let i = 0; i < n; i++) round.push(news[(newsCursor + i) % news.length]);
+    newsCursor = news.length ? (newsCursor + n) % news.length : 0;
+    return round;
+  }
+
+  function render(item) {
+    const el = $("div", "tk-item");
+    if (!item) {
+      el.innerHTML = `<span class="stack"><span class="t-sub">Piyasa ve haberler</span><span class="t-strong">Veriler yükleniyor…</span></span>`;
+      return el;
+    }
+    if (item.kind === "market") {
+      const m = MARKETS[item.key];
+      const dir = item.change > 0 ? "up" : item.change < 0 ? "down" : "flat";
+      const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "•";
+      el.innerHTML = `
+        <span class="tile tk-glyph" style="background:${m.bg}">${m.glyph}</span>
+        <span class="stack"><span class="t-sub">${m.name} · ${m.pair}</span><span class="t-big">${fmt2(item.value)} ₺</span></span>
+        <span class="chg ${dir}">${arrow} %${fmt2(Math.abs(item.change))}</span>`;
+      el.title = `${m.name}: ${fmt2(item.value)} ₺ (günlük %${fmt2(item.change)}) — kaynak: Truncgil Finans`;
+    } else {
+      el.classList.add("news");
+      const ago = item.date && !isNaN(item.date) ? ` · ${timeAgo(item.date)}` : "";
+      el.innerHTML = `
+        <span class="tile tk-glyph tk-news">${NEWS_ICON}</span>
+        <span class="stack"><span class="t-sub"></span><span class="t-news"></span></span>`;
+      el.querySelector(".t-sub").textContent = item.source + ago;
+      el.querySelector(".t-news").textContent = item.title;
+      el.title = `${item.title}\n${item.source}${ago}\nAçmak için tıkla`;
+    }
+    return el;
+  }
+
+  function show(item) {
+    current = item;
+    const next = render(item);
+    const prev = view.lastElementChild;
+    if (!prev) { view.append(next); return; }
+    next.classList.add("enter");
+    view.append(next);
+    void next.offsetWidth; // animasyonu başlat
+    next.classList.remove("enter");
+    prev.classList.add("leave");
+    setTimeout(() => prev.remove(), 500);
+  }
+
+  function advance() {
+    if (!queue.length) queue = nextRound();
+    show(queue.shift() || null);
+  }
+
+  c.onmouseenter = () => (paused = true);
+  c.onmouseleave = () => (paused = false);
+  c.onclick = () => {
+    if (current?.kind === "news" && current.link) invoke("launch_app", { path: current.link });
+    else advance();
+  };
+
+  show(null);
+  (async () => {
+    await Promise.all([loadMarkets(), loadNews()]);
+    queue = [];
+    advance();
+  })();
+  timers.push(setInterval(() => !paused && advance(), Math.max(3, t.interval_sec || 6) * 1000));
+  timers.push(setInterval(loadMarkets, 5 * 60_000));
+  timers.push(setInterval(loadNews, 15 * 60_000));
   return c;
 }
 
@@ -335,7 +455,8 @@ const WIDGETS = {
   mail: mailWidget,
   claude: claudeWidget,
   screentime: screenTimeWidget,
-  currency: currencyWidget,
+  ticker: tickerWidget,
+  currency: tickerWidget, // eski ayar dosyaları için
   media: mediaWidget,
   clock: clockWidget,
 };
@@ -391,8 +512,8 @@ async function mockInvoke(cmd, args) {
         accent: "#2F7BFF",
         show_running: true,
         display: { mode: "primary", selected: [], apps_per_monitor: false },
-        widgets: (params.get("widgets") || "calendar,screentime,currency,media,clock").split(","),
-        currency: { amount: 100, from: "USD", to: "TRY" },
+        widgets: (params.get("widgets") || "calendar,screentime,ticker,media,clock").split(","),
+        ticker: { markets: ["USD", "EUR", "gram-altin"], news: true, feeds: ["https://news.google.com/rss"], interval_sec: Number(params.get("iv") || 6), news_per_round: 3 },
         pinned_resolved: ["Dosya Gezgini", "Chrome", "VS Code", "Spotify", "Telegram"].map((n) => ({
           name: n, path: `C:\\${n}.exe`, args: null, exists: true,
         })),
@@ -410,6 +531,17 @@ async function mockInvoke(cmd, args) {
       return { seconds: 6 * 3600 + 5 * 60, hours: [0,0,0,0,0,0,0,0,900,2400,3300,3000,1500,3600,2800,3400,2000,2600,0,0,0,0,0,0] };
     case "media_state":
       return { active: true, title: "Gece Sürüşü", artist: "Örnek Sanatçı", album: "", playing: true, position_ms: 134000, duration_ms: 218000, source: "Spotify.exe", track_key: "x" };
+    case "fetch_text":
+      if (args.url.includes("truncgil"))
+        return JSON.stringify({
+          USD: { "Satış": "49,8407", "Değişim": "%0,00" },
+          EUR: { "Satış": "55,6748", "Değişim": "%0,18" },
+          "gram-altin": { "Satış": "6.450,55", "Değişim": "%-1,03" },
+        });
+      return `<rss><channel><title>Google Haberler</title>
+        <item><title>Merkez Bankası faiz kararını açıkladı - Örnek Kaynak</title><link>https://example.com/1</link><source>Örnek Kaynak</source><pubDate>${new Date(Date.now() - 12 * 60000).toUTCString()}</pubDate></item>
+        <item><title>İzmir'de hafta sonu hava durumu: sağanak bekleniyor - Örnek Haber</title><link>https://example.com/2</link><source>Örnek Haber</source><pubDate>${new Date(Date.now() - 95 * 60000).toUTCString()}</pubDate></item>
+      </channel></rss>`;
     default:
       return null;
   }

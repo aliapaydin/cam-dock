@@ -97,7 +97,7 @@ fn targets<'a>(cfg: &Config, mons: &'a [MonitorView]) -> Vec<&'a MonitorView> {
     }
 }
 
-fn create_window(app: &AppHandle, label: &str) -> tauri::Result<isize> {
+fn create_window(app: &AppHandle, label: &str, mon: Rect) -> tauri::Result<isize> {
     let window = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
         .title("Cam Dock")
         .inner_size(1600.0, 84.0)
@@ -113,14 +113,17 @@ fn create_window(app: &AppHandle, label: &str) -> tauri::Result<isize> {
         .focused(false)
         .build()?;
     #[cfg(windows)]
-    {
-        Ok(window.hwnd()?.0 as isize)
-    }
+    let hwnd = window.hwnd()?.0 as isize;
     #[cfg(not(windows))]
-    {
+    let hwnd = {
         let _ = window;
-        Ok(0)
-    }
+        0
+    };
+    // Başlık çubuğu stilini kaldır ve görünmeden önce ekranın altına (dışına)
+    // taşı: ilk gösterimde aşağıdan kayarak gelsin, üstte belirip inmesin.
+    platform::make_popup(hwnd);
+    platform::move_to(hwnd, mon.0, mon.3 + 40);
+    Ok(hwnd)
 }
 
 /// Ayarlara ve bağlı monitörlere göre dock pencerelerini oluşturur/kapatır.
@@ -155,7 +158,7 @@ pub fn sync(app: &AppHandle) {
             d.primary = m.primary;
             continue;
         }
-        match create_window(app, &label) {
+        match create_window(app, &label, m.rect) {
             Ok(hwnd) => {
                 state.docks.lock().unwrap().insert(
                     label.clone(),
@@ -256,7 +259,7 @@ fn animate(hwnd: isize, x: i32, from: i32, to: i32) {
     }
 }
 
-fn slide_in(d: &Dock) {
+pub fn slide_in(d: &Dock) {
     let Some((x, y, _, _)) = d.target else { return };
     let off = d.mon_rect.3;
     platform::move_to(d.hwnd, x, off);
@@ -363,6 +366,12 @@ pub fn spawn_watcher(app: AppHandle) {
 
             if tick % 5 == 0 && state.taskbar_prev.lock().unwrap().is_some() {
                 platform::enforce_taskbar();
+            }
+            // Pencere katmanı stili geri koyarsa tekrar temizle.
+            if tick % 10 == 0 {
+                for h in &hwnds {
+                    platform::make_popup(*h);
+                }
             }
             if tick % 10 == 0 && platform::idle_ms() < 120_000 {
                 state.screen.lock().unwrap().tick(1);

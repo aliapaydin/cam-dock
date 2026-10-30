@@ -123,11 +123,11 @@ kbd { font-family: inherit; font-size: 12px; padding: 1px 6px; border-radius: 5p
 .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 input[type="range"] { width: 220px; accent-color: var(--accent); flex: 0 0 auto; }
-.num, select, .search input, .manual input {
+.num, select, .search input, .manual-row input {
   background: var(--card-2); border: 1px solid var(--line-2); border-radius: 9px; padding: 8px 10px; outline: none;
 }
 .num { width: 110px; }
-.num:focus, select:focus, .search input:focus, .manual input:focus { border-color: var(--accent); }
+.num:focus, select:focus, .search input:focus, .manual-row input:focus { border-color: var(--accent); }
 .pair { display: flex; align-items: center; gap: 8px; color: var(--text-2); }
 
 /* Renk */
@@ -235,3 +235,14 @@ input[type="range"] { width: 220px; accent-color: var(--accent); flex: 0 0 auto;
 .btn.ghost { background: var(--card-2); color: var(--text); border: 1px solid var(--line-2); }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Seçim çipleri */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 999px;
+  border: 1px solid var(--line-2); background: var(--card-2); color: var(--text-2); font-weight: 500;
+}
+.chip:hover { color: var(--text); }
+.chip.on { background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--text); font-weight: 600; }
+.chip .x { opacity: .6; margin-left: 2px; }
+.manual-row.two { grid-template-columns: 1fr auto; margin-top: 0; }

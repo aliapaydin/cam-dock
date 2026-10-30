@@ -8,9 +8,11 @@ use windows::Win32::Graphics::Gdi::{
     MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindowRect, IsIconic, IsWindowVisible,
-    SetWindowPos, ShowWindow, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOSIZE, SW_HIDE,
-    SW_SHOWNOACTIVATE,
+    GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect, IsIconic,
+    IsWindowVisible, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE,
+    HWND_TOPMOST, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE,
+    SW_SHOWNOACTIVATE, WS_CAPTION, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW, WS_EX_WINDOWEDGE,
+    WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SIZEBOX, WS_SYSMENU,
 };
 
 #[derive(Debug, Clone, Copy, Serialize, Default, PartialEq, Eq)]
@@ -127,6 +129,54 @@ pub fn move_to(h: isize, x: i32, y: i32) {
             0,
             SWP_NOSIZE | SWP_NOACTIVATE,
         );
+    }
+}
+
+/// Pencereyi taşır ve boyutlandırır (fiziksel piksel), en üstte tutar, odak çalmaz.
+pub fn set_bounds(h: isize, x: i32, y: i32, w: i32, height: i32) {
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd(h),
+            Some(HWND_TOPMOST),
+            x,
+            y,
+            w,
+            height,
+            SWP_NOACTIVATE,
+        );
+    }
+}
+
+const BAD_STYLE: u32 = WS_CAPTION.0 | WS_SYSMENU.0 | WS_SIZEBOX.0 | WS_MAXIMIZEBOX.0 | WS_MINIMIZEBOX.0;
+
+/// Dock'u çerçevesiz bir "popup + araç penceresi" yapar.
+///
+/// Tauri'nin pencere katmanı (tao) çerçevesiz pencerelerde de WS_CAPTION'ı
+/// tutup başlığı WM_NCCALCSIZE ile gizler. Pencere etkinleşince ya da
+/// yeniden çizilince Windows o başlığı ("Cam Dock" yazısı, simge, üst çizgi)
+/// boyayabiliyor ve köşe kırpma bölgesi bozuluyor. Stili kökten temizliyoruz.
+/// Dönüş: bir şey değiştiyse true.
+pub fn make_popup(h: isize) -> bool {
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd(h), GWL_STYLE) as u32;
+        let ex = GetWindowLongPtrW(hwnd(h), GWL_EXSTYLE) as u32;
+        let new_style = (style & !BAD_STYLE) | WS_POPUP.0;
+        let new_ex = (ex & !(WS_EX_APPWINDOW.0 | WS_EX_WINDOWEDGE.0)) | WS_EX_TOOLWINDOW.0;
+        if new_style == style && new_ex == ex {
+            return false;
+        }
+        SetWindowLongPtrW(hwnd(h), GWL_STYLE, new_style as isize);
+        SetWindowLongPtrW(hwnd(h), GWL_EXSTYLE, new_ex as isize);
+        let _ = SetWindowPos(
+            hwnd(h),
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+        true
     }
 }
 

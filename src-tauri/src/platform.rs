@@ -161,6 +161,12 @@ mod imp {
     pub fn move_to(hwnd: isize, x: i32, y: i32) {
         monitor::move_to(hwnd, x, y)
     }
+    pub fn set_bounds(hwnd: isize, x: i32, y: i32, w: i32, h: i32) {
+        monitor::set_bounds(hwnd, x, y, w, h)
+    }
+    pub fn make_popup(hwnd: isize) -> bool {
+        monitor::make_popup(hwnd)
+    }
     pub fn show_no_activate(hwnd: isize) {
         monitor::show_no_activate(hwnd)
     }
@@ -227,6 +233,10 @@ mod imp {
         (0, 0)
     }
     pub fn move_to(_hwnd: isize, _x: i32, _y: i32) {}
+    pub fn set_bounds(_hwnd: isize, _x: i32, _y: i32, _w: i32, _h: i32) {}
+    pub fn make_popup(_hwnd: isize) -> bool {
+        false
+    }
     pub fn show_no_activate(_hwnd: isize) {}
     pub fn hide(_hwnd: isize) {}
 }

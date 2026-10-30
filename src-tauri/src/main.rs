@@ -104,6 +104,7 @@ fn main() {
             commands::media_state,
             commands::media_thumbnail,
             commands::media_control,
+            commands::fetch_text,
             commands::screen_time,
             commands::open_start,
             commands::open_settings,
