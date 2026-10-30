@@ -4,6 +4,7 @@
 mod commands;
 mod config;
 mod docks;
+mod log;
 mod platform;
 mod screentime;
 
@@ -113,6 +114,7 @@ fn main() {
         .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
         .setup(|app| {
             let handle = app.handle().clone();
+            dlog!("---- Cam Dock {} başlıyor ----", env!("CARGO_PKG_VERSION"));
             {
                 let state = handle.state::<AppState>();
                 if docks::guard_read().is_some() && !state.cfg.lock().unwrap().hide_taskbar {

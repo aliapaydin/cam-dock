@@ -145,6 +145,7 @@ function bind() {
     $("#m-name").value = $("#m-path").value = "";
   };
 
+  $("#open-log").onclick = () => invoke("launch_app", { path: "notepad.exe", args: `"${view.log_path}"` });
   $("#open-cfg").onclick = () => invoke("launch_app", { path: "notepad.exe", args: `"${view.config_path}"` });
 }
 
@@ -440,8 +441,9 @@ function renderWidgets() {
 // ---------------------------------------------------------------------------
 async function init() {
   view = await invoke("get_config");
-  const { pinned_resolved, config_path, ...rest } = view;
+  const { pinned_resolved, config_path, log_path, ...rest } = view;
   cfg = rest;
+  $("#log-path").textContent = log_path || "";
   cfg.display ??= { mode: "primary", selected: [], apps_per_monitor: false };
   cfg.ticker ??= { markets: ["USD", "EUR", "gram-altin"], news: true, feeds: [FEEDS[0][0]], interval_sec: 6, news_per_round: 3 };
   cfg.widgets = cfg.widgets.map((w) => (w === "currency" ? "ticker" : w));
@@ -457,7 +459,7 @@ async function init() {
 // Dock'un sağ tık menüsünden tema değişirse burada da göster.
 listen("config-changed", async () => {
   view = await invoke("get_config");
-  const { pinned_resolved, config_path, ...rest } = view;
+  const { pinned_resolved, config_path, log_path, ...rest } = view;
   if (rest.theme !== cfg.theme) {
     cfg.theme = rest.theme;
     refresh();

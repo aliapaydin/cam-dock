@@ -4,7 +4,7 @@ use crate::config::{self, Config};
 use crate::docks::{self, MonitorView};
 use crate::platform::{self, AppWindow, MediaState, StartApp};
 use crate::screentime::ScreenTime;
-use crate::AppState;
+use crate::{dlog, AppState};
 use base64::Engine;
 use serde::Serialize;
 use std::sync::atomic::Ordering;
@@ -39,6 +39,7 @@ pub struct ConfigView {
     pub cfg: Config,
     pub pinned_resolved: Vec<PinnedView>,
     pub config_path: String,
+    pub log_path: String,
 }
 
 #[tauri::command]
@@ -62,6 +63,7 @@ pub fn get_config(state: State<'_, AppState>) -> ConfigView {
         cfg,
         pinned_resolved,
         config_path: config::config_path().display().to_string(),
+        log_path: crate::log::path().display().to_string(),
     }
 }
 
@@ -143,30 +145,31 @@ pub fn layout_dock(
     let first = d.target.is_none();
     d.target = Some((x, y, w, h));
 
-    // Konum ve boyutu doğrudan Windows'a veriyoruz (Tauri'nin set_size/
-    // set_position'ı pencere stilini yeniden uygulayabiliyor). Farklı DPI'lı
-    // ekrana geçiş boyutu değiştirebildiği için ikinci kez uyguluyoruz.
+    // Konum ve boyutu doğrudan Windows'a veriyoruz; pencere işleyicimiz de
+    // bu dikdörtgeni kilitliyor (başka kimse taşıyamaz).
     platform::make_popup(d.hwnd);
     let place_y = if d.shown { y } else { mb + 40 };
     platform::set_bounds(d.hwnd, x, place_y, w.max(1), h.max(1));
-    platform::set_bounds(d.hwnd, x, place_y, w.max(1), h.max(1));
-    platform::round_region(d.hwnd, w, h, (cfg.radius as f64 * scale).round() as i32);
+    let label = d.label.clone();
+    dlog!("{label}: yerleşim x={x} y={y} w={w} h={h} (alt sınır {bottom}, ölçek {scale})");
 
     if first && !d.fs_hidden {
         d.last_inside = Instant::now();
         docks::slide_in(d);
         d.shown = true;
     }
+    drop(docks);
+    docks::apply_glass(window.app_handle(), &label);
     Ok(())
 }
 
 /// Koyu/açık temaya göre bu dock'un cam arka planını uygular.
 #[tauri::command]
 pub fn set_theme(window: WebviewWindow, state: State<'_, AppState>, dark: bool) {
-    let mode = state.cfg.lock().unwrap().backdrop.clone();
-    if let Some(d) = state.docks.lock().unwrap().get(window.label()) {
-        platform::apply_backdrop(d.hwnd, &mode, dark);
+    if let Some(d) = state.docks.lock().unwrap().get_mut(window.label()) {
+        d.dark = dark;
     }
+    docks::apply_glass(window.app_handle(), window.label());
 }
 
 // ---------------------------------------------------------------------------

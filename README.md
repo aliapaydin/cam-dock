@@ -1,4 +1,4 @@
-# Cam Dock — v0.3
+# Cam Dock — v0.4
 
 Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebView2) ile yazıldı.
 
@@ -101,7 +101,9 @@ Elle: Ayarlar → Kişiselleştirme → Görev çubuğu → Görev çubuğu davr
 ## Bilinen sınırlamalar
 
 - **Sistem tepsisi** (sağ alttaki küçük ikonlar) dock'ta yok. Wi-Fi/ses için `Win + A`, bildirimler için `Win + N`.
-- Cam efekti için Windows'un belgelenmemiş `SetWindowCompositionAttribute` API'si kullanılıyor (TranslucentTB ile aynı yöntem). Bu yöntem Windows 11'in resmi Acrylic'inin aksine pencere odakta değilken de çalışır.
+- Cam efekti Windows Composition ile yapılıyor (`HostBackdropBrush` + yuvarlak kırpma), böylece köşeler gerçekten yuvarlak. Kurulamazsa eski yönteme (`SetWindowCompositionAttribute`) düşer; bu durum tanılama kaydına yazılır.
+- Windows ayarlarında **Saydamlık efektleri** kapalıysa cam görünmez.
+- Tanılama kaydı: `%APPDATA%\com.ali.camdock\dock.log` (Ayarlar → Hakkında → Tanılama kaydı).
 - Şirket bilgisayarlarında grup ilkeleri taskbar'ın gizlenmesini engelleyebilir.
 
 ## Yapı

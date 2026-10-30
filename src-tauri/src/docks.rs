@@ -3,7 +3,7 @@
 
 use crate::config::{self, Config};
 use crate::platform::{self, Rect};
-use crate::AppState;
+use crate::{dlog, AppState};
 use serde::Serialize;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -23,6 +23,8 @@ pub struct Dock {
     pub shown: bool,
     pub fs_hidden: bool,
     pub last_inside: Instant,
+    /// Arayüzün bildirdiği tema (cam renk tabakası için)
+    pub dark: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -123,7 +125,47 @@ fn create_window(app: &AppHandle, label: &str, mon: Rect) -> tauri::Result<isize
     // taşı: ilk gösterimde aşağıdan kayarak gelsin, üstte belirip inmesin.
     platform::make_popup(hwnd);
     platform::move_to(hwnd, mon.0, mon.3 + 40);
+    // Pencere işleyicisi ve cam katmanı pencerenin iş parçacığında kurulmalı.
+    let label = label.to_string();
+    let _ = app.run_on_main_thread(move || {
+        let proc_ok = platform::install_dock_proc(hwnd);
+        let glass = platform::glass_attach(hwnd);
+        dlog!(
+            "{label}: pencere işleyicisi {}, cam katmanı {}",
+            if proc_ok { "takıldı" } else { "TAKILAMADI" },
+            match &glass {
+                Ok(()) => "kuruldu".to_string(),
+                Err(e) => format!("KURULAMADI ({e}) — eski yönteme düşülecek"),
+            }
+        );
+    });
     Ok(hwnd)
+}
+
+/// Cam katmanını dock'un güncel boyutu, köşe yarıçapı ve temasına göre uygular.
+/// Composition kurulamadıysa eski yönteme (accent + pencere bölgesi) düşer.
+pub fn apply_glass(app: &AppHandle, label: &str) {
+    let state = app.state::<AppState>();
+    let cfg = state.cfg.lock().unwrap().clone();
+    let Some(d) = state.docks.lock().unwrap().get(label).cloned() else {
+        return;
+    };
+    let Some((_, _, w, h)) = d.target else { return };
+    let radius = (cfg.radius as f64 * d.scale) as f32;
+    let mode = cfg.backdrop.clone();
+    let (hwnd, dark) = (d.hwnd, d.dark);
+    let tint = if dark { (16, 20, 34, 0x38) } else { (245, 247, 252, 0x48) };
+    let _ = app.run_on_main_thread(move || {
+        if platform::glass_attached(hwnd) {
+            platform::apply_backdrop(hwnd, "none", dark);
+            if let Err(e) = platform::glass_update(hwnd, w as f32, h as f32, radius, tint, mode != "none") {
+                dlog!("cam güncellenemedi: {e}");
+            }
+        } else {
+            platform::apply_backdrop(hwnd, &mode, dark);
+            platform::round_region(hwnd, w, h, radius as i32);
+        }
+    });
 }
 
 /// Ayarlara ve bağlı monitörlere göre dock pencerelerini oluşturur/kapatır.
@@ -143,7 +185,10 @@ pub fn sync(app: &AppHandle) {
         .cloned()
         .collect();
     for d in to_close {
+        dlog!("{}: dock kaldırılıyor (ekran ayarı/çıkarıldı)", d.label);
         platform::release(d.hwnd);
+        let h = d.hwnd;
+        let _ = app.run_on_main_thread(move || platform::glass_detach(h));
         if let Some(w) = app.get_webview_window(&d.label) {
             let _ = w.destroy();
         }
@@ -160,6 +205,10 @@ pub fn sync(app: &AppHandle) {
         }
         match create_window(app, &label, m.rect) {
             Ok(hwnd) => {
+                dlog!(
+                    "{label}: oluşturuldu, ekran {} {:?} ölçek {}",
+                    m.name, m.rect, m.scale
+                );
                 state.docks.lock().unwrap().insert(
                     label.clone(),
                     Dock {
@@ -173,6 +222,7 @@ pub fn sync(app: &AppHandle) {
                         shown: false,
                         fs_hidden: false,
                         last_inside: Instant::now(),
+                        dark: true,
                     },
                 );
             }
@@ -273,6 +323,10 @@ fn slide_out(d: &Dock) {
     platform::hide(d.hwnd);
 }
 
+fn fg_rect_dbg(hwnds: &[isize]) -> Option<Rect> {
+    platform::foreground_app_rect(hwnds)
+}
+
 /// Her 100 ms'de çağrılır: tam ekran, otomatik/akıllı gizleme.
 fn update_visibility(state: &AppState, cfg: &Config, hwnds: &[isize], fg: isize) {
     let now = Instant::now();
@@ -299,6 +353,7 @@ fn update_visibility(state: &AppState, cfg: &Config, hwnds: &[isize], fg: isize)
 
         if fs_mon.as_deref() == Some(d.monitor.as_str()) {
             if !d.fs_hidden {
+                dlog!("{}: tam ekran algılandı, dock gizleniyor (ön plan: {:?})", d.label, fg_rect_dbg(hwnds));
                 platform::hide(d.hwnd);
                 d.fs_hidden = true;
                 d.shown = false;
@@ -308,6 +363,7 @@ fn update_visibility(state: &AppState, cfg: &Config, hwnds: &[isize], fg: isize)
         if d.fs_hidden {
             d.fs_hidden = false;
             d.last_inside = now;
+            dlog!("{}: tam ekrandan çıkıldı", d.label);
         }
 
         let want = if always {
@@ -336,9 +392,11 @@ fn update_visibility(state: &AppState, cfg: &Config, hwnds: &[isize], fg: isize)
         };
 
         if want && !d.shown {
+            dlog!("{}: kayarak açılıyor ({})", d.label, cfg.dock_visibility);
             slide_in(d);
             d.shown = true;
         } else if !want && d.shown {
+            dlog!("{}: kayarak gizleniyor ({})", d.label, cfg.dock_visibility);
             slide_out(d);
             d.shown = false;
         }
@@ -370,7 +428,9 @@ pub fn spawn_watcher(app: AppHandle) {
             // Pencere katmanı stili geri koyarsa tekrar temizle.
             if tick % 10 == 0 {
                 for h in &hwnds {
-                    platform::make_popup(*h);
+                    if platform::make_popup(*h) {
+                        dlog!("pencere stili dışarıdan değişmişti, düzeltildi ({h:#x})");
+                    }
                 }
             }
             if tick % 10 == 0 && platform::idle_ms() < 120_000 {
@@ -383,6 +443,7 @@ pub fn spawn_watcher(app: AppHandle) {
                 let sig = monitor_signature(&monitors(&app));
                 let changed = *state.monitor_sig.lock().unwrap() != sig;
                 if changed {
+                    dlog!("ekran düzeni değişti, dock'lar yeniden kuruluyor");
                     sync(&app);
                 }
             }

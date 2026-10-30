@@ -5,11 +5,13 @@
 
 pub mod appbar;
 pub mod backdrop;
+pub mod glass;
 pub mod icons;
 pub mod input;
 pub mod media;
 pub mod monitor;
 pub mod shortcut;
+pub mod subclass;
 pub mod taskbar;
 pub mod winlist;
 

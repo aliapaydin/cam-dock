@@ -664,6 +664,7 @@ dependencies = [
  "png 0.17.16",
  "serde",
  "windows",
+ "windows-numerics",
 ]
 
 [[package]]

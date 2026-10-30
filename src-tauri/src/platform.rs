@@ -167,6 +167,23 @@ mod imp {
     pub fn make_popup(hwnd: isize) -> bool {
         monitor::make_popup(hwnd)
     }
+    /// Ana iş parçacığında çağrılmalı.
+    pub fn install_dock_proc(hwnd: isize) -> bool {
+        subclass::install(hwnd)
+    }
+    /// Ana iş parçacığında çağrılmalı.
+    pub fn glass_attach(hwnd: isize) -> Result<(), String> {
+        glass::attach(hwnd).map_err(|e| e.to_string())
+    }
+    pub fn glass_attached(hwnd: isize) -> bool {
+        glass::is_attached(hwnd)
+    }
+    pub fn glass_update(hwnd: isize, w: f32, h: f32, r: f32, tint: (u8, u8, u8, u8), on: bool) -> Result<(), String> {
+        glass::update(hwnd, w, h, r, tint, on).map_err(|e| e.to_string())
+    }
+    pub fn glass_detach(hwnd: isize) {
+        glass::detach(hwnd)
+    }
     pub fn show_no_activate(hwnd: isize) {
         monitor::show_no_activate(hwnd)
     }
@@ -237,6 +254,19 @@ mod imp {
     pub fn make_popup(_hwnd: isize) -> bool {
         false
     }
+    pub fn install_dock_proc(_hwnd: isize) -> bool {
+        false
+    }
+    pub fn glass_attach(_hwnd: isize) -> Result<(), String> {
+        Err("yalnızca Windows".into())
+    }
+    pub fn glass_attached(_hwnd: isize) -> bool {
+        false
+    }
+    pub fn glass_update(_hwnd: isize, _w: f32, _h: f32, _r: f32, _tint: (u8, u8, u8, u8), _on: bool) -> Result<(), String> {
+        Ok(())
+    }
+    pub fn glass_detach(_hwnd: isize) {}
     pub fn show_no_activate(_hwnd: isize) {}
     pub fn hide(_hwnd: isize) {}
 }

@@ -8,7 +8,7 @@ use windows::Win32::Graphics::Gdi::{
     MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect, IsIconic,
+    GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect, IsIconic, IsZoomed,
     IsWindowVisible, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE,
     HWND_TOPMOST, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE,
     SW_SHOWNOACTIVATE, WS_CAPTION, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW, WS_EX_WINDOWEDGE,
@@ -104,6 +104,14 @@ pub fn foreground_app_rect(exclude: &[isize]) -> Option<(isize, Rect)> {
 /// sunum) o monitörün aygıt adını döndürür.
 pub fn fullscreen_monitor(exclude: &[isize]) -> Option<String> {
     let (fg, wr) = foreground_app_rect(exclude)?;
+    unsafe {
+        // Ekranı kaplayan ama başlık çubuklu ya da maximize edilmiş normal
+        // pencereler (ör. büyütülmüş Chrome, Gezgin) tam ekran sayılmaz.
+        let style = GetWindowLongPtrW(hwnd(fg), GWL_STYLE) as u32;
+        if style & WS_CAPTION.0 == WS_CAPTION.0 || IsZoomed(hwnd(fg)).as_bool() {
+            return None;
+        }
+    }
     let (name, m) = monitor_of_window(fg)?;
     let covers = wr.left <= m.left && wr.top <= m.top && wr.right >= m.right && wr.bottom >= m.bottom;
     covers.then_some(name)
@@ -119,6 +127,9 @@ pub fn cursor_pos() -> (i32, i32) {
 
 /// Pencereyi taşır (boyut aynı kalır), en üstte tutar, odak çalmaz.
 pub fn move_to(h: isize, x: i32, y: i32) {
+    if let Some((_, _, w, hh)) = crate::subclass::allowed(h) {
+        crate::subclass::allow(h, x, y, w, hh);
+    }
     unsafe {
         let _ = SetWindowPos(
             hwnd(h),
@@ -134,6 +145,7 @@ pub fn move_to(h: isize, x: i32, y: i32) {
 
 /// Pencereyi taşır ve boyutlandırır (fiziksel piksel), en üstte tutar, odak çalmaz.
 pub fn set_bounds(h: isize, x: i32, y: i32, w: i32, height: i32) {
+    crate::subclass::allow(h, x, y, w, height);
     unsafe {
         let _ = SetWindowPos(
             hwnd(h),
