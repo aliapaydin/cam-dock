@@ -53,8 +53,20 @@ jobs:
             Write-Host "::error title=Yayın deposuna erişilemedi::$env:REPO okunamadı. Anahtarın bu depoya erişimi var mı? $($repoInfo -join ' ')"
             exit 1
           }
-          gh release view $tag --repo $env:REPO *> $null
-          if ($LASTEXITCODE -eq 0) { Write-Host "$tag zaten yayınlanmış"; exit 0 }
+          # Boş depoda etiket oluşturulamaz: ilk kez README ekle.
+          $readme = "IyBDYW0gRG9jayBzw7xyw7xtbGVyaQoKV2luZG93cyAxMSBpw6dpbiBjYW0gZG9jayBrdXJ1bHVtIGRvc3lhbGFyxLEuIEVuIHllbmkgc8O8csO8bSBpw6dpbiBSZWxlYXNlcyBiw7Zsw7xtw7xuZSBiYWsuCg=="
+          gh api "repos/$env:REPO/contents/README.md" *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh api -X PUT "repos/$env:REPO/contents/README.md" -f message="İlk commit" -f content=$readme *> $null
+          }
+          # Önceki yarım kalmış (taslak ya da dosyasız) sürümü temizle.
+          $existing = gh release view $tag --repo $env:REPO --json isDraft,assets 2>$null | ConvertFrom-Json
+          if ($LASTEXITCODE -eq 0 -and $existing) {
+            if (-not $existing.isDraft -and ($existing.assets | Where-Object { $_.name -like '*-setup.exe' })) {
+              Write-Host "$tag zaten yayınlanmış"; exit 0
+            }
+            gh release delete $tag --repo $env:REPO --yes --cleanup-tag *> $null
+          }
           $setup = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
           if (-not $setup) { Write-Host "::error title=Kurulum dosyası yok::NSIS çıktısı bulunamadı"; exit 1 }
           $notes = (git log -1 --pretty=%B) -join "`n"
