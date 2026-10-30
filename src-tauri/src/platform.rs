@@ -9,6 +9,7 @@ pub struct AppWindow {
     pub title: String,
     pub exe: String,
     pub minimized: bool,
+    pub aumid: String,
     pub monitor: String,
 }
 
@@ -89,6 +90,7 @@ mod imp {
                 title: w.title,
                 exe: w.exe,
                 minimized: w.minimized,
+                aumid: w.aumid,
                 monitor: w.monitor,
             })
             .collect()
@@ -117,6 +119,12 @@ mod imp {
     }
     pub fn icon_png(path: &str, size: i32) -> Option<Vec<u8>> {
         icons::icon_png(path, size)
+    }
+    pub fn shell_icon_png(name: &str, size: i32) -> Option<Vec<u8>> {
+        icons::shell_icon_png(name, size)
+    }
+    pub fn window_icon_png(hwnd: isize, size: i32) -> Option<Vec<u8>> {
+        icons::window_icon_png(hwnd, size)
     }
     pub fn media_state() -> MediaState {
         match media::state() {
@@ -237,6 +245,12 @@ mod imp {
         false
     }
     pub fn icon_png(_path: &str, _size: i32) -> Option<Vec<u8>> {
+        None
+    }
+    pub fn shell_icon_png(_name: &str, _size: i32) -> Option<Vec<u8>> {
+        None
+    }
+    pub fn window_icon_png(_hwnd: isize, _size: i32) -> Option<Vec<u8>> {
         None
     }
     pub fn media_state() -> MediaState {

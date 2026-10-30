@@ -3,7 +3,13 @@
 use crate::{hwnd, raw};
 use serde::Serialize;
 use std::path::Path;
+use core::ffi::c_void;
 use windows::core::PWSTR;
+use windows::Win32::Storage::EnhancedStorage::PKEY_AppUserModel_ID;
+use windows::Win32::Storage::Packaging::Appx::GetApplicationUserModelId;
+use windows::Win32::System::Com::CoTaskMemFree;
+use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
+use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, SHGetPropertyStoreForWindow};
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::System::Threading::{
@@ -25,6 +31,9 @@ pub struct AppWindow {
     /// Uygulamanın exe yolu (UWP uygulamalarında gerçek uygulamanın exe'si).
     pub exe: String,
     pub minimized: bool,
+    /// Store/paketli uygulamalar ve kendini tanıtan uygulamalar için kimlik
+    /// (AppUserModelID). Küçültülmüş Store uygulamalarını da doğru gruplar.
+    pub aumid: String,
     /// Pencerenin bulunduğu monitörün aygıt adı ("\\.\DISPLAY1")
     pub monitor: String,
 }
@@ -141,6 +150,44 @@ fn resolve_exe(h: HWND, exe: String) -> String {
     }
 }
 
+static AUMIDS: std::sync::Mutex<Option<std::collections::HashMap<isize, String>>> =
+    std::sync::Mutex::new(None);
+
+/// Pencerenin AppUserModelID'si (önce pencere özelliği, sonra paketli süreç).
+fn aumid_of(h: HWND) -> String {
+    if let Some(hit) = AUMIDS.lock().unwrap().as_ref().and_then(|m| m.get(&raw(h)).cloned()) {
+        return hit;
+    }
+    let mut id = String::new();
+    unsafe {
+        if let Ok(store) = SHGetPropertyStoreForWindow::<IPropertyStore>(h) {
+            if let Ok(pv) = store.GetValue(&PKEY_AppUserModel_ID) {
+                if let Ok(p) = PropVariantToStringAlloc(&pv) {
+                    id = p.to_string().unwrap_or_default();
+                    CoTaskMemFree(Some(p.0 as *const c_void));
+                }
+            }
+        }
+        if id.is_empty() {
+            if let Ok(proc) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid_of(h)) {
+                let mut buf = [0u16; 512];
+                let mut len = buf.len() as u32;
+                if GetApplicationUserModelId(proc, &mut len, Some(PWSTR(buf.as_mut_ptr()))).0 == 0 {
+                    let n = buf.iter().position(|&c| c == 0).unwrap_or(0);
+                    id = String::from_utf16_lossy(&buf[..n]);
+                }
+                let _ = CloseHandle(proc);
+            }
+        }
+    }
+    AUMIDS
+        .lock()
+        .unwrap()
+        .get_or_insert_with(Default::default)
+        .insert(raw(h), id.clone());
+    id
+}
+
 struct ListCtx<'a> {
     exclude: &'a [isize],
     out: Vec<AppWindow>,
@@ -159,6 +206,7 @@ unsafe extern "system" fn enum_cb(h: HWND, lp: LPARAM) -> BOOL {
         title: title_of(h),
         exe: resolve_exe(h, exe),
         minimized: IsIconic(h).as_bool(),
+        aumid: aumid_of(h),
         monitor: crate::monitor::monitor_of_window(raw(h))
             .map(|(n, _)| n)
             .unwrap_or_default(),

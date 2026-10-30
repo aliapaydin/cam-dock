@@ -218,21 +218,43 @@ pub fn launch_app(path: String, args: Option<String>) -> bool {
     platform::launch(&config::expand_env(&path), args.as_deref())
 }
 
-/// Bir exe'nin ikonunu data URL olarak döndürür (önbellekli).
+/// Bir uygulamanın ikonunu data URL olarak döndürür (önbellekli).
+/// Sırayla dener: Store kimliği (AppsFolder) → exe'den çıkarma → kabuk ikonu →
+/// pencerenin kendi ikonu. Store uygulamaları ve küçültülmüş pencereler için
+/// ilk ve son yol gerekiyor.
 #[tauri::command(async)]
-pub fn app_icon(state: State<'_, AppState>, path: String) -> Option<String> {
+pub fn app_icon(
+    state: State<'_, AppState>,
+    path: String,
+    aumid: Option<String>,
+    hwnd: Option<isize>,
+) -> Option<String> {
     let path = config::expand_env(&path);
-    let key = path.to_lowercase();
+    let aumid = aumid.unwrap_or_default();
+    let key = if aumid.is_empty() { path.to_lowercase() } else { format!("aumid:{}", aumid.to_lowercase()) };
     if let Some(hit) = state.icons.lock().unwrap().get(&key) {
         return hit.clone();
     }
-    let url = platform::icon_png(&path, 64).map(|png| {
+    let host = path.to_lowercase().ends_with("applicationframehost.exe");
+    let png = (!aumid.is_empty())
+        .then(|| platform::shell_icon_png(&format!("shell:AppsFolder\\{aumid}"), 64))
+        .flatten()
+        .or_else(|| (!host).then(|| platform::icon_png(&path, 64)).flatten())
+        .or_else(|| (!host && !path.is_empty()).then(|| platform::shell_icon_png(&path, 64)).flatten())
+        .or_else(|| hwnd.and_then(|h| platform::window_icon_png(h, 64)));
+    let url = png.map(|png| {
         format!(
             "data:image/png;base64,{}",
             base64::engine::general_purpose::STANDARD.encode(png)
         )
     });
-    state.icons.lock().unwrap().insert(key, url.clone());
+    // Başarısız sonucu yalnızca pencere ikonu da denendiyse önbelleğe al.
+    if url.is_some() || hwnd.is_some() {
+        state.icons.lock().unwrap().insert(key, url.clone());
+    }
+    if url.is_none() {
+        dlog!("ikon bulunamadı: {path} {aumid}");
+    }
     url
 }
 

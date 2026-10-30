@@ -73,11 +73,22 @@ new ResizeObserver(queueLayout).observe(dock);
 // Uygulamalar (sabitlenenler + açık olanlar)
 // ---------------------------------------------------------------------------
 const iconCache = new Map();
-function iconFor(path) {
-  const key = path.toLowerCase();
-  if (!iconCache.has(key)) iconCache.set(key, invoke("app_icon", { path }).catch(() => null));
+function iconFor(item) {
+  const key = (item.aumid ? "aumid:" + item.aumid : item.path).toLowerCase();
+  if (!iconCache.has(key)) {
+    const hwnd = item.wins?.[0]?.hwnd ?? null;
+    const p = invoke("app_icon", { path: item.path, aumid: item.aumid || null, hwnd }).catch(() => null);
+    iconCache.set(key, p);
+    // Bulunamadıysa bir sonraki yenilemede (ör. pencere açılınca) tekrar dene.
+    p.then((url) => { if (!url) setTimeout(() => iconCache.delete(key), 5000); });
+  }
   return iconCache.get(key);
 }
+
+const isHost = (exe) => /applicationframehost\.exe$/i.test(exe);
+// Pencereleri grupla: Store uygulamaları (ve küçültülünce çerçevesinden
+// ayrılanlar) kimlikleriyle, diğerleri exe yoluyla.
+const groupKey = (w) => (w.aumid ? "aumid:" + w.aumid : w.exe).toLowerCase();
 
 const baseName = (p) => p.split(/[\\/]/).pop().replace(/\.exe$/i, "");
 
@@ -104,21 +115,33 @@ function appsWidget() {
       ? data.windows.filter((w) => !info.monitor || w.monitor === info.monitor)
       : data.windows;
     for (const w of own) {
-      const k = w.exe.toLowerCase();
+      const k = groupKey(w);
       if (!groups.has(k)) groups.set(k, []);
       groups.get(k).push(w);
     }
+    // Sabitlenen bir exe'nin pencereleri kimlikli olsa da o sabitlemeye bağlansın.
+    const byExe = new Map();
+    for (const [k, wins] of groups) {
+      const exe = wins[0].exe.toLowerCase();
+      // Aynı exe'nin birden çok kimliği olabilir (ör. Chrome ve Chrome uygulamaları):
+      // sabitlemeyi kimliksiz gruba ya da ilk bulunana bağla.
+      if (!isHost(exe) && (!byExe.has(exe) || !k.startsWith("aumid:"))) byExe.set(exe, k);
+    }
     const next = [];
-    const pinnedKeys = new Set();
+    const used = new Set();
     for (const p of cfg.pinned_resolved.filter((p) => p.exists)) {
-      const k = p.path.toLowerCase();
-      pinnedKeys.add(k);
-      next.push({ key: k, name: p.name, path: p.path, args: p.args, wins: groups.get(k) || [] });
+      const pk = p.path.toLowerCase();
+      const aum = pk.startsWith("shell:appsfolder\\") ? "aumid:" + pk.slice(17) : null;
+      const k = (aum && groups.has(aum)) ? aum : groups.has(pk) ? pk : byExe.get(pk) || pk;
+      used.add(k);
+      next.push({ key: k, name: p.name, path: p.path, args: p.args, aumid: aum ? aum.slice(6) : "", wins: groups.get(k) || [] });
     }
     if (cfg.show_running) {
       for (const [k, wins] of groups) {
-        if (pinnedKeys.has(k)) continue;
-        next.push({ key: k, name: baseName(wins[0].exe), path: wins[0].exe, args: null, wins });
+        if (used.has(k)) continue;
+        const w0 = wins[0];
+        const name = w0.aumid || isHost(w0.exe) ? (w0.title.split(" - ").pop() || w0.title) : baseName(w0.exe);
+        next.push({ key: k, name, path: w0.exe, args: null, aumid: w0.aumid, wins });
       }
     }
     items = next;
@@ -141,7 +164,7 @@ function appsWidget() {
         : item.name;
       const glyph = $("span", "glyph", item.name.slice(0, 1).toUpperCase());
       b.append(glyph);
-      iconFor(item.path).then((url) => {
+      iconFor(item).then((url) => {
         if (!url) return;
         const img = new Image();
         img.src = url;
@@ -552,7 +575,8 @@ async function mockInvoke(cmd, args) {
       return {
         active: 2,
         windows: [
-          { hwnd: 1, title: "Belgeler", exe: "C:\\Dosya Gezgini.exe", minimized: false },
+          { hwnd: 1, title: "Belgeler", exe: "C:\\Dosya Gezgini.exe", minimized: false, aumid: "" },
+          { hwnd: 4, title: "WhatsApp", exe: "C:\\Windows\\System32\\ApplicationFrameHost.exe", minimized: true, aumid: "5319275A.WhatsAppDesktop_cv1g1gvanyjgm!App" },
           { hwnd: 2, title: "Cam Dock — Visual Studio Code", exe: "C:\\VS Code.exe", minimized: false },
           { hwnd: 3, title: "Spotify Premium", exe: "C:\\Spotify.exe", minimized: false },
         ],
