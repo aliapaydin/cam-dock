@@ -11,7 +11,7 @@ use crate::hwnd;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use windows::core::{Interface, Result, BOOL};
-use windows_numerics::Vector2;
+use windows_numerics::{Vector2, Vector3};
 use windows::System::{DispatcherQueue, DispatcherQueueController};
 use windows::UI::Composition::Desktop::DesktopWindowTarget;
 use windows::UI::Composition::{
@@ -133,6 +133,38 @@ pub fn update(window: isize, w: f32, h: f32, radius: f32, tint: (u8, u8, u8, u8)
             A: if enabled { tint.3 } else { 0 },
         })?;
         glass.backdrop.SetIsVisible(enabled)?;
+        Ok(())
+    })
+}
+
+/// Cam katmanının açılış/kapanış animasyonu: panel CSS'te büyüyerek belirip
+/// küçülerek kaybolurken cam da aynı anda (alt-ortadan) ölçeklenip söner.
+/// Eskiden cam tam boyutta kalıyor, panel kapandıktan sonra arkada asılı duruyordu.
+pub fn animate(window: isize, show: bool, ms: i64) -> Result<()> {
+    let comp = compositor()?;
+    GLASS.with(|g| {
+        let g = g.borrow();
+        let Some(gl) = g.get(&window) else { return Ok(()) };
+        let root = &gl._root;
+        let size = gl.shape.Size()?;
+        root.SetCenterPoint(Vector3 { X: size.X / 2.0, Y: size.Y, Z: 0.0 })?;
+        let ease = if show {
+            comp.CreateCubicBezierEasingFunction(Vector2 { X: 0.2, Y: 0.9 }, Vector2 { X: 0.25, Y: 1.0 })?
+        } else {
+            comp.CreateCubicBezierEasingFunction(Vector2 { X: 0.4, Y: 0.0 }, Vector2 { X: 0.9, Y: 0.6 })?
+        };
+        let (o0, o1, s0, s1) = if show { (0.0, 1.0, 0.96, 1.0) } else { (1.0, 0.0, 1.0, 0.95) };
+        root.SetOpacity(o0)?;
+        root.SetScale(Vector3 { X: s0, Y: s0, Z: 1.0 })?;
+        let dur = windows::Foundation::TimeSpan { Duration: ms * 10_000 };
+        let op = comp.CreateScalarKeyFrameAnimation()?;
+        op.InsertKeyFrameWithEasingFunction(1.0, o1, &ease)?;
+        op.SetDuration(dur)?;
+        root.StartAnimation(&windows::core::HSTRING::from("Opacity"), &op)?;
+        let sc = comp.CreateVector3KeyFrameAnimation()?;
+        sc.InsertKeyFrameWithEasingFunction(1.0, Vector3 { X: s1, Y: s1, Z: 1.0 }, &ease)?;
+        sc.SetDuration(dur)?;
+        root.StartAnimation(&windows::core::HSTRING::from("Scale"), &sc)?;
         Ok(())
     })
 }

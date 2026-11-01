@@ -646,6 +646,7 @@ async function mockInvoke(cmd) {
         weather: { enabled: true, auto_location: true, city: "İzmir", lat: 38.42, lon: 27.14 },
         update: { auto_check: true, auto_install: true },
         autostart: true,
+        explorer_menu: true,
         notifications: { enabled: true, balloons: true, bounce: true, bounce_sec: 10, show_text: true },
         clipboard: { enabled: true, max_items: 40 },
         telemetry: { enabled: true, install_id: "3f6c1b2a-0000-4000-8000-000000000000", notice_shown: true },

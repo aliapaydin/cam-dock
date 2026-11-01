@@ -72,3 +72,30 @@ pub fn reg_delete(key: &str, name: &str) {
         let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, PCWSTR(k.as_ptr()), PCWSTR(n.as_ptr()));
     }
 }
+
+/// HKCU altında anahtar oluşturup metin değer yazar (`name` None = varsayılan değer).
+pub fn reg_set_sz(key: &str, name: Option<&str>, value: &str) -> bool {
+    let k = wide(key);
+    let n = name.map(wide);
+    let v = wide(value);
+    unsafe {
+        RegSetKeyValueW(
+            HKEY_CURRENT_USER,
+            PCWSTR(k.as_ptr()),
+            n.as_ref().map(|n| PCWSTR(n.as_ptr())).unwrap_or(PCWSTR::null()),
+            REG_SZ.0,
+            Some(v.as_ptr() as *const _),
+            (v.len() * 2) as u32,
+        )
+        .is_ok()
+    }
+}
+
+/// HKCU altındaki anahtarı alt anahtarlarıyla siler.
+pub fn reg_delete_tree(key: &str) {
+    use windows::Win32::System::Registry::RegDeleteTreeW;
+    let k = wide(key);
+    unsafe {
+        let _ = RegDeleteTreeW(HKEY_CURRENT_USER, PCWSTR(k.as_ptr()));
+    }
+}

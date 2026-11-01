@@ -9,6 +9,7 @@ mod platform;
 mod popover;
 mod screentime;
 mod theme;
+mod pinreq;
 mod telemetry;
 mod quickset;
 mod notify;
@@ -74,6 +75,11 @@ fn on_menu(app: &tauri::AppHandle, id: &str) {
         commands::app_menu_action(app, id);
         return;
     }
+    if id == "apps:lock" {
+        let locked = !app.state::<AppState>().cfg.lock().unwrap().apps_locked;
+        commands::set_apps_locked(app.clone(), locked);
+        return;
+    }
     if id.starts_with("sys:") {
         commands::system_shortcut(id);
         return;
@@ -110,6 +116,9 @@ fn main() {
         docks::emergency_restore();
         return;
     }
+
+    // Gezgin'den "Cam Dock'a sabitle": isteği kuyruğa yaz; dock zaten açıksa o işler.
+    pinreq::queue_from_args();
 
     // Windows ile başlatma + elle açma iki dock oluşturmasın.
     if !platform::single_instance() {
@@ -201,6 +210,7 @@ fn main() {
             notify::toast_pending,
             notify::toast_layout,
             notify::toast_hide,
+            notify::toast_fade,
             notify::toast_click,
             clip::clip_list,
             clip::clip_copy,
@@ -222,6 +232,8 @@ fn main() {
             updater::update_check,
             updater::update_install,
             commands::open_start,
+            commands::set_app_order,
+            commands::set_apps_locked,
             commands::system_action,
             commands::open_settings,
             commands::show_menu,
@@ -251,6 +263,8 @@ fn main() {
             }
             docks::refresh_theme(&handle);
             telemetry::init(&handle);
+            pinreq::sync_menu(handle.state::<AppState>().cfg.lock().unwrap().explorer_menu);
+            pinreq::process(&handle);
             telemetry::spawn(handle.clone());
             updater::spawn(handle.clone());
             notify::spawn(handle.clone());

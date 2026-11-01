@@ -664,6 +664,9 @@ pub fn spawn_watcher(app: AppHandle) {
                 }
             }
             // Windows teması değişti mi? (Ayarlar → Kişiselleştirme → Renkler)
+            if tick % 10 == 5 {
+                crate::pinreq::process(&app);
+            }
             if tick % 20 == 0 {
                 if let Some(light) = platform::light_theme() {
                     *state.system_light.lock().unwrap() = Some(light);

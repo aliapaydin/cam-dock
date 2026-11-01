@@ -148,6 +148,9 @@ pub async fn save_config(app: AppHandle, cfg: Config) -> Result<(), String> {
         let mut cur = state.cfg.lock().unwrap();
         // Kurulum kimliği yalnızca Rust tarafında değişir (pencerelerdeki eski kopya ezmesin).
         cfg.telemetry.install_id = cur.telemetry.install_id.clone();
+        // Simge sırası ve kilidi dock'tan ayrı komutlarla değişir.
+        cfg.app_order = cur.app_order.clone();
+        cfg.apps_locked = cur.apps_locked;
         let changed = (cur.telemetry.enabled != cfg.telemetry.enabled).then_some(cfg.telemetry.enabled);
         *cur = cfg.clone();
         changed
@@ -163,6 +166,7 @@ pub async fn save_config(app: AppHandle, cfg: Config) -> Result<(), String> {
     if cfg.autostart != platform::autostart_get() {
         apply_autostart(cfg.autostart);
     }
+    crate::pinreq::sync_menu(cfg.explorer_menu);
     // Ekran seçimi değiştiyse dock'ları aç/kapat, taskbar'ı güncelle
     // (pencere oluşturma bloklayıcı: komut havuzunun dışında).
     run(move || {
@@ -890,12 +894,36 @@ pub fn show_menu(window: WebviewWindow, state: State<'_, AppState>) -> Result<()
         .text("sys:run", "Çalıştır…")
         .text("sys:desktop", "Masaüstünü göster")
         .separator()
+        .text("apps:lock", if state.cfg.lock().unwrap().apps_locked { "Simge düzeninin kilidini aç" } else { "Simge düzenini kaydet ve kilitle" })
         .text("settings", "Cam Dock ayarları…")
         .item(&theme)
         .text("quit", "Çık (taskbar geri gelir)")
         .build()
         .map_err(err)?;
     window.popup_menu(&menu).map_err(err)
+}
+
+/// Sürükle-bırak sonrası simge sırası.
+#[tauri::command]
+pub fn set_app_order(app: AppHandle, order: Vec<String>) {
+    let state = app.state::<AppState>();
+    let mut cfg = state.cfg.lock().unwrap();
+    if cfg.apps_locked {
+        return;
+    }
+    cfg.app_order = order.into_iter().take(200).collect();
+    config::save(&cfg);
+}
+
+#[tauri::command]
+pub fn set_apps_locked(app: AppHandle, locked: bool) {
+    {
+        let state = app.state::<AppState>();
+        let mut cfg = state.cfg.lock().unwrap();
+        cfg.apps_locked = locked;
+        config::save(&cfg);
+    }
+    let _ = tauri::Emitter::emit(&app, "apps-locked", locked);
 }
 
 /// Dock sağ tık menüsündeki sistem kısayolları ("sys:…").
@@ -981,6 +1009,8 @@ pub fn app_menu(window: WebviewWindow, state: State<'_, AppState>, item: AppMenu
     }
     b = b.item(&PredefinedMenuItem::separator(app).map_err(err)?);
     b = b.text(if item.pinned { "am:unpin" } else { "am:pin" }, if item.pinned { "Dock'tan kaldır" } else { "Dock'a sabitle" });
+    let locked = app.state::<AppState>().cfg.lock().unwrap().apps_locked;
+    b = b.text("apps:lock", if locked { "Simge düzeninin kilidini aç" } else { "Simge düzenini kaydet ve kilitle" });
     if !item.windows.is_empty() {
         let n = item.windows.len();
         b = b.text("am:close", if n > 1 { format!("Tüm pencereleri kapat ({n})") } else { "Pencereyi kapat".to_string() });
@@ -1032,12 +1062,27 @@ pub fn app_menu_action(app: &AppHandle, id: &str) {
                 let state = app.state::<AppState>();
                 {
                     let mut cfg = state.cfg.lock().unwrap();
+                    // Store uygulamaları (WhatsApp, Teams…) uygulama kimliğiyle
+                    // sabitlenir: WindowsApps içindeki exe'nin kendi simgesi
+                    // yok, doğrudan da başlatılamıyor.
+                    let pin_path = if item.aumid.is_empty() {
+                        item.path.clone()
+                    } else {
+                        format!("shell:AppsFolder\\{}", item.aumid)
+                    };
                     if id == "am:pin" {
-                        if !cfg.pinned.iter().any(|p| config::expand_env(&p.path).eq_ignore_ascii_case(&path)) {
-                            cfg.pinned.push(config::Pinned { name: item.name.clone(), path: item.path.clone(), args: None });
+                        let exists = cfg.pinned.iter().any(|p| {
+                            let e = config::expand_env(&p.path);
+                            e.eq_ignore_ascii_case(&path) || e.eq_ignore_ascii_case(&pin_path)
+                        });
+                        if !exists {
+                            cfg.pinned.push(config::Pinned { name: item.name.clone(), path: pin_path, args: None });
                         }
                     } else {
-                        cfg.pinned.retain(|p| !config::expand_env(&p.path).eq_ignore_ascii_case(&path));
+                        cfg.pinned.retain(|p| {
+                            let e = config::expand_env(&p.path);
+                            !e.eq_ignore_ascii_case(&path) && !e.eq_ignore_ascii_case(&pin_path)
+                        });
                     }
                     config::save(&cfg);
                 }

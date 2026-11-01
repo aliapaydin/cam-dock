@@ -106,6 +106,7 @@ function clearAll() {
 function finish() {
   hidden = 0;
   stack.classList.remove("in");
+  invoke("toast_fade").catch(() => {});
   setTimeout(() => {
     if (queue.length) return;
     stack.replaceChildren();

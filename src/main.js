@@ -154,6 +154,8 @@ let hoverTimer = null;
 // Bildirimler: rozet sayısı, zıplama, cam balon
 // ---------------------------------------------------------------------------
 let notifSnap = { ok: false, apps: {}, recent: [] };
+let appsDragging = false;      // sürüklerken liste yeniden çizilmesin
+let suppressClickUntil = 0;    // bırakınca tıklama sayılmasın
 const notifSeen = new Map();   // dock öğe anahtarı → görülen en büyük bildirim kimliği
 const bounceUntil = new Map(); // dock öğe anahtarı → zıplamanın biteceği an
 let catalogNames = null;       // AUMID (küçük harf) → uygulama adı
@@ -244,6 +246,27 @@ listen("notifications", async (e) => {
   }
   appsApi.redraw();
 });
+listen("pinned-added", (e) => {
+  if (!info.primary) return;
+  const names = e.payload || [];
+  invoke("toast_show", {
+    anchor: dock.getBoundingClientRect().width / 3,
+    payload: { id: -Date.now(), key: "__pinned", handler: "", name: "Cam Dock", icon: null,
+      title: names.length > 1 ? `${names.length} uygulama sabitlendi` : `${names[0]} dock'a sabitlendi`,
+      body: names.length > 1 ? names.join(", ") : "", time: Date.now() },
+  }).catch(() => {});
+});
+listen("apps-locked", (e) => {
+  if (!cfg) return;
+  cfg.apps_locked = !!e.payload;
+  dock.classList.toggle("apps-locked", cfg.apps_locked);
+  // Kilitlenince kısa bir "oturma" titreşimi
+  dock.querySelectorAll(".apps .app").forEach((b, i) => {
+    b.style.animationDelay = `${i * 25}ms`;
+    b.classList.add("lock-nudge");
+    setTimeout(() => { b.classList.remove("lock-nudge"); b.style.animationDelay = ""; }, 600 + i * 25);
+  });
+});
 listen("toast-click", (e) => {
   if (e.payload === "__telemetry") return invoke("open_settings");
   const it = appsApi.items().find((x) => x.key === e.payload);
@@ -305,7 +328,10 @@ function appsWidget() {
       const aum = pk.startsWith("shell:appsfolder\\") ? "aumid:" + pk.slice(17) : null;
       const k = (aum && groups.has(aum)) ? aum : groups.has(pk) ? pk : byExe.get(pk) || pk;
       used.add(k);
-      next.push({ key: k, name: p.name, path: p.path, args: p.args, aumid: aum ? aum.slice(6) : "", wins: groups.get(k) || [], pinned: true });
+      // AUMID büyük/küçük harfi korunmalı: küçük harfle Windows simgeyi bulamıyor,
+      // genel pencere simgesi veriyordu (WhatsApp vb. Store uygulamaları).
+      const realAumid = groups.get(k)?.find((w) => w.aumid)?.aumid || (aum ? p.path.slice(17) : "");
+      next.push({ key: k, okey: "pin:" + pk, name: p.name, path: p.path, args: p.args, aumid: realAumid, wins: groups.get(k) || [], pinned: true });
     }
     if (cfg.show_running) {
       const running = [];
@@ -314,11 +340,18 @@ function appsWidget() {
         const w0 = wins[0];
         const name = w0.aumid || isHost(w0.exe) ? (w0.title.split(" - ").pop() || w0.title) : baseName(w0.exe);
         if (!seenOrder.has(k)) seenOrder.set(k, ++seenCounter);
-        running.push({ key: k, name, path: w0.exe, args: null, aumid: w0.aumid, wins });
+        running.push({ key: k, okey: k, name, path: w0.exe, args: null, aumid: w0.aumid, wins });
       }
       // Açık uygulamalar ilk göründükleri sırada kalır (öne gelen öne kaymaz).
       running.sort((a, b) => seenOrder.get(a.key) - seenOrder.get(b.key));
       next.push(...running);
+    }
+    // Elle düzenlenmiş sıra (sürükle-bırak): bilinenler o sırada, yeniler sonda.
+    const order = cfg.app_order || [];
+    if (order.length) {
+      const rank = new Map(order.map((k, i) => [k, i]));
+      const base = new Map(next.map((it, i) => [it, i]));
+      next.sort((a, b) => (rank.get(a.okey) ?? order.length + base.get(a)) - (rank.get(b.okey) ?? order.length + base.get(b)));
     }
     // Kapanan uygulamanın sırası unutulsun; tekrar açılınca sona eklenir.
     for (const k of [...seenOrder.keys()]) if (!groups.has(k)) seenOrder.delete(k);
@@ -331,6 +364,7 @@ function appsWidget() {
     const activeKey = items.find((i) => i.wins.some((w) => w.hwnd === data.active))?.key || "";
     const sig = items.map((i) => `${i.key}:${i.wins.length}:${badgeFor(i)}`).join("|") + "#" + activeKey;
     lastActive = data.active;
+    if (appsDragging) return firstAppsDone();
     if (sig === lastSig) return firstAppsDone();
     lastSig = sig;
     render(data.active);
@@ -373,6 +407,7 @@ function appsWidget() {
       }
 
       b.onclick = () => {
+        if (Date.now() < suppressClickUntil) return;
         clearTimeout(hoverTimer);
         const sp = $("span", "splash");
         b.append(sp);
@@ -388,7 +423,7 @@ function appsWidget() {
       // Birden çok penceresi olan uygulamanın üstüne gelince tüm pencereleri göster.
       b.onmouseenter = () => {
         clearTimeout(hoverTimer);
-        if (item.wins.length < 2) return;
+        if (item.wins.length < 2 || appsDragging) return;
         invoke("popover_dock_hover", { hover: true }).catch(() => {});
         hoverTimer = setTimeout(async () => {
           const r = b.getBoundingClientRect();
@@ -434,6 +469,86 @@ function appsWidget() {
       list.append(b);
     }
   }
+
+  // ---- Sürükle-bırak ile sıralama ----
+  // Simge farenin peşinden gider, aradaki simgeler yumuşakça kayar; bırakınca
+  // yerine "oturur". Düzen kilitliyse (sağ tık → kaydet ve kilitle) taşınamaz.
+  let drag = null;
+  list.addEventListener("pointerdown", (e) => {
+    const b = e.target.closest(".app");
+    if (!b || e.button !== 0 || cfg.apps_locked) return;
+    drag = { el: b, id: e.pointerId, x0: e.clientX, active: false };
+  });
+  function startDrag() {
+    const els = [...list.children];
+    if (els.length < 2) { drag = null; return; }
+    drag.active = true;
+    appsDragging = true;
+    clearTimeout(hoverTimer);
+    invoke("popover_dock_hover", { hover: false }).catch(() => {});
+    drag.els = els;
+    drag.from = els.indexOf(drag.el);
+    drag.to = drag.from;
+    drag.rects = els.map((x) => x.getBoundingClientRect());
+    drag.slot = drag.rects[1].left - drag.rects[0].left;
+    drag.min = drag.rects[0].left - drag.rects[drag.from].left;
+    drag.max = drag.rects[els.length - 1].left - drag.rects[drag.from].left;
+    try { drag.el.setPointerCapture(drag.id); } catch {}
+    list.classList.add("drag-on");
+    drag.el.classList.add("dragging");
+  }
+  list.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x0;
+    if (!drag.active) {
+      if (Math.abs(dx) < 6) return;
+      startDrag();
+      if (!drag) return;
+    }
+    // Uçlarda hafif direnç (lastik gibi)
+    let x = dx;
+    if (x < drag.min) x = drag.min - Math.sqrt(drag.min - x) * 2;
+    if (x > drag.max) x = drag.max + Math.sqrt(x - drag.max) * 2;
+    drag.el.style.transform = `translateX(${x}px) translateY(-3px) scale(1.12)`;
+    const to = Math.max(0, Math.min(drag.els.length - 1, drag.from + Math.round(x / drag.slot)));
+    if (to !== drag.to) {
+      drag.to = to;
+      drag.els.forEach((el, i) => {
+        if (el === drag.el) return;
+        let shift = 0;
+        if (drag.from < to && i > drag.from && i <= to) shift = -drag.slot;
+        if (drag.from > to && i >= to && i < drag.from) shift = drag.slot;
+        el.style.transform = shift ? `translateX(${shift}px)` : "";
+      });
+    }
+  });
+  const endDrag = (e) => {
+    if (!drag || (e && e.pointerId !== drag.id)) return;
+    const d = drag;
+    drag = null;
+    if (!d.active) return;
+    suppressClickUntil = Date.now() + 250;
+    const final = (d.to - d.from) * d.slot;
+    d.el.classList.remove("dragging");
+    d.el.classList.add("dropping");
+    d.el.style.transform = `translateX(${final}px)`;
+    setTimeout(() => {
+      // Sırayı uygula ve kaydet
+      const [moved] = items.splice(d.from, 1);
+      items.splice(d.to, 0, moved);
+      cfg.app_order = items.map((it) => it.okey);
+      invoke("set_app_order", { order: cfg.app_order }).catch(() => {});
+      list.classList.remove("drag-on");
+      appsDragging = false;
+      lastSig = "";
+      render(lastActive);
+      const landed = list.querySelector(`[data-key="${CSS.escape(moved.key)}"]`);
+      landed?.classList.add("landed");
+      setTimeout(() => landed?.classList.remove("landed"), 520);
+    }, 210);
+  };
+  list.addEventListener("pointerup", endDrag);
+  list.addEventListener("pointercancel", endDrag);
 
   appsApi.items = () => items;
   appsApi.redraw = () => { lastSig = ""; render(lastActive); };

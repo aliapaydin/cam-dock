@@ -645,3 +645,24 @@ button.cell.w-calendar { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .m-fx *, .w-calendar::before, .w-screen::before { animation: none !important; }
 }
+
+/* ---------- Sürükle-bırak ile sıralama ---------- */
+.apps .app { touch-action: none; }
+.apps.drag-on .app { transition: transform .3s cubic-bezier(.2, .9, .3, 1), background .15s ease; }
+.apps .app.dragging {
+  transition: none !important; z-index: 5;
+  background: var(--cell-active-bg);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, .28);
+}
+.apps .app.dragging img, .apps .app.dragging .glyph { filter: drop-shadow(0 4px 6px rgba(0,0,0,.3)); }
+.apps .app.dropping { transition: transform .21s cubic-bezier(.3, 1.35, .5, 1) !important; z-index: 5; }
+/* Bırakınca yerine oturma: hafif çökme ve geri sekme */
+.apps .app.landed img, .apps .app.landed .glyph { animation: land .5s cubic-bezier(.3, 1.4, .5, 1); transform-origin: 50% 100%; }
+@keyframes land {
+  0% { transform: translateY(-4px) scale(1.1); }
+  35% { transform: translateY(1px) scale(1.12, .86); }
+  60% { transform: translateY(0) scale(.96, 1.05); }
+  100% { transform: none; }
+}
+.apps .app.lock-nudge img, .apps .app.lock-nudge .glyph { animation: nudge .45s ease; }
+@keyframes nudge { 30% { transform: translateY(2px) scale(.94); } 65% { transform: translateY(-1px) scale(1.03); } }

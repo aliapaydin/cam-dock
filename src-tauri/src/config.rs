@@ -216,6 +216,10 @@ pub struct Config {
     /// Sabitlenmemiş açık uygulamaları da göster
     pub show_running: bool,
     pub pinned: Vec<Pinned>,
+    /// Dock'taki simgelerin elle düzenlenmiş sırası (öğe anahtarları)
+    pub app_order: Vec<String>,
+    /// Simge düzeni kilitli: sürükleyerek taşınamaz
+    pub apps_locked: bool,
     /// Sırasıyla gösterilecek widget'lar:
     /// calendar, screentime, ticker, media, system, clock
     /// Önizleme (örnek veri, Faz 2'de bağlanacak): mail, claude
@@ -229,6 +233,8 @@ pub struct Config {
     pub telemetry: Telemetry,
     /// Windows açılınca başlat
     pub autostart: bool,
+    /// Gezgin'de .exe ve kısayollara sağ tıklayınca "Cam Dock'a sabitle"
+    pub explorer_menu: bool,
     /// Ayar dosyası sürüm geçişleri (kullanıcı düzenlemez)
     pub migrations: u32,
 }
@@ -267,6 +273,8 @@ impl Default for Config {
             radius: 26,
             accent: "#2F7BFF".into(),
             show_running: true,
+            app_order: Vec::new(),
+            apps_locked: false,
             pinned: vec![
                 p("Dosya Gezgini", "C:\\Windows\\explorer.exe"),
                 p("Chrome", "%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe"),
@@ -287,6 +295,7 @@ impl Default for Config {
             clipboard: Clipboard::default(),
             telemetry: Telemetry::default(),
             autostart: true,
+            explorer_menu: true,
             migrations: 6,
         }
     }

@@ -352,6 +352,10 @@ mod imp {
     pub fn glass_detach(hwnd: isize) {
         glass::detach(hwnd)
     }
+    /// Ana iş parçacığında çağrılmalı.
+    pub fn glass_animate(hwnd: isize, show: bool, ms: i64) {
+        let _ = glass::animate(hwnd, show, ms);
+    }
     pub fn show_no_activate(hwnd: isize) {
         monitor::show_no_activate(hwnd)
     }
@@ -395,6 +399,12 @@ mod imp {
     }
     pub fn reg_delete(key: &str, name: &str) {
         autostart::reg_delete(key, name)
+    }
+    pub fn reg_set_sz(key: &str, name: Option<&str>, value: &str) -> bool {
+        autostart::reg_set_sz(key, name, value)
+    }
+    pub fn reg_delete_tree(key: &str) {
+        autostart::reg_delete_tree(key)
     }
     pub fn clip_listen(cb: impl Fn() + Send + Sync + 'static) {
         clipboard::listen(cb)
@@ -561,6 +571,7 @@ mod imp {
         Ok(())
     }
     pub fn glass_detach(_hwnd: isize) {}
+    pub fn glass_animate(_hwnd: isize, _show: bool, _ms: i64) {}
     pub fn show_no_activate(_hwnd: isize) {}
     pub fn hide(_hwnd: isize) {}
     pub fn is_visible(_hwnd: isize) -> bool {
@@ -585,6 +596,10 @@ mod imp {
         None
     }
     pub fn reg_delete(_key: &str, _name: &str) {}
+    pub fn reg_set_sz(_key: &str, _name: Option<&str>, _value: &str) -> bool {
+        false
+    }
+    pub fn reg_delete_tree(_key: &str) {}
     pub fn clip_listen(_cb: impl Fn() + Send + Sync + 'static) {}
     pub fn clip_read() -> Option<ClipContent> {
         None
