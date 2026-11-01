@@ -804,10 +804,25 @@ pub fn autostart_state() -> bool {
 }
 
 /// Ayardaki "Windows ile başlat" seçimini kayıt defterine uygular.
+/// Windows ile başlat: önce oturum açma görevi (Windows'un başlangıç
+/// gecikmesine takılmaz), olmazsa Run anahtarı.
 pub fn apply_autostart(enabled: bool) {
     let exe = std::env::current_exe().ok().map(|p| p.to_string_lossy().to_string());
-    let ok = platform::autostart_set(if enabled { exe.as_deref() } else { None });
-    crate::dlog!("Windows ile başlat: {} ({})", if enabled { "açık" } else { "kapalı" }, if ok { "uygulandı" } else { "UYGULANAMADI" });
+    if !enabled {
+        platform::task_delete();
+        let ok = platform::autostart_set(None);
+        crate::dlog!("Windows ile başlat: kapalı ({})", if ok { "uygulandı" } else { "UYGULANAMADI" });
+        return;
+    }
+    let Some(exe) = exe else { return };
+    if platform::task_create(&exe) {
+        // Görev varken Run kaydı ikinci kez başlatmaya çalışmasın
+        platform::autostart_set(None);
+        crate::dlog!("Windows ile başlat: oturum açma görevi kuruldu");
+    } else {
+        let ok = platform::autostart_set(Some(&exe));
+        crate::dlog!("Windows ile başlat: görev kurulamadı, başlangıç uygulamalarına eklendi ({})", if ok { "tamam" } else { "BAŞARISIZ" });
+    }
 }
 
 #[tauri::command]

@@ -515,6 +515,8 @@ enum Act {
     SlideOut(Dock, &'static str),
 }
 
+static EXPLORER_PID: std::sync::Mutex<u32> = std::sync::Mutex::new(0);
+
 /// (son ölçüm, kaç kez aynı ölçüldü, geçerli karar)
 static FS_STABLE: std::sync::Mutex<(Option<String>, u8, Option<String>)> = std::sync::Mutex::new((None, 0, None));
 
@@ -666,6 +668,24 @@ pub fn spawn_watcher(app: AppHandle) {
             // Windows teması değişti mi? (Ayarlar → Kişiselleştirme → Renkler)
             if tick % 10 == 5 {
                 crate::pinreq::process(&app);
+            }
+            // Explorer geç açıldı ya da yeniden başladı: taskbar'ı yeniden gizle,
+            // dock'un ekranda ayırdığı alanı yeniden kaydet.
+            if tick % 20 == 10 {
+                let pid = platform::explorer_pid();
+                let changed = {
+                    let mut last = EXPLORER_PID.lock().unwrap();
+                    let c = *last != pid && pid != 0;
+                    *last = pid;
+                    c
+                };
+                if changed && tick > 20 {
+                    dlog!("Gezgin (Explorer) açıldı/yeniden başladı: taskbar ve yerleşim yenileniyor");
+                    apply_taskbar(&app);
+                    let _ = app.emit("relayout", ());
+                } else if state.taskbar_prev.lock().unwrap().is_some() {
+                    platform::taskbar_ensure_autohide();
+                }
             }
             if tick % 20 == 0 {
                 if let Some(light) = platform::light_theme() {

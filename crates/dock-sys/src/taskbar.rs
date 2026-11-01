@@ -96,7 +96,7 @@ unsafe extern "system" fn on_shell_event(
     }
 }
 
-fn explorer_pid() -> u32 {
+pub fn explorer_pid() -> u32 {
     let Some(&main) = tray_windows().first() else { return 0 };
     let mut pid = 0u32;
     unsafe {
@@ -273,4 +273,18 @@ pub fn main_rect() -> Option<Rect> {
     let mut r = RECT::default();
     unsafe { GetWindowRect(main, &mut r).ok()? };
     Some(Rect::from_win(r))
+}
+
+/// Gizleme açıkken taskbar'ın otomatik gizle modunda kaldığından emin ol
+/// (Explorer geç açıldıysa ya da yeniden başladıysa ilk ayar tutmamış olabilir).
+pub fn ensure_autohide() {
+    if is_hidden() && current_state() & STATE_AUTOHIDE == 0 {
+        set_state(STATE_AUTOHIDE);
+    }
+}
+
+/// Windows kapanıyor ya da oturum kapanıyor mu?
+pub fn session_ending() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_SHUTTINGDOWN};
+    unsafe { GetSystemMetrics(SM_SHUTTINGDOWN) != 0 }
 }

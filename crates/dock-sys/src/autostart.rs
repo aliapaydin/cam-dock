@@ -99,3 +99,83 @@ pub fn reg_delete_tree(key: &str) {
         let _ = RegDeleteTreeW(HKEY_CURRENT_USER, PCWSTR(k.as_ptr()));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Zamanlanmış görev: oturum açılır açılmaz başlat. Windows, "Başlangıç
+// uygulamaları"nı (Run anahtarı) masaüstü geldikten sonra birkaç saniye
+// geciktiriyor; oturum açma görevi bu gecikmeye takılmaz.
+// ---------------------------------------------------------------------------
+
+const TASK: &str = "CamDock";
+
+fn schtasks(args: &[&str]) -> bool {
+    let mut cmd = std::process::Command::new("schtasks.exe");
+    cmd.args(args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // konsol penceresi açılmasın
+    }
+    cmd.output().map(|o| o.status.success()).unwrap_or(false)
+}
+
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+pub fn task_exists() -> bool {
+    schtasks(&["/Query", "/TN", TASK])
+}
+
+/// Yalnızca geçerli kullanıcının oturum açışında çalışan, yönetici izni
+/// gerektirmeyen görev. Başarısızsa false (o zaman Run anahtarı kullanılır).
+pub fn task_create(exe: &str) -> bool {
+    let user = match (std::env::var("USERDOMAIN"), std::env::var("USERNAME")) {
+        (Ok(d), Ok(u)) => format!("{d}\\{u}"),
+        (_, Ok(u)) => u,
+        _ => return false,
+    };
+    let xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo><Description>Cam Dock: oturum açılınca dock'u başlatır.</Description></RegistrationInfo>
+  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>{user}</UserId></LogonTrigger></Triggers>
+  <Principals><Principal id="Author"><UserId>{user}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>false</StartWhenAvailable>
+    <IdleSettings><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>4</Priority>
+  </Settings>
+  <Actions Context="Author"><Exec><Command>"{exe}"</Command><Arguments>--autostart</Arguments></Exec></Actions>
+</Task>"#,
+        user = xml_escape(&user),
+        exe = xml_escape(exe)
+    );
+    let path = std::env::temp_dir().join("camdock-task.xml");
+    // schtasks XML'i UTF-16 bekler
+    let mut bytes = vec![0xFF, 0xFE];
+    for u in xml.encode_utf16() {
+        bytes.extend_from_slice(&u.to_le_bytes());
+    }
+    if std::fs::write(&path, bytes).is_err() {
+        return false;
+    }
+    let p = path.to_string_lossy().to_string();
+    let ok = schtasks(&["/Create", "/TN", TASK, "/XML", &p, "/F"]);
+    let _ = std::fs::remove_file(&path);
+    ok
+}
+
+pub fn task_delete() {
+    if task_exists() {
+        schtasks(&["/Delete", "/TN", TASK, "/F"]);
+    }
+}

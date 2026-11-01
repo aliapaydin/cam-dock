@@ -389,7 +389,25 @@ mod imp {
         }
     }
     pub fn autostart_get() -> bool {
-        autostart::get().is_some()
+        autostart::get().is_some() || autostart::task_exists()
+    }
+    pub fn task_exists() -> bool {
+        autostart::task_exists()
+    }
+    pub fn task_create(exe: &str) -> bool {
+        autostart::task_create(exe)
+    }
+    pub fn task_delete() {
+        autostart::task_delete()
+    }
+    pub fn session_ending() -> bool {
+        taskbar::session_ending()
+    }
+    pub fn taskbar_ensure_autohide() {
+        taskbar::ensure_autohide()
+    }
+    pub fn explorer_pid() -> u32 {
+        taskbar::explorer_pid()
     }
     pub fn single_instance() -> bool {
         dock_sys::single_instance()
@@ -588,6 +606,21 @@ mod imp {
     }
     pub fn autostart_get() -> bool {
         false
+    }
+    #[allow(dead_code)]
+    pub fn task_exists() -> bool {
+        false
+    }
+    pub fn task_create(_exe: &str) -> bool {
+        false
+    }
+    pub fn task_delete() {}
+    pub fn session_ending() -> bool {
+        false
+    }
+    pub fn taskbar_ensure_autohide() {}
+    pub fn explorer_pid() -> u32 {
+        0
     }
     pub fn single_instance() -> bool {
         true

@@ -29,6 +29,8 @@ pub struct AppState {
     pub docks: Mutex<HashMap<String, docks::Dock>>,
     /// Dock'a tıklanmadan önceki ön plan penceresi
     pub last_fg: AtomicIsize,
+    /// Kullanıcı menüden "Çık" dedi (taskbar mutlaka geri gelsin)
+    pub quit_requested: std::sync::atomic::AtomicBool,
     /// Taskbar'ı biz gizlediysek önceki durumu
     pub taskbar_prev: Mutex<Option<u32>>,
     pub icons: Mutex<HashMap<String, Option<String>>>,
@@ -65,7 +67,20 @@ pub fn emit_config(app: &tauri::AppHandle) {
 
 fn cleanup(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
-    docks::restore_taskbar(&state);
+    // Windows kapanırken/oturum kapanırken taskbar'ı geri açma: açılışta klasik
+    // taskbar görünmesin, dock gelene kadar gizli kalsın. "Çık" denince ve
+    // kaldırırken taskbar her zaman geri gelir.
+    let keep_hidden = platform::session_ending()
+        && !state.quit_requested.load(std::sync::atomic::Ordering::SeqCst)
+        && {
+            let cfg = state.cfg.lock().unwrap();
+            cfg.autostart && cfg.hide_taskbar
+        };
+    if keep_hidden {
+        dlog!("Windows kapanıyor: taskbar gizli bırakıldı (açılışta görünmesin)");
+    } else {
+        docks::restore_taskbar(&state);
+    }
     platform::release_all();
     state.screen.lock().unwrap().save();
 }
@@ -102,6 +117,7 @@ fn on_menu(app: &tauri::AppHandle, id: &str) {
             }
         });
     } else if id == "quit" {
+        state.quit_requested.store(true, std::sync::atomic::Ordering::SeqCst);
         app.exit(0);
     }
 }
@@ -136,6 +152,7 @@ fn main() {
         cfg: Mutex::new(config::load()),
         docks: Mutex::new(HashMap::new()),
         last_fg: AtomicIsize::new(0),
+        quit_requested: std::sync::atomic::AtomicBool::new(false),
         taskbar_prev: Mutex::new(None),
         icons: Mutex::new(HashMap::new()),
         screen: Mutex::new(screentime::ScreenTime::load()),
@@ -253,10 +270,17 @@ fn main() {
             docks::sync(&handle);
             {
                 // Windows ile başlat: exe yeri değişmiş olabilir, her açılışta yenile.
+                // Açık ama oturum görevi yoksa (eski sürümden geçiş, exe yeri değişti) kur.
+                // schtasks yavaş (~0,3 sn): açılışı bekletmesin.
                 let want = handle.state::<AppState>().cfg.lock().unwrap().autostart;
-                if want || platform::autostart_get() {
-                    commands::apply_autostart(want);
-                }
+                std::thread::spawn(move || {
+                    if want {
+                        // Görevi her açılışta yenile (kurulum yeri değişmiş olabilir).
+                        commands::apply_autostart(true);
+                    } else if platform::autostart_get() {
+                        commands::apply_autostart(false);
+                    }
+                });
             }
             if let Some(light) = platform::light_theme() {
                 *handle.state::<AppState>().system_light.lock().unwrap() = Some(light);

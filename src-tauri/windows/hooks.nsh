@@ -18,6 +18,10 @@
 
 !macro NSIS_HOOK_PREUNINSTALL
   ExecWait '"$INSTDIR\${MAINBINARYNAME}.exe" --uninstall-ping'
+  ; Dock kapanırken taskbar gizli kaldıysa geri getir
+  ExecWait '"$INSTDIR\${MAINBINARYNAME}.exe" --restore-taskbar'
+  nsExec::Exec 'schtasks.exe /Delete /TN "CamDock" /F'
+  Pop $0
   ; Gezgin sağ tık menüsü ve Windows ile başlat kaydı
   DeleteRegKey HKCU "Software\Classes\exefile\shell\CamDockPin"
   DeleteRegKey HKCU "Software\Classes\lnkfile\shell\CamDockPin"
