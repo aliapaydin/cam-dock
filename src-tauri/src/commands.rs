@@ -66,7 +66,52 @@ fn is_uri(path: &str) -> bool {
 /// Sabitlenen bir uygulama bu yolda yoksa (ör. Spotify/Telegram'ın Store sürümü
 /// ya da farklı klasöre kurulmuş hali) Windows uygulama kataloğunda adıyla ya
 /// da exe adıyla bulup yolu kalıcı olarak düzeltir.
+/// "...\WindowsApps\5319275A.WhatsAppDesktop_2.2540.6.0_x64__cv1g1gvanyjgm\WhatsApp.Root.exe"
+/// → paket ailesi "5319275a.whatsappdesktop_cv1g1gvanyjgm"
+fn package_family(path: &str) -> Option<String> {
+    let lower = path.to_lowercase();
+    let rest = &lower[lower.find("\\windowsapps\\")? + 13..];
+    let full = rest.split('\\').next()?;
+    let parts: Vec<&str> = full.split('_').collect();
+    if parts.len() < 5 {
+        return None;
+    }
+    Some(format!("{}_{}", parts[0], parts[parts.len() - 1]))
+}
+
+/// Eski sürümlerde Store uygulamaları WindowsApps içindeki exe yoluyla
+/// sabitleniyordu. Bazı uygulamaların (WhatsApp) exe'sinde simge yok ve
+/// uygulama kapalıyken genel pencere simgesi görünüyordu; ayrıca uygulama
+/// güncellenince sürüm klasörü değişip yol bozuluyordu. Uygulama kimliğine çevir.
+fn fix_store_pins(state: &AppState) {
+    let has = state.cfg.lock().unwrap().pinned.iter().any(|p| package_family(&p.path).is_some());
+    if !has {
+        return;
+    }
+    let cat = catalog(state, false);
+    let mut cfg = state.cfg.lock().unwrap();
+    let mut changed = false;
+    for p in cfg.pinned.iter_mut() {
+        let Some(fam) = package_family(&config::expand_env(&p.path)) else { continue };
+        let prefix = format!("{fam}!");
+        let mut hits: Vec<&platform::CatalogApp> =
+            cat.iter().filter(|a| a.aumid.to_lowercase().starts_with(&prefix)).collect();
+        // Birden çok giriş noktası varsa ana uygulama ("!App") önce
+        hits.sort_by_key(|a| !a.aumid.to_lowercase().ends_with("!app"));
+        if let Some(a) = hits.first() {
+            dlog!("Store uygulaması kimliğiyle sabitlendi: {} → {}", p.path, a.aumid);
+            p.path = format!("shell:AppsFolder\\{}", a.aumid);
+            changed = true;
+        }
+    }
+    if changed {
+        config::save(&cfg);
+        state.icons.lock().unwrap().clear();
+    }
+}
+
 fn fix_missing_pinned(state: &AppState) {
+    fix_store_pins(state);
     let missing: Vec<usize> = {
         let cfg = state.cfg.lock().unwrap();
         cfg.pinned
