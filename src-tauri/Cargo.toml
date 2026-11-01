@@ -1,6 +1,6 @@
 [package]
 name = "cam-dock"
-version = "0.12.0"
+version = "0.13.0"
 authors = ["Ali Apaydın <apaydin.a@gmail.com>"]
 description = "Windows 11 için cam dock (klasik taskbar yerine)"
 edition = "2021"

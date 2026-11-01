@@ -69,6 +69,7 @@ async function show(s) {
   else if (s.kind === "weather") await renderWeather();
   else if (s.kind === "clipboard") await renderClipboard();
   else if (s.kind === "media") await renderMedia(s.payload);
+  else if (s.kind === "quick") await renderQuick();
   else if (s.kind === "claude") await renderClaude();
   else renderWindows(s.payload);
   relayout();
@@ -887,6 +888,220 @@ async function renderMedia(p) {
 }
 
 // ---------------------------------------------------------------------------
+// Hızlı ayarlar (Windows'un Win+A paneli yerine)
+// ---------------------------------------------------------------------------
+const QI = {
+  wifi: (n = 4) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">${[
+    '<path d="M2 8.5a15 15 0 0 1 20 0"/>', '<path d="M5 12a10 10 0 0 1 14 0"/>', '<path d="M8.5 15.5a5 5 0 0 1 7 0"/>', '<circle cx="12" cy="19" r="1" fill="currentColor"/>',
+  ].map((p, i) => (i >= 4 - n || i === 3 ? p : p.replace("<path", '<path opacity=".25"'))).join("")}</svg>`,
+  bt: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7l10 10-5 5V2l5 5L7 17"/></svg>',
+  plane: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M10.5 3.5c0-.8.7-1.5 1.5-1.5s1.5.7 1.5 1.5V9l7.5 4.5V16l-7.5-2.5V18l2 1.5V21L12 20l-3.5 1v-1.5l2-1.5v-4.5L3 16v-2.5L10.5 9z"/></svg>',
+  leaf: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19c0-8 5-13 15-14-1 10-6 15-14 15"/><path d="M5 19l7-7"/></svg>',
+  moon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>',
+  hotspot: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="2"/><path d="M8 8a5.6 5.6 0 0 0 0 8M16 8a5.6 5.6 0 0 1 0 8M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/></svg>',
+  vol: (m, v) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/>${m ? '<path d="M17 9l5 6M22 9l-5 6"/>' : (v > 0 ? '<path d="M16.5 9.5a3.5 3.5 0 0 1 0 5"/>' : "") + (v > 50 ? '<path d="M19 7a7 7 0 0 1 0 10"/>' : "")}</svg>`,
+  sun: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  chev: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
+  back: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>',
+  lock: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+  gear: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+  bat: (p, c) => `<svg width="22" height="14" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1" y="1" width="21" height="12" rx="3"/><rect x="3" y="3" width="${Math.max(1, 17 * p / 100)}" height="8" rx="1.5" fill="currentColor" stroke="none"/><path d="M24 5v4" stroke-linecap="round"/>${c ? '<path d="M12 2.5l-3 5h4l-2 4.5" stroke="var(--bg)" stroke-width="1.6"/>' : ""}</svg>`,
+};
+const openUri = (u) => { invoke("launch_app", { path: u }); invoke("popover_close"); };
+const sigBars = (q) => (q >= 75 ? 4 : q >= 50 ? 3 : q >= 25 ? 2 : 1);
+
+async function renderQuick() {
+  const box = el("div", "qs");
+  panel.append(box);
+  let st = null;
+  let wifi = null;          // { ok, networks, code }
+  let view = "main";        // "main" | "wifi" | "audio"
+  let dragging = false;
+  const throttle = (fn, ms) => { let t = 0, last = null; return (...a) => { last = a; if (t) return; t = setTimeout(() => { t = 0; fn(...last); }, ms); }; };
+  const setVol = throttle((v) => invoke("quick_volume", { volume: v, muted: null }), 60);
+  const setDdc = throttle((id, v) => invoke("quick_brightness", { id, kind: "ddc", value: v }), 180);
+
+  const radio = (k) => (st?.radios || []).find((r) => r.kind === k);
+  const current = () => (wifi?.networks || []).find((n) => n.connected);
+
+  function tile(id, icon, label, sub, on, opts = {}) {
+    return `<div class="qt${on ? " on" : ""}${opts.disabled ? " off" : ""}" data-t="${id}">
+      <button class="qt-main" title="${esc(opts.title || label)}">${icon}</button>
+      ${opts.more ? `<button class="qt-more" title="${esc(opts.moreTitle || "")}">${QI.chev}</button>` : ""}
+      <span class="qt-l">${esc(label)}</span><span class="qt-s">${esc(sub || "")}</span></div>`;
+  }
+
+  function drawMain() {
+    const w = radio("wifi"), b = radio("bluetooth");
+    const cur = current();
+    const a = st?.audio || { volume: 0, muted: false, devices: [] };
+    const dev = a.devices.find((d) => d.default);
+    box.innerHTML = `
+      <div class="qt-grid">
+        ${tile("wifi", QI.wifi(cur ? sigBars(cur.signal) : 4), "Wi-Fi", w ? (w.on ? (cur ? cur.ssid : "Bağlı değil") : "Kapalı") : "Kablosuz kart yok", w?.on, { more: true, moreTitle: "Ağları göster", disabled: !w })}
+        ${tile("bluetooth", QI.bt, "Bluetooth", b ? (b.on ? "Açık" : "Kapalı") : "Yok", b?.on, { more: true, moreTitle: "Bluetooth cihazları", disabled: !b })}
+        ${tile("airplane", QI.plane, "Uçak modu", st?.airplane ? "Açık" : "Kapalı", st?.airplane)}
+        ${tile("saver", QI.leaf, "Enerji tasarrufu", "Ayarlar", false, { title: "Windows ayarlarında aç" })}
+        ${tile("night", QI.moon, "Gece ışığı", "Ayarlar", false, { title: "Windows ayarlarında aç" })}
+        ${tile("hotspot", QI.hotspot, "Etkin nokta", "Ayarlar", false, { title: "Mobil etkin nokta ayarları" })}
+      </div>
+      <div class="qs-row vol">
+        <button class="qs-ic mute" title="${a.muted ? "Sesi aç" : "Sesi kapat"}">${QI.vol(a.muted, a.volume)}</button>
+        <input type="range" min="0" max="100" step="1" value="${Math.round(a.volume)}" class="qs-range" style="--p:${a.volume}%" aria-label="Ses">
+        <span class="qs-v">${Math.round(a.volume)}</span>
+        <button class="qs-ic devs" title="Çıkış aygıtı: ${esc(dev?.name || "–")}">${QI.chev}</button>
+      </div>
+      ${(st?.brightness || []).map((br) => `
+        <div class="qs-row bri" data-id="${esc(br.id)}" data-kind="${br.kind}">
+          <span class="qs-ic" title="${esc(br.title)}">${QI.sun}</span>
+          <input type="range" min="0" max="100" step="1" value="${br.value}" class="qs-range" style="--p:${br.value}%" aria-label="Parlaklık ${esc(br.title)}">
+          <span class="qs-v">${br.value}</span>
+          ${(st.brightness.length > 1) ? `<span class="qs-mon">${esc(br.title.replace("Ekran ", ""))}</span>` : `<span class="qs-mon"></span>`}
+        </div>`).join("")}
+      <div class="qs-foot">
+        ${st?.battery >= 0 ? `<span class="qs-bat${st.battery <= 20 && !st.charging ? " low" : ""}">${QI.bat(st.battery, st.charging)} %${st.battery}${st.charging ? " · şarjda" : ""}</span>` : "<span></span>"}
+        <button class="qs-link win" title="Windows'un kendi hızlı ayarlar paneli">Windows paneli</button>
+        <button class="qs-ic gear" title="Tüm ayarlar">${QI.gear}</button>
+      </div>`;
+    bindMain();
+    relayout();
+  }
+
+  function bindMain() {
+    box.querySelectorAll(".qt").forEach((t) => {
+      const id = t.dataset.t;
+      t.querySelector(".qt-main").onclick = async () => {
+        if (id === "saver") return openUri("ms-settings:batterysaver");
+        if (id === "night") return openUri("ms-settings:nightlight");
+        if (id === "hotspot") return openUri("ms-settings:network-mobilehotspot");
+        if (t.classList.contains("off")) return;
+        const on = !t.classList.contains("on");
+        t.classList.toggle("on", on);
+        t.classList.add("busy");
+        await invoke("quick_radio", { kind: id, on }).catch(() => {});
+        await refresh();
+      };
+      const more = t.querySelector(".qt-more");
+      if (more) more.onclick = () => (id === "wifi" ? showWifi() : openUri("ms-settings:bluetooth"));
+    });
+    const vol = box.querySelector(".vol .qs-range");
+    vol.oninput = () => {
+      dragging = true;
+      vol.style.setProperty("--p", `${vol.value}%`);
+      box.querySelector(".vol .qs-v").textContent = vol.value;
+      box.querySelector(".mute").innerHTML = QI.vol(false, Number(vol.value));
+      setVol(Number(vol.value));
+    };
+    vol.onchange = () => { dragging = false; };
+    box.querySelector(".mute").onclick = async () => {
+      await invoke("quick_volume", { volume: null, muted: !st.audio.muted });
+      refresh();
+    };
+    box.querySelector(".devs").onclick = () => { view = "audio"; drawAudio(); };
+    box.querySelectorAll(".bri").forEach((row) => {
+      const r = row.querySelector(".qs-range");
+      r.oninput = () => {
+        dragging = true;
+        r.style.setProperty("--p", `${r.value}%`);
+        row.querySelector(".qs-v").textContent = r.value;
+        if (row.dataset.kind === "ddc") setDdc(row.dataset.id, Number(r.value));
+      };
+      r.onchange = () => {
+        dragging = false;
+        invoke("quick_brightness", { id: row.dataset.id, kind: row.dataset.kind, value: Number(r.value) });
+      };
+    });
+    box.querySelector(".win").onclick = () => { invoke("system_action", { action: "quick" }); invoke("popover_close"); };
+    box.querySelector(".gear").onclick = () => openUri("ms-settings:");
+  }
+
+  function drawAudio() {
+    const a = st.audio;
+    box.innerHTML = `
+      <div class="qs-head"><button class="qs-back">${QI.back}</button><strong>Ses çıkışı</strong></div>
+      <div class="qs-list">${a.devices.map((d) => `
+        <button class="qs-item${d.default ? " on" : ""}" data-id="${esc(d.id)}">${QI.vol(false, 60)}<span>${esc(d.name || "Ses aygıtı")}</span>${d.default ? '<em>Kullanılıyor</em>' : ""}</button>`).join("") || '<div class="qs-empty">Ses aygıtı bulunamadı.</div>'}</div>
+      <div class="qs-foot"><span></span><button class="qs-link snd">Ses ayarları</button></div>`;
+    box.querySelector(".qs-back").onclick = () => { view = "main"; drawMain(); };
+    box.querySelector(".snd").onclick = () => openUri("ms-settings:sound");
+    box.querySelectorAll(".qs-item").forEach((b) => (b.onclick = async () => {
+      b.classList.add("busy");
+      await invoke("quick_audio_device", { id: b.dataset.id }).catch(() => {});
+      await refresh();
+      drawAudio();
+    }));
+    relayout();
+  }
+
+  function drawWifi(scanning) {
+    const w = radio("wifi");
+    const nets = wifi?.networks || [];
+    let list;
+    if (!w?.on) list = '<div class="qs-empty">Wi-Fi kapalı.</div>';
+    else if (wifi && !wifi.ok) list = wifi.code === 5
+      ? '<div class="qs-empty">Ağ listesini görmek için Windows\'un uygulamalara konum izni vermesi gerekiyor.<br><button class="qs-link loc">Konum izni ayarları</button></div>'
+      : `<div class="qs-empty">Ağlar okunamadı (kod ${wifi.code}).</div>`;
+    else if (!nets.length) list = `<div class="qs-empty">${scanning ? "Ağlar aranıyor…" : "Ağ bulunamadı."}</div>`;
+    else list = nets.map((n) => `
+      <button class="qs-item net${n.connected ? " on" : ""}" data-p="${esc(n.profile)}" data-ssid="${esc(n.ssid)}" data-sec="${n.secured ? 1 : 0}">
+        ${QI.wifi(sigBars(n.signal))}<span>${esc(n.ssid)} ${n.secured ? QI.lock : ""}</span>
+        <em>${n.connected ? "Bağlı · kes" : n.profile ? "Bağlan" : n.secured ? "Şifre gerekir" : "Bağlan"}</em>
+      </button>`).join("");
+    box.innerHTML = `
+      <div class="qs-head"><button class="qs-back">${QI.back}</button><strong>Wi-Fi</strong>${scanning ? '<span class="qs-spin"></span>' : ""}
+        <label class="qs-sw"><input type="checkbox" ${w?.on ? "checked" : ""}><span></span></label></div>
+      <div class="qs-list nets">${list}</div>
+      <div class="qs-foot"><span></span><button class="qs-link more">Diğer ağ ayarları</button></div>`;
+    box.querySelector(".qs-back").onclick = () => { view = "main"; drawMain(); };
+    box.querySelector(".more").onclick = () => openUri("ms-settings:network-wifi");
+    box.querySelector(".loc")?.addEventListener("click", () => openUri("ms-settings:privacy-location"));
+    box.querySelector(".qs-sw input").onchange = async (e) => {
+      await invoke("quick_radio", { kind: "wifi", on: e.target.checked }).catch(() => {});
+      await refresh();
+      showWifi();
+    };
+    box.querySelectorAll(".net").forEach((b) => (b.onclick = async () => {
+      if (b.classList.contains("on")) {
+        b.querySelector("em").textContent = "Kesiliyor…";
+        await invoke("wifi_disconnect");
+      } else if (b.dataset.p) {
+        b.querySelector("em").textContent = "Bağlanıyor…";
+        await invoke("wifi_connect", { profile: b.dataset.p });
+        await new Promise((r) => setTimeout(r, 2500));
+      } else {
+        // Yeni şifreli ağ: şifre Windows'un kendi ekranında girilir
+        return openUri("ms-availablenetworks:");
+      }
+      wifi = await invoke("wifi_list", { scan: false }).catch(() => wifi);
+      drawWifi(false);
+    }));
+    relayout();
+  }
+
+  async function showWifi() {
+    view = "wifi";
+    drawWifi(true);
+    wifi = await invoke("wifi_list", { scan: false }).catch(() => wifi);
+    if (view === "wifi") drawWifi(true);
+    wifi = await invoke("wifi_list", { scan: true }).catch(() => wifi);
+    if (view === "wifi") drawWifi(false);
+  }
+
+  async function refresh() {
+    st = (await invoke("quick_state").catch(() => st)) || st;
+    if (view === "main" && !dragging) drawMain();
+  }
+
+  box.innerHTML = '<div class="qs-empty">Yükleniyor…</div>';
+  relayout();
+  [st, wifi] = await Promise.all([invoke("quick_state").catch(() => null), invoke("wifi_list", { scan: false }).catch(() => null)]);
+  st = st || { audio: { volume: 0, muted: false, devices: [] }, radios: [], brightness: [], battery: -1 };
+  drawMain();
+  stopLive();
+  liveTimer = setInterval(() => { if (spec?.kind !== "quick") return stopLive(); if (view === "main") refresh(); }, 2500);
+}
+
+// ---------------------------------------------------------------------------
 // Başlangıç
 // ---------------------------------------------------------------------------
 (async () => {
@@ -913,6 +1128,7 @@ async function mockInvoke(cmd, args) {
         },
       };
     if (q.get("kind") === "tray") return { kind: "tray", serial: 1, key: "tray", payload: null };
+    if (q.get("kind") === "quick") return { kind: "quick", serial: 1, key: "quick", payload: null };
     if (q.get("kind") === "media") return { kind: "media", serial: 1, key: "media", payload: { exclude: "Spotify.exe#0" } };
     if (q.get("kind") === "clipboard") return { kind: "clipboard", serial: 1, key: "clipboard", payload: null };
     if (q.get("kind") === "claude") return { kind: "claude", serial: 1, key: "claude", payload: null };
@@ -941,6 +1157,18 @@ async function mockInvoke(cmd, args) {
     };
   }
   if (cmd === "theme_dark") return (q.get("theme") || "dark") === "dark";
+  if (cmd === "quick_state") return {
+    audio: { volume: 64, muted: false, devices: [{ id: "a", name: "Hoparlör (Realtek Audio)", default: true }, { id: "b", name: "AirPods Pro", default: false }, { id: "c", name: "DELL U2723QE (HDMI)", default: false }] },
+    radios: [{ kind: "wifi", name: "Wi-Fi", on: true }, { kind: "bluetooth", name: "Bluetooth", on: q.get("bt") === "1" }],
+    brightness: [{ id: "1", title: "Ekran 1", kind: "wmi", value: 72 }, { id: "2", title: "Ekran 2", kind: "ddc", value: 45 }],
+    battery: 78, charging: true, airplane: false,
+  };
+  if (cmd === "wifi_list") return { ok: true, networks: [
+    { ssid: "Ev_5G", signal: 92, secured: true, connected: true, profile: "Ev_5G" },
+    { ssid: "Ofis-Misafir", signal: 61, secured: false, connected: false, profile: "" },
+    { ssid: "TurkTelekom_ZTF4", signal: 44, secured: true, connected: false, profile: "" },
+    { ssid: "Kafe Wi-Fi", signal: 20, secured: true, connected: false, profile: "Kafe Wi-Fi" },
+  ] };
   if (cmd === "media_list") return [
     { id: "Spotify.exe#0", active: true, title: "Gece Sürüşü", artist: "Örnek Sanatçı", playing: true, position_ms: 1, duration_ms: 2, source: "Spotify.exe", track_key: "a" },
     { id: "Chrome#0", active: true, title: "Veri ambarı mimarisi — konferans kaydı", artist: "YouTube", playing: false, position_ms: 600000, duration_ms: 2400000, source: "Chrome", track_key: "b" },

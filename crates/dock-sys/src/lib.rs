@@ -13,6 +13,7 @@ pub mod icons;
 pub mod input;
 pub mod media;
 pub mod monitor;
+pub mod quick;
 pub mod shortcut;
 pub mod subclass;
 pub mod sysinfo;

@@ -61,6 +61,7 @@ listen("theme-dark", (e) => {
   if (cfg) applyTheme(true);
 });
 
+let lastThemeSig = "";
 async function applyTheme(animate) {
   const root = document.documentElement;
   const dark = isDark();
@@ -71,7 +72,11 @@ async function applyTheme(animate) {
   root.style.setProperty("--radius", `${cfg.radius ?? 26}px`);
   // Dinamik mod: duvar kâğıdı renkleri (kapalıysa değişkenler temizlenir).
   const tint = await Dyn.apply(root, cfg, dark, "dock");
-  invoke("set_theme", { dark, tint }).catch(() => {});
+  const sig = JSON.stringify([dark, tint]);
+  if (sig !== lastThemeSig) {
+    lastThemeSig = sig;
+    invoke("set_theme", { dark, tint }).catch(() => {});
+  }
 }
 Dyn.watch(() => cfg, () => applyTheme(true));
 
@@ -96,10 +101,14 @@ function sendLayout() {
   lastSize = size;
   invoke("layout_dock", { width: Math.ceil(r.width), height: Math.ceil(r.height) }).catch(console.error);
 }
+// Dock daralacaksa biraz bekle: bir pencere kısa süre kaybolup geri gelince
+// (uygulama yeniden çizerken, açılış ekranı vb.) dock gidip gelmesin.
 function queueLayout() {
   if (!layoutReady) return;
   clearTimeout(layoutTimer);
-  layoutTimer = setTimeout(sendLayout, 60);
+  const w = Math.ceil(dock.getBoundingClientRect().width);
+  const last = Number(lastSize.split("x")[0]) || 0;
+  layoutTimer = setTimeout(sendLayout, w < last ? 900 : 60);
 }
 async function firstLayout() {
   await Promise.race([appsLoaded, sleep(2500)]);
@@ -255,11 +264,22 @@ function appsWidget() {
 
   let lastSig = "";
   let lastActive = 0;
+  const winSeen = new Map(); // hwnd → { w, hits, miss }
+  let firstPoll = true;
   let items = [];
 
   async function refresh() {
     let data;
     try { data = await invoke("list_windows"); } catch { firstAppsDone(); return; }
+    // Titremeyi önle: yeni bir pencere ancak iki ardışık sorguda görünürse
+    // eklenir (öndeyse hemen), kaybolan pencere iki sorgu boyunca yoksa çıkar.
+    const nowIds = new Set(data.windows.map((w) => w.hwnd));
+    for (const w of data.windows) winSeen.set(w.hwnd, { w, hits: (winSeen.get(w.hwnd)?.hits || 0) + 1, miss: 0 });
+    for (const [h, v] of winSeen) if (!nowIds.has(h)) { v.miss++; if (v.miss > 1) winSeen.delete(h); }
+    data.windows = [...winSeen.values()]
+      .filter((v) => firstPoll || v.hits >= 2 || v.w.hwnd === data.active)
+      .map((v) => v.w);
+    firstPoll = false;
     const groups = new Map();
     const own = cfg.display?.apps_per_monitor
       ? data.windows.filter((w) => !info.monitor || w.monitor === info.monitor)
@@ -1065,7 +1085,7 @@ function systemWidget() {
   const c = $("div", "cell sys");
   const items = [
     ["tray", "Arka planda çalışan uygulamalar (sistem tepsisi)"],
-    ["quick", "Hızlı ayarlar: Wi-Fi, ses, parlaklık (Win+A)"],
+    ["quick", "Hızlı ayarlar: Wi-Fi, Bluetooth, ses, parlaklık"],
     ["notifications", "Bildirimler (Win+N)"],
     ["taskview", "Görev görünümü: açık pencereler ve masaüstleri (Win+Tab)"],
   ];
@@ -1074,9 +1094,9 @@ function systemWidget() {
     b.title = label;
     b.setAttribute("aria-label", label);
     b.onclick = () => {
-      if (action === "tray") {
+      if (action === "tray" || action === "quick") {
         const r = b.getBoundingClientRect();
-        invoke("popover_open", { kind: "tray", key: "tray", anchor: r.left + r.width / 2, payload: null });
+        invoke("popover_open", { kind: action, key: action, anchor: r.left + r.width / 2, payload: null });
       } else invoke("system_action", { action });
     };
     c.append(b);

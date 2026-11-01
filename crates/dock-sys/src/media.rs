@@ -14,7 +14,7 @@ use windows_future::{AsyncStatus, IAsyncOperation};
 /// WinRT işlemini en fazla `ms` milisaniye bekler. Bazı oynatıcılar (ör. donmuş
 /// bir tarayıcı sekmesi) hiç cevap vermeyebilir; `join()` sonsuza kadar bekleyip
 /// iş parçacığını kilitliyordu.
-fn wait<T: windows_core::RuntimeType + 'static>(op: IAsyncOperation<T>, ms: u64) -> Result<T> {
+pub(crate) fn wait<T: windows_core::RuntimeType + 'static>(op: IAsyncOperation<T>, ms: u64) -> Result<T> {
     let start = std::time::Instant::now();
     loop {
         match op.Status()? {

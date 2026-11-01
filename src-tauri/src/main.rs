@@ -9,6 +9,7 @@ mod platform;
 mod popover;
 mod screentime;
 mod theme;
+mod quickset;
 mod notify;
 mod clip;
 mod claude;
@@ -50,6 +51,7 @@ pub struct AppState {
     pub toast: Mutex<notify::ToastWin>,
     pub clips: Mutex<clip::History>,
     pub claude: Mutex<claude::Usage>,
+    pub quick: Mutex<quickset::QuickState>,
     /// Sağ tık menüsü açılan uygulama
     pub app_menu: Mutex<Option<commands::AppMenuItem>>,
 }
@@ -136,6 +138,7 @@ fn main() {
         toast: Mutex::new(notify::ToastWin::default()),
         clips: Mutex::new(clip::History::default()),
         claude: Mutex::new(claude::Usage::default()),
+        quick: Mutex::new(quickset::QuickState::default()),
         app_menu: Mutex::new(None),
     };
 
@@ -199,6 +202,14 @@ fn main() {
             clip::clip_pin,
             clip::clip_clear,
             claude::claude_usage,
+            quickset::quick_state,
+            quickset::quick_volume,
+            quickset::quick_audio_device,
+            quickset::quick_brightness,
+            quickset::quick_radio,
+            quickset::wifi_list,
+            quickset::wifi_connect,
+            quickset::wifi_disconnect,
             claude::claude_refresh,
             updater::update_check,
             updater::update_install,

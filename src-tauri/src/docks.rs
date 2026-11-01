@@ -119,6 +119,7 @@ pub fn create_window(app: &AppHandle, label: &str, mon: Rect, page: &str) -> tau
     };
     // Görünmeden önce ekranın altına (dışına) taşı: ilk gösterimde aşağıdan
     // kayarak gelsin, üstte belirip inmesin.
+    forget_glass(hwnd);
     platform::move_to(hwnd, mon.0, mon.3 + 40);
     // Stil, pencere işleyicisi ve cam katmanı pencerenin iş parçacığında kurulmalı.
     let label = label.to_string();
@@ -162,9 +163,27 @@ pub fn glass_raw(app: &AppHandle, hwnd: isize, w: i32, h: i32, radius: f32, dark
         (None, true) => (16, 20, 34, 0x38),
         (None, false) => (245, 247, 252, 0x48),
     };
+    // Aynı değerlerle tekrar uygulama: her yerleşimde/tema geçişinde cam ve DWM
+    // arka planı baştan kuruluyor, pencere bir an yanıp sönüyordu.
+    let key = format!("{w}x{h}r{radius:.1}t{:?}d{dark}m{mode}", tint);
+    {
+        let mut cache = GLASS_KEY.lock().unwrap();
+        if cache.get(&hwnd) == Some(&key) {
+            return;
+        }
+        cache.insert(hwnd, key);
+    }
     let _ = app.run_on_main_thread(move || {
         if platform::glass_attached(hwnd) {
-            platform::apply_backdrop(hwnd, "none", dark);
+            // DWM arka planını yalnızca tema/mod değişince kapat (pahalı ve görünür).
+            let bd = format!("{dark}{mode}");
+            let first = {
+                let mut m = BACKDROP_KEY.lock().unwrap();
+                m.insert(hwnd, bd.clone()) != Some(bd)
+            };
+            if first {
+                platform::apply_backdrop(hwnd, "none", dark);
+            }
             if let Err(e) = platform::glass_update(hwnd, w as f32, h as f32, radius, tint, mode != "none") {
                 dlog!("cam güncellenemedi: {e}");
             }
@@ -173,6 +192,17 @@ pub fn glass_raw(app: &AppHandle, hwnd: isize, w: i32, h: i32, radius: f32, dark
             platform::round_region(hwnd, w, h, radius as i32);
         }
     });
+}
+
+static GLASS_KEY: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<isize, String>>> =
+    std::sync::LazyLock::new(Default::default);
+static BACKDROP_KEY: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<isize, String>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Pencere yeniden oluşturulunca önbelleği unut.
+pub fn forget_glass(hwnd: isize) {
+    GLASS_KEY.lock().unwrap().remove(&hwnd);
+    BACKDROP_KEY.lock().unwrap().remove(&hwnd);
 }
 
 /// Geçerli temayı (Windows teması, dinamik moddaki saat planı) yeniden
@@ -485,15 +515,29 @@ enum Act {
     SlideOut(Dock, &'static str),
 }
 
+/// (son ölçüm, kaç kez aynı ölçüldü, geçerli karar)
+static FS_STABLE: std::sync::Mutex<(Option<String>, u8, Option<String>)> = std::sync::Mutex::new((None, 0, None));
+
 /// Her 100 ms'de çağrılır: tam ekran, otomatik/akıllı gizleme.
 /// Kararlar kilit altında verilir, pencere işlemleri kilit bırakıldıktan sonra yapılır.
 fn update_visibility(app: &AppHandle, state: &AppState, vis: &Vis, hwnds: &[isize], fg: isize) {
     let now = Instant::now();
     let cursor = platform::cursor_pos();
-    let fs_mon = if vis.fullscreen {
-        platform::fullscreen_monitor(hwnds)
-    } else {
-        None
+    // Tam ekran kararı ancak 3 ardışık ölçümde (~300 ms) aynı kalınca değişir;
+    // anlık yanlış ölçümler dock'u gizleyip geri getiriyordu.
+    let raw_fs = if vis.fullscreen { platform::fullscreen_monitor(hwnds) } else { None };
+    let fs_mon = {
+        let mut f = FS_STABLE.lock().unwrap();
+        if f.0 == raw_fs {
+            f.1 = f.1.saturating_add(1);
+        } else {
+            f.0 = raw_fs.clone();
+            f.1 = 1;
+        }
+        if f.1 >= 3 {
+            f.2 = raw_fs;
+        }
+        f.2.clone()
     };
     let fg_rect = if vis.mode == 2 {
         platform::foreground_app_rect(hwnds)
