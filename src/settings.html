@@ -325,10 +325,22 @@
           </div>
           <p class="dev-foot">© 2026 Ali Apaydın · Tauri, Rust ve WebView2 ile geliştirildi.</p>
         </div>
+        <h2>Gizlilik</h2>
+        <div class="card">
+          <div class="row">
+            <div class="label"><strong>Anonim kullanım istatistiği</strong><span>Cam Dock'u geliştirmek için sifirgecikme.com'a gönderilir: rastgele kurulum kimliği, uygulama ve Windows sürümü, ekran sayısı, açık widget'lar ve ülke. IP adresi, bilgisayar adı ya da kullanıcı adı gönderilmez. Kapatınca gönderim durur; güncellemeler etkilenmez.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="telemetry.enabled"><span></span></label>
+          </div>
+          <div class="row">
+            <div class="label"><strong>Verilerimi sil</strong><span id="tel-desc">Sunucudaki tüm kaydın silinir, kurulum kimliğin yenilenir ve gönderim kapanır.</span></div>
+            <button class="btn ghost" id="tel-delete">Verilerimi sil</button>
+          </div>
+        </div>
+
         <h2>Güncellemeler</h2>
         <div class="card">
           <div class="row">
-            <div class="label"><strong id="upd-title">Cam Dock 0.13.0</strong><span id="upd-desc"></span>
+            <div class="label"><strong id="upd-title">Cam Dock 0.14.0</strong><span id="upd-desc"></span>
               <span class="upd-bar" id="upd-bar"><i></i></span></div>
             <div class="upd-btns"><button class="btn ghost" id="upd-check">Denetle</button><button class="btn" id="upd-install">Şimdi güncelle</button></div>
           </div>
@@ -343,7 +355,7 @@
         </div>
 
         <div class="card">
-          <div class="row"><div class="label"><strong>Cam Dock</strong><span>Sürüm 0.13.0</span></div></div>
+          <div class="row"><div class="label"><strong>Cam Dock</strong><span>Sürüm 0.14.0</span></div></div>
           <div class="row"><div class="label"><strong>Ayar dosyası</strong><span id="cfg-path" class="mono"></span></div>
             <button class="btn ghost" id="open-cfg">Aç</button></div>
           <div class="row"><div class="label"><strong>Tanılama kaydı</strong><span>Dock'un ne zaman neden hareket ettiğini ve cam katmanının durumunu yazar. Bir sorun olursa bu dosyayı gönder.</span><span id="log-path" class="mono"></span></div>

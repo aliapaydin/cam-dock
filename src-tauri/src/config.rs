@@ -131,6 +131,23 @@ impl Default for Clipboard {
     }
 }
 
+/// Anonim kullanım istatistiği (sifirgecikme.com). Varsayılan açık, kapatılabilir.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Telemetry {
+    pub enabled: bool,
+    /// Rastgele kurulum kimliği (kişiye bağlanmaz). "Verilerimi sil"de yenilenir.
+    pub install_id: String,
+    /// Kurulumda sorulmadan gelenlere (eski sürümden güncelleme) bir kez bilgi verildi mi
+    pub notice_shown: bool,
+}
+
+impl Default for Telemetry {
+    fn default() -> Self {
+        Self { enabled: true, install_id: uuid::Uuid::new_v4().to_string(), notice_shown: false }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Update {
@@ -209,6 +226,7 @@ pub struct Config {
     pub update: Update,
     pub notifications: Notifications,
     pub clipboard: Clipboard,
+    pub telemetry: Telemetry,
     /// Windows açılınca başlat
     pub autostart: bool,
     /// Ayar dosyası sürüm geçişleri (kullanıcı düzenlemez)
@@ -267,6 +285,7 @@ impl Default for Config {
             update: Update::default(),
             notifications: Notifications::default(),
             clipboard: Clipboard::default(),
+            telemetry: Telemetry::default(),
             autostart: true,
             migrations: 6,
         }

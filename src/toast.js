@@ -40,7 +40,7 @@ function timeTxt(ms) {
 function card(p) {
   const b = document.createElement("button");
   b.className = "tn";
-  b.style.setProperty("--life", `${LIFE}ms`);
+  b.style.setProperty("--life", `${p.life || LIFE}ms`);
   b.innerHTML = `
     <span class="ic">${p.icon ? `<img src="${p.icon}" alt="">` : esc((p.name || "?").slice(0, 1))}</span>
     <span class="tx">
@@ -76,7 +76,7 @@ async function add(p) {
   if (queue.some((q) => q.p.id === p.id)) return;
   const el = card(p);
   stack.prepend(el);
-  queue.unshift({ p, el, until: Date.now() + LIFE });
+  queue.unshift({ p, el, until: Date.now() + (p.life || LIFE) });
   while (queue.length > MAX) {
     const old = queue.pop();
     old.el.remove();

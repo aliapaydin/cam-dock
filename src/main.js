@@ -245,6 +245,7 @@ listen("notifications", async (e) => {
   appsApi.redraw();
 });
 listen("toast-click", (e) => {
+  if (e.payload === "__telemetry") return invoke("open_settings");
   const it = appsApi.items().find((x) => x.key === e.payload);
   if (it) appsApi.activate(it);
 });
@@ -1137,6 +1138,22 @@ async function init() {
   applyTheme();
   render();
   firstLayout();
+  // Eski sürümden güncelleyenlere (kurulumda sorulmadı) istatistik için bir kez bilgi ver.
+  if (info.primary && cfg.telemetry?.enabled && !cfg.telemetry.notice_shown) {
+    setTimeout(() => {
+      invoke("telemetry_notice_seen").catch(() => {});
+      invoke("toast_show", {
+        anchor: dock.getBoundingClientRect().width - 200,
+        payload: {
+          id: -1, key: "__telemetry", handler: "", name: "Cam Dock", icon: null,
+          title: "Anonim kullanım istatistiği açık",
+          body: "Sürüm, Windows sürümü ve ülke gibi anonim bilgiler gönderiliyor. Ayarlar → Hakkında'dan kapatabilirsin.",
+          time: Date.now(),
+          life: 15000,
+        },
+      }).catch(() => {});
+    }, 8000);
+  }
 }
 
 dock.addEventListener("contextmenu", (e) => {

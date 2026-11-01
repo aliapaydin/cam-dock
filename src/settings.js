@@ -144,6 +144,30 @@ function bind() {
   $("#city-q").onkeydown = (e) => { if (e.key === "Enter") searchCity(); };
   // Güncellemeler
   $("#win-notif").onclick = () => invoke("launch_app", { path: "ms-settings:notifications" });
+  let delArm = 0;
+  $("#tel-delete").onclick = async () => {
+    const b = $("#tel-delete");
+    if (Date.now() - delArm > 4000) {
+      delArm = Date.now();
+      b.textContent = "Emin misin? Tekrar tıkla";
+      setTimeout(() => { if (Date.now() - delArm >= 4000) b.textContent = "Verilerimi sil"; }, 4100);
+      return;
+    }
+    b.disabled = true;
+    b.textContent = "Siliniyor…";
+    try {
+      await invoke("telemetry_delete");
+      cfg.telemetry.enabled = false;
+      $("#tel-desc").textContent = "Verilerin silindi ve gönderim kapatıldı. İstersen yeniden açabilirsin; yeni bir kimlikle başlar.";
+      b.textContent = "Silindi";
+      refresh();
+    } catch (e) {
+      $("#tel-desc").textContent = "Silinemedi: sunucuya ulaşılamadı. İnternet bağlantını kontrol edip tekrar dene.";
+      b.textContent = "Verilerimi sil";
+    }
+    b.disabled = false;
+    delArm = 0;
+  };
   $("#upd-check").onclick = () => invoke("update_check").catch(() => {});
   $("#upd-install").onclick = () => invoke("update_install").catch(() => {});
   $("#feed-add").onclick = () => {
@@ -624,6 +648,7 @@ async function mockInvoke(cmd) {
         autostart: true,
         notifications: { enabled: true, balloons: true, bounce: true, bounce_sec: 10, show_text: true },
         clipboard: { enabled: true, max_items: 40 },
+        telemetry: { enabled: true, install_id: "3f6c1b2a-0000-4000-8000-000000000000", notice_shown: true },
       };
     case "theme_dark": return (q.get("theme") || "dark") === "dark";
     case "wallpaper": return MOCK.wallpaper(q.get("wall"));

@@ -142,9 +142,21 @@ pub async fn get_config(app: AppHandle) -> Result<ConfigView, String> {
 /// Ayarlar penceresi tüm ayarı gönderir; kaydedip hemen uygularız.
 #[tauri::command]
 pub async fn save_config(app: AppHandle, cfg: Config) -> Result<(), String> {
+    let mut cfg = cfg;
+    let telemetry_changed = {
+        let state = app.state::<AppState>();
+        let mut cur = state.cfg.lock().unwrap();
+        // Kurulum kimliği yalnızca Rust tarafında değişir (pencerelerdeki eski kopya ezmesin).
+        cfg.telemetry.install_id = cur.telemetry.install_id.clone();
+        let changed = (cur.telemetry.enabled != cfg.telemetry.enabled).then_some(cfg.telemetry.enabled);
+        *cur = cfg.clone();
+        changed
+    };
+    if let Some(on) = telemetry_changed {
+        crate::telemetry::on_toggle(&app, on);
+    }
     {
         let state = app.state::<AppState>();
-        *state.cfg.lock().unwrap() = cfg.clone();
         state.icons.lock().unwrap().clear();
     }
     config::save(&cfg);

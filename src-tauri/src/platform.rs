@@ -390,6 +390,12 @@ mod imp {
     pub fn single_instance() -> bool {
         dock_sys::single_instance()
     }
+    pub fn reg_dword(key: &str, name: &str) -> Option<u32> {
+        autostart::reg_dword(key, name)
+    }
+    pub fn reg_delete(key: &str, name: &str) {
+        autostart::reg_delete(key, name)
+    }
     pub fn clip_listen(cb: impl Fn() + Send + Sync + 'static) {
         clipboard::listen(cb)
     }
@@ -575,6 +581,10 @@ mod imp {
     pub fn single_instance() -> bool {
         true
     }
+    pub fn reg_dword(_key: &str, _name: &str) -> Option<u32> {
+        None
+    }
+    pub fn reg_delete(_key: &str, _name: &str) {}
     pub fn clip_listen(_cb: impl Fn() + Send + Sync + 'static) {}
     pub fn clip_read() -> Option<ClipContent> {
         None

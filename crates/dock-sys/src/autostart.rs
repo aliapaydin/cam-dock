@@ -49,3 +49,26 @@ pub fn set(exe: Option<&str>) -> bool {
         }
     }
 }
+
+/// HKCU altındaki bir DWORD değer (yoksa None).
+pub fn reg_dword(key: &str, name: &str) -> Option<u32> {
+    use windows::Win32::System::Registry::RRF_RT_REG_DWORD;
+    let k = wide(key);
+    let n = wide(name);
+    let mut v = 0u32;
+    let mut size = 4u32;
+    unsafe {
+        RegGetValueW(HKEY_CURRENT_USER, PCWSTR(k.as_ptr()), PCWSTR(n.as_ptr()), RRF_RT_REG_DWORD, None, Some(&mut v as *mut u32 as *mut _), Some(&mut size))
+            .ok()
+            .ok()?;
+    }
+    Some(v)
+}
+
+pub fn reg_delete(key: &str, name: &str) {
+    let k = wide(key);
+    let n = wide(name);
+    unsafe {
+        let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, PCWSTR(k.as_ptr()), PCWSTR(n.as_ptr()));
+    }
+}

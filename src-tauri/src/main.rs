@@ -9,6 +9,7 @@ mod platform;
 mod popover;
 mod screentime;
 mod theme;
+mod telemetry;
 mod quickset;
 mod notify;
 mod clip;
@@ -100,6 +101,11 @@ fn on_menu(app: &tauri::AppHandle, id: &str) {
 }
 
 fn main() {
+    // Kaldırma programı: (izin açıksa) kaldırıldığını bildir ve çık.
+    if std::env::args().any(|a| a == "--uninstall-ping") {
+        telemetry::uninstall_ping();
+        return;
+    }
     if std::env::args().any(|a| a == "--restore-taskbar") {
         docks::emergency_restore();
         return;
@@ -202,6 +208,8 @@ fn main() {
             clip::clip_pin,
             clip::clip_clear,
             claude::claude_usage,
+            telemetry::telemetry_delete,
+            telemetry::telemetry_notice_seen,
             quickset::quick_state,
             quickset::quick_volume,
             quickset::quick_audio_device,
@@ -242,6 +250,8 @@ fn main() {
                 *handle.state::<AppState>().system_light.lock().unwrap() = Some(light);
             }
             docks::refresh_theme(&handle);
+            telemetry::init(&handle);
+            telemetry::spawn(handle.clone());
             updater::spawn(handle.clone());
             notify::spawn(handle.clone());
             clip::spawn(handle.clone());
