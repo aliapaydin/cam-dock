@@ -266,7 +266,7 @@ pub async fn list_monitors(app: AppHandle) -> Vec<MonitorView> {
 /// kendi ekranının alt ortasına yerleştiririz. Kilitler yalnızca durum okunup
 /// yazılırken tutulur; Windows çağrıları kilit dışında yapılır.
 #[tauri::command]
-pub async fn layout_dock(app: AppHandle, window: WebviewWindow, width: f64, height: f64) -> Result<(), String> {
+pub async fn layout_dock(app: AppHandle, window: WebviewWindow, width: f64, height: f64, head: Option<f64>) -> Result<(), String> {
     match run(move || {
         let state = app.state::<AppState>();
 
@@ -289,6 +289,7 @@ pub async fn layout_dock(app: AppHandle, window: WebviewWindow, width: f64, heig
     let w = (width * scale).ceil() as i32;
     let h = (height * scale).ceil() as i32;
     let margin = (margin_css as f64 * scale).round() as i32;
+    let head_px = (head.unwrap_or(0.0).clamp(0.0, 120.0) * scale).round() as i32;
 
     let bottom = if reserve && always {
         platform::reserve(hwnd, mon, h + margin * 2).3
@@ -304,6 +305,7 @@ pub async fn layout_dock(app: AppHandle, window: WebviewWindow, width: f64, heig
         let Some(d) = docks.get_mut(&label) else { return Ok(()) };
         let first = d.target.is_none();
         d.target = Some((x, y, w, h));
+        d.head = head_px;
         if first && !d.fs_hidden {
             d.shown = true;
             d.last_inside = Instant::now();
@@ -311,8 +313,8 @@ pub async fn layout_dock(app: AppHandle, window: WebviewWindow, width: f64, heig
         (first, d.clone())
     };
 
-    let place_y = if snapshot.shown && !first { y } else { mb };
-    docks::place(hwnd, x, place_y, w, h);
+    let place_y = if snapshot.shown && !first { y - head_px } else { mb };
+    docks::place(hwnd, x, place_y, w, h + head_px);
     if first {
         dlog!("{label}: ilk yerleşim x={x} y={y} w={w} h={h} (alt sınır {bottom}, ölçek {scale})");
     }
@@ -972,6 +974,24 @@ pub fn show_menu(window: WebviewWindow, state: State<'_, AppState>) -> Result<()
         .build()
         .map_err(err)?;
     window.popup_menu(&menu).map_err(err)
+}
+
+/// Büyüteç: fare simgelerin üstündeyken pencerenin üstteki boşluğunun
+/// simgeler hizasındaki kısmı da tıklanabilir/çizilebilir olsun. `expand` yoksa
+/// yalnızca dock'un kendisi (boşluk tıklamaları alttaki pencerelere geçer).
+#[tauri::command]
+pub fn dock_region(app: AppHandle, window: WebviewWindow, expand: Option<(f64, f64)>) {
+    let Some(d) = app.state::<AppState>().docks.lock().unwrap().get(window.label()).cloned() else { return };
+    let Some((_, _, w, h)) = d.target else { return };
+    if d.head <= 0 {
+        return;
+    }
+    let mut rects = vec![(0, d.head, w, d.head + h)];
+    if let Some((l, r)) = expand {
+        let s = d.scale;
+        rects.push((((l * s) as i32).max(0), 0, ((r * s) as i32).min(w), d.head + 1));
+    }
+    platform::rect_region(d.hwnd, &rects);
 }
 
 /// Sürükle-bırak sonrası simge sırası.

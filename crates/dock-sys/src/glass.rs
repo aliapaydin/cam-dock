@@ -118,12 +118,15 @@ pub fn attach(window: isize) -> Result<()> {
 }
 
 /// Boyut (fiziksel piksel), köşe yarıçapı, ek renk tabakası ve açık/kapalı.
-pub fn update(window: isize, w: f32, h: f32, radius: f32, tint: (u8, u8, u8, u8), enabled: bool) -> Result<()> {
+/// `top`: camın pencerenin üstünden ne kadar aşağıda başladığı (dock'ta
+/// büyüteç için üstte boş alan var).
+pub fn update(window: isize, w: f32, h: f32, radius: f32, tint: (u8, u8, u8, u8), enabled: bool, top: f32) -> Result<()> {
     GLASS.with(|g| {
         let g = g.borrow();
         let Some(glass) = g.get(&window) else {
             return Ok(());
         };
+        glass.shape.SetOffset(Vector2 { X: 0.0, Y: top })?;
         glass.shape.SetSize(Vector2 { X: w, Y: h })?;
         glass.shape.SetCornerRadius(Vector2 { X: radius, Y: radius })?;
         glass.tint.SetColor(Color {

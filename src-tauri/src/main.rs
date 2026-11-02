@@ -266,6 +266,7 @@ fn main() {
             updater::update_install,
             commands::open_start,
             commands::set_app_order,
+            commands::dock_region,
             commands::set_apps_locked,
             commands::system_action,
             commands::open_settings,

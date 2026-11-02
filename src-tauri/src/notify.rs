@@ -316,7 +316,7 @@ pub async fn toast_layout(app: AppHandle, window: WebviewWindow, width: f64, hei
         let y = base - (12.0 * s) as i32 - h;
         platform::set_bounds(hwnd, x, y, w.max(1), h.max(1));
         let mode = state.cfg.lock().unwrap().backdrop.clone();
-        crate::docks::glass_raw(&app, hwnd, w, h, (18.0 * s) as f32, d.dark, d.tint, mode);
+        crate::docks::glass_raw(&app, hwnd, w, h, (18.0 * s) as f32, d.dark, d.tint, mode, 0);
         if !platform::is_visible(hwnd) {
             let _ = app.run_on_main_thread(move || platform::glass_animate(hwnd, true, 260));
         }

@@ -98,7 +98,7 @@ pub fn apply(window: isize, mode: Backdrop, tint: (u8, u8, u8, u8)) -> bool {
 /// Pencereyi yuvarlak köşeli bir bölgeyle kırpar (fiziksel piksel).
 /// Windows 11'in kendi 8px köşe yuvarlamasını ve 1px kenarlığını kapatır;
 /// köşeyi ve kenar ışığını CSS çiziyor.
-pub fn round_region(window: isize, width: i32, height: i32, radius: i32) {
+pub fn round_region(window: isize, width: i32, height: i32, radius: i32, top: i32) {
     unsafe {
         let pref = DWMWCP_DONOTROUND;
         let _ = DwmSetWindowAttribute(
@@ -115,8 +115,26 @@ pub fn round_region(window: isize, width: i32, height: i32, radius: i32) {
             4,
         );
         let d = radius * 2;
-        let rgn = CreateRoundRectRgn(0, 0, width + 1, height + 1, d, d);
+        let rgn = CreateRoundRectRgn(0, top, width + 1, top + height + 1, d, d);
         // Başarılı olursa bölgenin sahipliği sisteme geçer, silmiyoruz.
         SetWindowRgn(hwnd(window), Some(rgn), true);
+    }
+}
+
+/// Pencereye dikdörtgenlerin birleşiminden bölge verir (fiziksel piksel,
+/// pencereye göre). Bölge dışı tıklamaları alttaki pencerelere geçer ve çizilmez.
+pub fn rect_region(window: isize, rects: &[(i32, i32, i32, i32)]) {
+    use windows::Win32::Graphics::Gdi::{CombineRgn, CreateRectRgn, DeleteObject, HGDIOBJ, RGN_OR};
+    unsafe {
+        let Some(&(l, t, r, b)) = rects.first() else { return };
+        let rgn = CreateRectRgn(l, t, r, b);
+        for &(l, t, r, b) in &rects[1..] {
+            let add = CreateRectRgn(l, t, r, b);
+            let _ = CombineRgn(Some(rgn), Some(rgn), Some(add), RGN_OR);
+            let _ = DeleteObject(HGDIOBJ(add.0));
+        }
+        if SetWindowRgn(hwnd(window), Some(rgn), false) == 0 {
+            let _ = DeleteObject(HGDIOBJ(rgn.0));
+        }
     }
 }

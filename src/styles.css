@@ -667,14 +667,24 @@ button.cell.w-calendar { font: inherit; color: inherit; }
 .apps .app.lock-nudge img, .apps .app.lock-nudge .glyph { animation: nudge .45s ease; }
 @keyframes nudge { 30% { transform: translateY(2px) scale(.94); } 65% { transform: translateY(-1px) scale(1.03); } }
 
-/* ---------- Büyüteç ---------- */
-.apps .app img, .apps .app .glyph {
-  transform-origin: 50% 100%;
-  transition: transform .28s cubic-bezier(.2, .9, .3, 1);
-  will-change: transform;
+/* ---------- Büyüteç ve kaydırma ---------- */
+#dock { margin-top: var(--head, 0px); }
+.apps-vp {
+  position: relative; display: flex; align-items: center;
+  /* Üstte büyüteç boşluğu ve yanlarda dolgu kutunun içinde kalsın ki
+     kenarlarda yalnızca yatay kırpılsın, büyüyen simge yukarı taşabilsin. */
+  padding: calc(var(--head, 0px) + 10px) 14px 0; margin: calc(-1 * (var(--head, 0px) + 10px)) -14px 0;
+  overflow: hidden; box-sizing: border-box; flex: 0 0 auto;
 }
-.apps.mag-on .app img, .apps.mag-on .app .glyph { transition: transform .09s ease-out; }
-.apps .app { overflow: visible; }
+.apps-vp > .apps { flex: 0 0 auto; will-change: transform; }
+.apps-vp.overflow.fade-l { -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 46px); mask-image: linear-gradient(90deg, transparent 0, #000 46px); }
+.apps-vp.overflow.fade-r { -webkit-mask-image: linear-gradient(270deg, transparent 0, #000 46px); mask-image: linear-gradient(270deg, transparent 0, #000 46px); }
+.apps-vp.overflow.fade-l.fade-r {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 46px, #000 calc(100% - 46px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 46px, #000 calc(100% - 46px), transparent 100%);
+}
+.apps-vp .app { transform-origin: 50% 100%; transition: transform .3s cubic-bezier(.2, .9, .3, 1), background .15s ease; }
+.apps-vp .apps.mag-on .app { transition: transform .1s ease-out, background .15s ease; }
 
 /* ---------- Canlı etkinlikler ---------- */
 .cell.live[hidden] { display: none; }

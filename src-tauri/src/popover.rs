@@ -209,7 +209,7 @@ pub async fn popover_layout(app: AppHandle, window: WebviewWindow, width: f64, h
 
     platform::set_bounds(hwnd, x, y, w, h);
     let mode = state.cfg.lock().unwrap().backdrop.clone();
-    docks::glass_raw(&app, hwnd, w, h, (20.0 * scale) as f32, dark, tint, mode);
+    docks::glass_raw(&app, hwnd, w, h, (20.0 * scale) as f32, dark, tint, mode, 0);
     // Cam, panelle birlikte büyüyerek belirsin (her açılışta bir kez).
     let first = {
         let mut p = state.pop.lock().unwrap();

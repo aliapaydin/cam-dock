@@ -94,12 +94,17 @@ const appsLoaded = new Promise((r) => (firstAppsDone = r));
 const pendingIcons = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Pencerenin dock'un üstünde büyüteç için ayırdığı boşluk (css px). Boşluk
+// normalde tıklamaları alttaki pencerelere geçirir; yalnızca fare simgelerin
+// üstündeyken simgeler hizasında açılır (dock_region).
+const HEAD = 46;
+document.documentElement.style.setProperty("--head", HEAD + "px");
 function sendLayout() {
   const r = dock.getBoundingClientRect();
   const size = `${Math.ceil(r.width)}x${Math.ceil(r.height)}`;
   if (size === lastSize) return;
   lastSize = size;
-  invoke("layout_dock", { width: Math.ceil(r.width), height: Math.ceil(r.height) }).catch(console.error);
+  invoke("layout_dock", { width: Math.ceil(r.width), height: Math.ceil(r.height), head: HEAD }).catch(console.error);
 }
 // Dock daralacaksa biraz bekle: bir pencere kısa süre kaybolup geri gelince
 // (uygulama yeniden çizerken, açılış ekranı vb.) dock gidip gelmesin.
@@ -282,9 +287,13 @@ function appsWidget() {
   start.onclick = () => invoke("open_start");
   wrap.append(start);
 
+  // Çok uygulama varsa dock ekrana sığsın: simgeler kaydırılabilir bir
+  // pencerede durur, fare kenarlara yaklaşınca yeni simgeler kayarak gelir.
+  const vp = $("div", "apps-vp");
   const list = $("div", "apps");
   list.style.padding = "0";
-  wrap.append(list);
+  vp.append(list);
+  wrap.append(vp);
 
   let lastSig = "";
   let lastActive = 0;
@@ -368,6 +377,7 @@ function appsWidget() {
     if (sig === lastSig) return firstAppsDone();
     lastSig = sig;
     render(data.active);
+    if (activeKey) requestAnimationFrame(() => ensureVisible(activeKey));
     firstAppsDone();
   }
 
@@ -471,37 +481,123 @@ function appsWidget() {
     }
   }
 
+  // ---- Kaydırma (taşan simgeler) ----
+  const SLOT = 54; // simge 50 + aralık 4
+  let scroll = 0, scrollTarget = 0, maxScroll = 0, edgeV = 0, scrollRaf = 0, hovering = false;
+  function fitViewport() {
+    const n = list.children.length;
+    const natural = Math.max(0, n * SLOT - 4);
+    const dockW = dock.getBoundingClientRect().width;
+    const vpW = vp.getBoundingClientRect().width - 28; // yan dolgular hariç
+    const others = dockW - Math.max(0, vpW);
+    const avail = (window.screen?.width || 1920) - 40 - others;
+    let maxN = Math.max(4, Math.floor((avail + 4) / SLOT));
+    if (cfg.apps_max_visible > 0) maxN = Math.min(maxN, cfg.apps_max_visible);
+    const visN = Math.min(n, maxN);
+    const w = Math.max(0, visN * SLOT - 4);
+    vp.style.width = `${w + 28}px`;
+    vp.classList.toggle("overflow", n > visN);
+    maxScroll = Math.max(0, natural - w);
+    scrollTarget = Math.min(Math.max(0, scrollTarget), maxScroll);
+    tickScroll();
+  }
+  function tickScroll() {
+    scrollRaf = 0;
+    scrollTarget = Math.min(Math.max(0, scrollTarget + edgeV), maxScroll);
+    scroll += (scrollTarget - scroll) * 0.22;
+    if (Math.abs(scrollTarget - scroll) < 0.4) scroll = scrollTarget;
+    list.style.transform = scroll ? `translateX(${-scroll.toFixed(1)}px)` : "";
+    vp.classList.toggle("fade-l", scroll > 2);
+    vp.classList.toggle("fade-r", scroll < maxScroll - 2);
+    if (magX != null) magApply();
+    if (scroll !== scrollTarget || edgeV) scrollRaf = requestAnimationFrame(tickScroll);
+  }
+  const kickScroll = () => { if (!scrollRaf) scrollRaf = requestAnimationFrame(tickScroll); };
+  /** Etkin uygulama görünür alanın dışındaysa ona kaydır (fare dock'ta değilken). */
+  function ensureVisible(key) {
+    if (hovering || !maxScroll) return;
+    const el = list.querySelector(`[data-key="${CSS.escape(key)}"]`);
+    if (!el) return;
+    const w = vp.getBoundingClientRect().width - 28;
+    const left = [...list.children].indexOf(el) * SLOT;
+    if (left < scrollTarget) scrollTarget = left;
+    else if (left + 50 > scrollTarget + w) scrollTarget = left + 50 - w;
+    kickScroll();
+  }
+  vp.addEventListener("wheel", (e) => {
+    if (!maxScroll) return;
+    e.preventDefault();
+    scrollTarget += (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * 0.8;
+    kickScroll();
+  }, { passive: false });
+
   // ---- Büyüteç (Mac gibi) ----
-  // Fareye yakın simgeler büyür, uzaklaştıkça etki azalır (Gauss eğrisi).
-  // Simge kendi kutusunun içinde büyüdüğü için dock genişliği değişmez.
-  let magRaf = 0, magX = null;
-  const magItems = () => [...list.querySelectorAll(".app")];
+  // Fareye yakın simgeler büyür ve dock'un üstüne taşar; komşular kayarak yer
+  // açar, uzaktakiler biraz küçülür. Toplam genişlik sabit kaldığı için dock
+  // boyutu değişmez (titreme yok).
+  let magRaf = 0, magX = null, regionTimer = null;
+  const magItems = () => [...list.children];
   function magApply() {
     magRaf = 0;
-    const max = Math.min(1.45, Math.max(1.05, cfg.magnify_scale || 1.4));
-    for (const b of magItems()) {
-      const icon = b.querySelector("img, .glyph");
-      if (!icon) continue;
-      let s = 1;
-      if (magX != null && !appsDragging) {
-        const r = b.getBoundingClientRect();
-        const d = (r.left + r.width / 2 - magX) / 62;
-        s = 1 + (max - 1) * Math.exp(-d * d);
-      }
-      icon.style.transform = s > 1.004 ? `translateY(${(-(s - 1) * 10).toFixed(1)}px) scale(${s.toFixed(3)})` : "";
+    const els = magItems();
+    if (magX == null || appsDragging || cfg.magnify === false || !els.length) {
+      for (const b of els) if (!b.classList.contains("dragging") && !b.classList.contains("dropping")) b.style.transform = "";
+      return;
     }
+    const max = Math.min(1.8, Math.max(1.1, cfg.magnify_scale || 1.6));
+    const lr = list.getBoundingClientRect();
+    const n = els.length;
+    // Düzen tekdüze (SLOT aralıklı); offsetLeft liste yerine üst öğeye göre olabilir
+    const c = els.map((_, i) => lr.left + i * SLOT + 25);
+    const R = SLOT * 1.55;
+    const g = c.map((x) => Math.exp(-(((x - magX) / R) ** 2)));
+    const sc = g.map((v) => 1 + (max - 1) * v);
+    const sumS = sc.reduce((a, v) => a + v, 0);
+    const sumF = sc.reduce((a, v, i) => a + v * (1 - g[i]), 0);
+    const alpha = Math.min(0.24, Math.max(0, (sumS - n) / Math.max(sumF, 0.001)));
+    const t = sc.map((v, i) => v * (1 - alpha * (1 - g[i])));
+    const total = t.reduce((a, v) => a + v, 0) * SLOT;
+    let acc = c[0] - SLOT / 2 + (n * SLOT - total) / 2;
+    els.forEach((b, i) => {
+      const nc = acc + (t[i] * SLOT) / 2;
+      acc += t[i] * SLOT;
+      // Büyüyen simge ayrıca biraz yükselir: dock'un üstüne belirgin taşar
+      const lift = Math.max(0, t[i] - 1) * 16;
+      b.style.transform = `translate(${(nc - c[i]).toFixed(1)}px, ${(-lift).toFixed(1)}px) scale(${t[i].toFixed(3)})`;
+    });
   }
-  list.addEventListener("mousemove", (e) => {
+  vp.addEventListener("mouseenter", () => {
+    hovering = true;
+    clearTimeout(regionTimer);
+    if (cfg.magnify === false) return;
+    const r = vp.getBoundingClientRect();
+    invoke("dock_region", { expand: [Math.max(0, r.left - 40), r.right + 40] }).catch(() => {});
+  });
+  vp.addEventListener("mousemove", (e) => {
+    const r = vp.getBoundingClientRect();
+    // Kenarlara yaklaşınca kaydır
+    edgeV = 0;
+    if (maxScroll && !appsDragging) {
+      const zone = SLOT * 0.9, x = e.clientX - r.left - 14, w = r.width - 28;
+      if (x < zone && scrollTarget > 0) edgeV = -(1 - Math.max(0, x) / zone) * 9;
+      else if (x > w - zone && scrollTarget < maxScroll) edgeV = (1 - Math.max(0, w - x) / zone) * 9;
+      if (edgeV) kickScroll();
+    }
     if (cfg.magnify === false) return;
     list.classList.add("mag-on");
     magX = e.clientX;
     if (!magRaf) magRaf = requestAnimationFrame(magApply);
   });
-  list.addEventListener("magrefresh", () => { if (magX != null && !magRaf) magRaf = requestAnimationFrame(magApply); });
-  list.addEventListener("mouseleave", () => {
+  list.addEventListener("magrefresh", () => { fitViewport(); if (magX != null && !magRaf) magRaf = requestAnimationFrame(magApply); });
+  vp.addEventListener("mouseleave", () => {
+    hovering = false;
+    edgeV = 0;
     magX = null;
     list.classList.remove("mag-on");
     if (!magRaf) magRaf = requestAnimationFrame(magApply);
+    clearTimeout(regionTimer);
+    // Simgeler küçülme animasyonunu bitirince boşluk yine tıklama geçirsin
+    regionTimer = setTimeout(() => invoke("dock_region", { expand: null }).catch(() => {}), 320);
   });
 
   // ---- Sürükle-bırak ile sıralama ----
@@ -518,6 +614,9 @@ function appsWidget() {
     if (els.length < 2) { drag = null; return; }
     drag.active = true;
     appsDragging = true;
+    magX = null;
+    edgeV = 0;
+    for (const b of list.children) b.style.transform = "";
     clearTimeout(hoverTimer);
     invoke("popover_dock_hover", { hover: false }).catch(() => {});
     drag.els = els;
@@ -1524,7 +1623,7 @@ async function mockInvoke(cmd, args) {
         dynamic: { enabled: params.has("wall"), tint: Number(params.get("tint") || 45), auto_theme: false, schedule: "sun", light_at: "07:00", dark_at: "19:30" },
         weather: { enabled: true, auto_location: true, city: "İstanbul", lat: 41, lon: 29 },
         ticker: { markets: ["USD", "EUR", "gram-altin"], news: true, feeds: ["https://news.google.com/rss"], interval_sec: Number(params.get("iv") || 6), news_per_round: 3 },
-        pinned_resolved: ["Dosya Gezgini", "Chrome", "VS Code", "Spotify", "Telegram"].map((n) => ({
+        pinned_resolved: (window.__MANY ? ["Dosya Gezgini", "Chrome", "Edge", "VS Code", "Spotify", "WhatsApp", "Claude", "Steam", "Epic", "Telegram", "Xbox", "Teams", "OneNote", "Outlook", "Excel", "Media"] : ["Dosya Gezgini", "Chrome", "VS Code", "Spotify", "Telegram"]).map((n) => ({
           name: n, path: `C:\\${n}.exe`, args: null, exists: true,
         })),
       };

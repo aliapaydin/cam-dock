@@ -137,8 +137,11 @@ mod imp {
         };
         backdrop::apply(hwnd, backdrop::Backdrop::parse(mode), tint);
     }
-    pub fn round_region(hwnd: isize, w: i32, h: i32, r: i32) {
-        backdrop::round_region(hwnd, w, h, r)
+    pub fn round_region(hwnd: isize, w: i32, h: i32, r: i32, top: i32) {
+        backdrop::round_region(hwnd, w, h, r, top)
+    }
+    pub fn rect_region(hwnd: isize, rects: &[(i32, i32, i32, i32)]) {
+        backdrop::rect_region(hwnd, rects)
     }
     pub fn list_windows(exclude: &[isize]) -> Vec<AppWindow> {
         winlist::list(exclude)
@@ -346,8 +349,8 @@ mod imp {
     pub fn glass_attached(hwnd: isize) -> bool {
         glass::is_attached(hwnd)
     }
-    pub fn glass_update(hwnd: isize, w: f32, h: f32, r: f32, tint: (u8, u8, u8, u8), on: bool) -> Result<(), String> {
-        glass::update(hwnd, w, h, r, tint, on).map_err(|e| e.to_string())
+    pub fn glass_update(hwnd: isize, w: f32, h: f32, r: f32, tint: (u8, u8, u8, u8), on: bool, top: f32) -> Result<(), String> {
+        glass::update(hwnd, w, h, r, tint, on, top).map_err(|e| e.to_string())
     }
     pub fn glass_detach(hwnd: isize) {
         glass::detach(hwnd)
@@ -475,7 +478,8 @@ mod imp {
     pub fn release(_hwnd: isize) {}
     pub fn release_all() {}
     pub fn apply_backdrop(_hwnd: isize, _mode: &str, _dark: bool) {}
-    pub fn round_region(_hwnd: isize, _w: i32, _h: i32, _r: i32) {}
+    pub fn round_region(_hwnd: isize, _w: i32, _h: i32, _r: i32, _top: i32) {}
+    pub fn rect_region(_hwnd: isize, _rects: &[(i32, i32, i32, i32)]) {}
     pub fn list_windows(_exclude: &[isize]) -> Vec<AppWindow> {
         Vec::new()
     }
@@ -594,7 +598,7 @@ mod imp {
     pub fn glass_attached(_hwnd: isize) -> bool {
         false
     }
-    pub fn glass_update(_hwnd: isize, _w: f32, _h: f32, _r: f32, _tint: (u8, u8, u8, u8), _on: bool) -> Result<(), String> {
+    pub fn glass_update(_hwnd: isize, _w: f32, _h: f32, _r: f32, _tint: (u8, u8, u8, u8), _on: bool, _top: f32) -> Result<(), String> {
         Ok(())
     }
     pub fn glass_detach(_hwnd: isize) {}

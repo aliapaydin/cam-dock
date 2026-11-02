@@ -30,6 +30,9 @@ pub struct Dock {
     pub dark: bool,
     /// Dinamik modda duvar kâğıdından gelen cam rengi
     pub tint: Option<(u8, u8, u8)>,
+    /// Pencerenin dock'un üstünde büyüteç için ayırdığı boşluk (fiziksel px).
+    /// `target` dock'un kendi dikdörtgenidir; pencere bu kadar yukarıdan başlar.
+    pub head: i32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -151,12 +154,16 @@ pub fn apply_glass(app: &AppHandle, label: &str) {
     };
     let Some((_, _, w, h)) = d.target else { return };
     let radius = (radius_css as f64 * d.scale) as f32;
-    glass_raw(app, d.hwnd, w, h, radius, d.dark, d.tint, mode);
+    glass_raw(app, d.hwnd, w, h, radius, d.dark, d.tint, mode, d.head);
+    // Üstteki büyüteç boşluğu tıklamaları alttaki pencerelere geçirsin.
+    if d.head > 0 {
+        platform::rect_region(d.hwnd, &[(0, d.head, w, d.head + h)]);
+    }
 }
 
 /// Herhangi bir penceremize cam uygular (dock ya da panel). Composition
 /// kurulamadıysa eski yönteme (accent + pencere bölgesi) düşer.
-pub fn glass_raw(app: &AppHandle, hwnd: isize, w: i32, h: i32, radius: f32, dark: bool, tint: Option<(u8, u8, u8)>, mode: String) {
+pub fn glass_raw(app: &AppHandle, hwnd: isize, w: i32, h: i32, radius: f32, dark: bool, tint: Option<(u8, u8, u8)>, mode: String, top: i32) {
     let tint = match (tint, dark) {
         (Some((r, g, b)), true) => (r, g, b, 0x40),
         (Some((r, g, b)), false) => (r, g, b, 0x50),
@@ -165,7 +172,7 @@ pub fn glass_raw(app: &AppHandle, hwnd: isize, w: i32, h: i32, radius: f32, dark
     };
     // Aynı değerlerle tekrar uygulama: her yerleşimde/tema geçişinde cam ve DWM
     // arka planı baştan kuruluyor, pencere bir an yanıp sönüyordu.
-    let key = format!("{w}x{h}r{radius:.1}t{:?}d{dark}m{mode}", tint);
+    let key = format!("{w}x{h}+{top}r{radius:.1}t{:?}d{dark}m{mode}", tint);
     {
         let mut cache = GLASS_KEY.lock().unwrap();
         if cache.get(&hwnd) == Some(&key) {
@@ -184,12 +191,12 @@ pub fn glass_raw(app: &AppHandle, hwnd: isize, w: i32, h: i32, radius: f32, dark
             if first {
                 platform::apply_backdrop(hwnd, "none", dark);
             }
-            if let Err(e) = platform::glass_update(hwnd, w as f32, h as f32, radius, tint, mode != "none") {
+            if let Err(e) = platform::glass_update(hwnd, w as f32, h as f32, radius, tint, mode != "none", top as f32) {
                 dlog!("cam güncellenemedi: {e}");
             }
         } else {
             platform::apply_backdrop(hwnd, &mode, dark);
-            platform::round_region(hwnd, w, h, radius as i32);
+            platform::round_region(hwnd, w, h, radius as i32, top);
         }
     });
 }
@@ -280,6 +287,7 @@ pub fn sync(app: &AppHandle) {
                         last_inside: Instant::now(),
                         dark: true,
                         tint: None,
+                        head: 0,
                     },
                 );
             }
@@ -453,6 +461,8 @@ fn animate(hwnd: isize, to: i32, ms: u64) -> bool {
 /// DİKKAT: kayma fonksiyonları hiçbir kilit tutulmadan çağrılmalı.
 pub fn slide_in(d: &Dock) {
     let Some((x, y, w, h)) = d.target else { return };
+    // Pencere, dock'un üstündeki büyüteç boşluğu kadar yukarıdan başlar.
+    let (y, h) = (y - d.head, h + d.head);
     let off = d.mon_rect.3;
     {
         let mut map = GEO.lock().unwrap();

@@ -246,7 +246,9 @@ pub struct Config {
     pub stacks: Vec<Stack>,
     /// Mac gibi büyüteç: fare üstündeyken simgeler büyür
     pub magnify: bool,
-    /// En büyük ölçek (1.1–1.45)
+    /// En büyük ölçek (1.1–1.8)
+    /// Görünen en fazla uygulama simgesi (0 = ekran genişliğine göre otomatik)
+    pub apps_max_visible: u32,
     pub magnify_scale: f32,
     /// Sırasıyla gösterilecek widget'lar:
     /// calendar, screentime, ticker, media, system, clock
@@ -305,7 +307,8 @@ impl Default for Config {
             apps_locked: false,
             stacks: vec![downloads_stack()],
             magnify: true,
-            magnify_scale: 1.4,
+            magnify_scale: 1.6,
+            apps_max_visible: 0,
             pinned: vec![
                 p("Dosya Gezgini", "C:\\Windows\\explorer.exe"),
                 p("Chrome", "%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe"),
@@ -327,7 +330,7 @@ impl Default for Config {
             telemetry: Telemetry::default(),
             autostart: true,
             explorer_menu: true,
-            migrations: 7,
+            migrations: 8,
         }
     }
 }
@@ -427,6 +430,14 @@ pub fn load() -> Config {
                     cfg.stacks.push(downloads_stack());
                 }
                 cfg.migrations = 7;
+                save(&cfg);
+            }
+            // v0.18: büyüteç artık dock'un üstüne taşabiliyor; varsayılan daha güçlü
+            if cfg.migrations < 8 {
+                if cfg.magnify_scale <= 1.45 {
+                    cfg.magnify_scale = 1.6;
+                }
+                cfg.migrations = 8;
                 save(&cfg);
             }
             cfg
