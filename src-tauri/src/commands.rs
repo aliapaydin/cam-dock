@@ -942,7 +942,18 @@ pub fn show_menu(window: WebviewWindow, state: State<'_, AppState>) -> Result<()
         .text("sys:msinfo32.exe", "Sistem Bilgisi")
         .build()
         .map_err(err)?;
+    let timer_running = state.live.lock().unwrap().snap.timer.is_some();
+    let mut tb = SubmenuBuilder::new(app, "Zamanlayıcı");
+    for m in [1, 5, 10, 15, 25, 45, 60] {
+        tb = tb.text(format!("timer:{m}"), format!("{m} dakika"));
+    }
+    if timer_running {
+        tb = tb.separator().text("timer:stop", "Zamanlayıcıyı durdur");
+    }
+    let timer = tb.build().map_err(err)?;
     let menu = MenuBuilder::new(app)
+        .item(&timer)
+        .separator()
         .text("sys:ms-settings:", "Ayarlar")
         .text("sys:ms-settings:about", "Sistem özellikleri")
         .text("sys:taskmgr.exe", "Görev Yöneticisi")

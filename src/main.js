@@ -373,6 +373,7 @@ function appsWidget() {
 
   function render(active) {
     list.replaceChildren();
+    requestAnimationFrame(() => list.dispatchEvent(new Event("magrefresh")));
     for (const item of items) {
       const b = $("button", "app");
       const isActive = item.wins.some((w) => w.hwnd === active);
@@ -469,6 +470,39 @@ function appsWidget() {
       list.append(b);
     }
   }
+
+  // ---- Büyüteç (Mac gibi) ----
+  // Fareye yakın simgeler büyür, uzaklaştıkça etki azalır (Gauss eğrisi).
+  // Simge kendi kutusunun içinde büyüdüğü için dock genişliği değişmez.
+  let magRaf = 0, magX = null;
+  const magItems = () => [...list.querySelectorAll(".app")];
+  function magApply() {
+    magRaf = 0;
+    const max = Math.min(1.45, Math.max(1.05, cfg.magnify_scale || 1.4));
+    for (const b of magItems()) {
+      const icon = b.querySelector("img, .glyph");
+      if (!icon) continue;
+      let s = 1;
+      if (magX != null && !appsDragging) {
+        const r = b.getBoundingClientRect();
+        const d = (r.left + r.width / 2 - magX) / 62;
+        s = 1 + (max - 1) * Math.exp(-d * d);
+      }
+      icon.style.transform = s > 1.004 ? `translateY(${(-(s - 1) * 10).toFixed(1)}px) scale(${s.toFixed(3)})` : "";
+    }
+  }
+  list.addEventListener("mousemove", (e) => {
+    if (cfg.magnify === false) return;
+    list.classList.add("mag-on");
+    magX = e.clientX;
+    if (!magRaf) magRaf = requestAnimationFrame(magApply);
+  });
+  list.addEventListener("magrefresh", () => { if (magX != null && !magRaf) magRaf = requestAnimationFrame(magApply); });
+  list.addEventListener("mouseleave", () => {
+    magX = null;
+    list.classList.remove("mag-on");
+    if (!magRaf) magRaf = requestAnimationFrame(magApply);
+  });
 
   // ---- Sürükle-bırak ile sıralama ----
   // Simge farenin peşinden gider, aradaki simgeler yumuşakça kayar; bırakınca
@@ -1220,6 +1254,176 @@ function systemWidget() {
   return c;
 }
 
+// ---------------------------------------------------------------------------
+// Canlı etkinlikler: indirme, zamanlayıcı, mikrofon/kamera, şarj
+// Hiçbir şey yokken görünmez; bir etkinlik başlayınca dock'ta belirir.
+// ---------------------------------------------------------------------------
+const fmtBytes = (n) => {
+  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
+  if (n < 1024 ** 3) return `${(n / 1024 / 1024).toLocaleString("tr-TR", { maximumFractionDigits: 1 })} MB`;
+  return `${(n / 1024 ** 3).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} GB`;
+};
+const fmtClock = (ms) => {
+  const s = Math.ceil(ms / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}` : `${m}:${String(x).padStart(2, "0")}`;
+};
+const LIVE_ICON = {
+  dl: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
+  ok: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>',
+  mic: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
+  cam: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><rect x="3" y="6" width="13" height="12" rx="2.5"/><path d="M16 10l5-3v10l-5-3z"/></svg>',
+  bolt: '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>',
+};
+let chimeCtx = null;
+function chime() {
+  try {
+    chimeCtx = chimeCtx || new AudioContext();
+    const t = chimeCtx.currentTime;
+    [880, 1318.5, 1760].forEach((f, i) => {
+      const o = chimeCtx.createOscillator(), g = chimeCtx.createGain();
+      o.type = "sine"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t + i * 0.16);
+      g.gain.exponentialRampToValueAtTime(0.18, t + i * 0.16 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.16 + 0.9);
+      o.connect(g).connect(chimeCtx.destination);
+      o.start(t + i * 0.16); o.stop(t + i * 0.16 + 1);
+    });
+  } catch {}
+}
+listen("timer-done", (e) => {
+  if (!info.primary) return;
+  chime();
+  invoke("toast_show", {
+    anchor: dock.getBoundingClientRect().width / 2,
+    payload: { id: -Date.now(), key: "__timer", handler: "", name: "Zamanlayıcı", icon: null,
+      title: "Süre doldu", body: `${e.payload} tamamlandı.`, time: Date.now(), life: 12000 },
+  }).catch(() => {});
+});
+
+function liveWidget() {
+  const c = $("div", "cell live");
+  c.hidden = true;
+  const pills = new Map(); // anahtar → eleman
+  let armedStop = 0;
+
+  function pill(key, cls, html, onclick) {
+    let el = pills.get(key);
+    if (!el) {
+      el = $("button", "lp " + cls);
+      el.innerHTML = html;
+      el.onclick = onclick;
+      c.append(el);
+      pills.set(key, el);
+      el.classList.add("enter");
+      requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove("enter")));
+    }
+    el.dataset.alive = "1";
+    return el;
+  }
+
+  async function poll() {
+    const s = await invoke("live_state").catch(() => null);
+    if (!s) return;
+    for (const el of pills.values()) el.dataset.alive = "";
+
+    if (s.timer) {
+      const t = s.timer;
+      const el = pill("timer", "lp-timer", `
+        <svg class="lp-ring" viewBox="0 0 36 36" width="30" height="30"><circle cx="18" cy="18" r="15" class="tr"/><circle cx="18" cy="18" r="15" class="tv"/></svg>
+        <span class="lp-tx"><b></b><small>Zamanlayıcı</small></span>`, () => {
+          if (Date.now() - armedStop > 3000) { armedStop = Date.now(); el.querySelector("small").textContent = "Durdurmak için tekrar tıkla"; return; }
+          invoke("live_timer", { minutes: null }); armedStop = 0;
+        });
+      const C = 2 * Math.PI * 15;
+      el.querySelector(".tv").setAttribute("stroke-dasharray", C);
+      el.querySelector(".tv").setAttribute("stroke-dashoffset", C * (1 - t.left_ms / t.total_ms));
+      el.querySelector("b").textContent = fmtClock(t.left_ms);
+      if (Date.now() - armedStop > 3000) el.querySelector("small").textContent = `Zamanlayıcı · ${t.label}`;
+      el.classList.toggle("urgent", t.left_ms < 60000);
+    }
+    for (const d of (s.downloads || []).slice(0, 2)) {
+      const el = pill("dl:" + d.path + d.done, "lp-dl" + (d.done ? " done" : ""), `
+        <span class="lp-ic"><span class="spin"></span>${d.done ? LIVE_ICON.ok : LIVE_ICON.dl}</span>
+        <span class="lp-tx"><b></b><small></small></span>`, () => {
+          invoke("launch_app", { path: "explorer.exe", args: `/select,"${d.path}"` });
+        });
+      el.querySelector("b").textContent = d.name;
+      el.querySelector("small").textContent = d.done
+        ? `İndirildi · ${fmtBytes(d.bytes)} · göster`
+        : `${fmtBytes(d.bytes)}${d.speed > 1024 ? ` · ${fmtBytes(d.speed)}/sn` : " · bekleniyor"}`;
+      el.title = d.done ? `${d.name}\nKlasörde göstermek için tıkla` : `${d.name} indiriliyor`;
+    }
+    if (s.mic?.length) {
+      const el = pill("mic", "lp-mic", `<span class="lp-ic">${LIVE_ICON.mic}<i class="dot"></i></span><span class="lp-tx"><b>Mikrofon açık</b><small></small></span>`,
+        () => invoke("launch_app", { path: "ms-settings:privacy-microphone" }));
+      el.querySelector("small").textContent = s.mic.join(", ");
+    }
+    if (s.cam?.length) {
+      const el = pill("cam", "lp-cam", `<span class="lp-ic">${LIVE_ICON.cam}<i class="dot"></i></span><span class="lp-tx"><b>Kamera açık</b><small></small></span>`,
+        () => invoke("launch_app", { path: "ms-settings:privacy-webcam" }));
+      el.querySelector("small").textContent = s.cam.join(", ");
+    }
+    if (s.charging != null) {
+      const el = pill("chg", "lp-chg", `<span class="lp-ic">${LIVE_ICON.bolt}</span><span class="lp-tx"><b></b><small>Şarj oluyor</small></span>`, () => {});
+      el.querySelector("b").textContent = `%${s.charging}`;
+    }
+
+    // Biten etkinlikler küçülerek çıksın
+    for (const [k, el] of pills) {
+      if (el.dataset.alive) continue;
+      pills.delete(k);
+      el.classList.add("leave");
+      setTimeout(() => { el.remove(); if (!c.querySelector(".lp")) c.hidden = true; }, 320);
+    }
+    if (pills.size) c.hidden = false;
+  }
+  every(1000, whenVisible(poll));
+  return c;
+}
+
+// ---------------------------------------------------------------------------
+// Klasör yığınları: klasör simgesinin üstünde son dosyaların küçük resimleri;
+// tıklayınca dosyalar ızgara ya da yelpaze halinde açılır.
+// ---------------------------------------------------------------------------
+const FOLDER_SVG = '<svg class="st-folder" viewBox="0 0 40 34" width="38" height="32" aria-hidden="true"><path d="M3 7a4 4 0 0 1 4-4h8l4 4h14a4 4 0 0 1 4 4v16a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4z" fill="var(--st-back)"/><path d="M3 12a3 3 0 0 1 3-3h28a3 3 0 0 1 3 3v15a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4z" fill="var(--st-front)"/></svg>';
+let stacksCell = null;
+function stacksWidget() {
+  const wrap = $("div", "apps stacks");
+  wrap.style.padding = "0 2px";
+  for (const st of cfg.stacks || []) {
+    const b = $("button", "app stack-btn");
+    b.innerHTML = `<span class="st-ic">${FOLDER_SVG}<span class="st-thumbs"></span></span>`;
+    b.title = `${st.name}\nSon dosyalar için tıkla`;
+    b.setAttribute("aria-label", `${st.name} klasör yığını`);
+    const thumbs = b.querySelector(".st-thumbs");
+    const refresh = async () => {
+      const list = (await invoke("stack_list", { path: st.path, sort: "date", limit: 3 }).catch(() => [])) || [];
+      const urls = await Promise.all(list.slice(0, 3).map((e) => invoke("file_thumb", { path: e.path, size: 64 }).catch(() => null)));
+      thumbs.replaceChildren(...urls.filter(Boolean).reverse().map((u, i, a) => {
+        const img = new Image();
+        img.src = u;
+        img.alt = "";
+        img.style.setProperty("--k", a.length - 1 - i);
+        return img;
+      }));
+      b.classList.toggle("has-files", urls.some(Boolean));
+    };
+    refresh();
+    timers.push(setInterval(whenVisible(refresh), 15000));
+    b.onclick = async () => {
+      const r = b.getBoundingClientRect();
+      const res = await invoke("popover_open", { kind: "stack", key: st.path, anchor: r.left + r.width / 2, payload: st }).catch(() => "");
+      b.classList.toggle("is-active", res === "opened" || res === "open");
+      stacksCell = b;
+      refresh();
+    };
+    wrap.append(b);
+  }
+  if (!(cfg.stacks || []).length) wrap.hidden = true;
+  return wrap;
+}
+
 const WIDGETS = {
   system: systemWidget,
   lock: lockWidget,
@@ -1227,6 +1431,8 @@ const WIDGETS = {
   mail: mailWidget,
   claude: claudeWidget,
   clipboard: clipboardWidget,
+  live: liveWidget,
+  stacks: stacksWidget,
   screentime: screenTimeWidget,
   ticker: tickerWidget,
   currency: tickerWidget, // eski ayar dosyaları için
@@ -1281,6 +1487,7 @@ listen("relayout", () => { lastSize = ""; queueLayout(); });
 listen("dock-visibility", (e) => { dockVisible = !!e.payload; });
 listen("popover-closed", (e) => {
   const cell = { calendar: calendarCell, usage: screenCell, news: tickerCell, weather: clockCell, claude: claudeCell, clipboard: clipCell, media: mediaCell }[e.payload];
+  if (e.payload === "stack") stacksCell?.classList.remove("is-active");
   cell?.classList.remove("active");
 });
 
@@ -1309,9 +1516,11 @@ async function mockInvoke(cmd, args) {
         accent: "#2F7BFF",
         show_running: true,
         display: { mode: "primary", selected: [], apps_per_monitor: false },
-        widgets: (params.get("widgets") || "calendar,screentime,ticker,media,clipboard,system,clock,lock").split(","),
+        widgets: (params.get("widgets") || "stacks,live,calendar,screentime,ticker,media,clipboard,system,clock,lock").split(","),
         notifications: { enabled: true, balloons: true, bounce: true, bounce_sec: 10, show_text: true },
         dock_locked: params.get("locked") !== "0",
+        stacks: [{ name: "İndirilenler", path: "%USERPROFILE%\\Downloads", view: "grid", sort: "date" }],
+        magnify: true, magnify_scale: 1.4,
         dynamic: { enabled: params.has("wall"), tint: Number(params.get("tint") || 45), auto_theme: false, schedule: "sun", light_at: "07:00", dark_at: "19:30" },
         weather: { enabled: true, auto_location: true, city: "İstanbul", lat: 41, lon: 29 },
         ticker: { markets: ["USD", "EUR", "gram-altin"], news: true, feeds: ["https://news.google.com/rss"], interval_sec: Number(params.get("iv") || 6), news_per_round: 3 },
@@ -1346,6 +1555,17 @@ async function mockInvoke(cmd, args) {
       return new Array(7).fill(0);
     case "notif_state":
       return { ok: true, apps: { "C:\\Spotify.exe": { badge: null, toasts: [5, 6] }, "Microsoft.VSCode": { badge: "3", toasts: [] } }, recent: [] };
+    case "stack_list":
+      return ["Fatura-Ekim.pdf", "Ekran görüntüsü 2026-11-02.png", "Kurulum.exe", "Sunum.pptx", "Tatil.jpg", "Veri.xlsx", "Not.txt", "Arşiv.zip"].slice(0, args.limit || 60)
+        .map((n, i) => ({ name: n, path: "C:\\Users\\x\\Downloads\\" + n, dir: false, modified: Date.now() - i * 3600e3 * 5, size: 1e6 * (i + 1) }));
+    case "file_thumb":
+      return null;
+    case "live_state":
+      return {
+        downloads: [{ name: "PowerBI-Rapor-Ekim.pbix", path: "C:\\Users\\x\\Downloads\\a.crdownload", bytes: 48_300_000, speed: 3_400_000, done: false }],
+        timer: { label: "25 dk", total_ms: 1500000, left_ms: 1103000 },
+        mic: ["Teams"], cam: [], charging: null,
+      };
     case "theme_dark":
       return (params.get("theme") || "dark") === "dark";
     case "wallpaper":

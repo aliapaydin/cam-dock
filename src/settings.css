@@ -286,3 +286,5 @@ input[type="range"] { width: 220px; accent-color: var(--accent); flex: 0 0 auto;
 .retheme body, .retheme .card, .retheme .sidebar, .retheme .tab { transition: background-color 1.1s ease, color .9s ease, border-color 1.1s ease !important; }
 .dyn-body .row:first-child { border-top: 1px solid var(--line); }
 .card + .card { margin-top: 14px; }
+.seg.small button { padding: 4px 10px; font-size: 12px; }
+.item .ico { width: 30px; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }

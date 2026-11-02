@@ -1,4 +1,4 @@
-# Cam Dock — v0.16.1
+# Cam Dock — v0.17.0
 
 Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebView2) ile yazıldı.
 
@@ -25,6 +25,9 @@ Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebVi
 | **Anonim kullanım istatistiği** (sifirgecikme.com): kurulumda sorulur, varsayılan açık; Ayarlar → Hakkında'dan kapatılır ve veriler sildirilebilir. IP, bilgisayar/kullanıcı adı gönderilmez | ✅ |
 | **Sürükle-bırak**: simgeleri sürükleyerek sırala (yumuşak kayma, yerine oturma); sağ tık → düzeni kaydet ve kilitle | ✅ |
 | **Gezgin sağ tık menüsü**: .exe ve kısayollarda "Cam Dock'a sabitle" | ✅ |
+| **Büyüteç**: fare simgelerin üzerinde gezerken Mac gibi dalga halinde büyüme | ✅ |
+| **Klasör yığınları**: İndirilenler vb. klasörler; son dosyalar ızgara ya da yelpaze, küçük resimlerle | ✅ |
+| **Canlı etkinlikler**: indirme ilerlemesi, zamanlayıcı (sağ tık → Zamanlayıcı), mikrofon/kamera kullanımda, şarj | ✅ |
 | **Windows ile başlat** ve **otomatik güncelleme** (açık `cam-dock-releases` deposundan; boştayken sessiz kurulum) | ✅ |
 | Tam ekran oyun/video açılınca dock'un kendini gizlemesi | ✅ |
 | **Ayarlar penceresi** (sağ tık → Ayarlar…): görünüm, dock/taskbar, ekranlar, uygulamalar, widget'lar | ✅ |

@@ -70,6 +70,7 @@ async function show(s) {
   else if (s.kind === "clipboard") await renderClipboard();
   else if (s.kind === "media") await renderMedia(s.payload);
   else if (s.kind === "quick") await renderQuick();
+  else if (s.kind === "stack") await renderStack(s.payload);
   else if (s.kind === "claude") await renderClaude();
   else renderWindows(s.payload);
   relayout();
@@ -1102,6 +1103,78 @@ async function renderQuick() {
 }
 
 // ---------------------------------------------------------------------------
+// Klasör yığını: son dosyalar (ızgara ya da yelpaze)
+// ---------------------------------------------------------------------------
+const fileAgo = (ms) => {
+  const m = Math.round((Date.now() - ms) / 60000);
+  if (m < 60) return `${Math.max(m, 1)} dk`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} sa`;
+  const d = Math.round(h / 24);
+  return d < 30 ? `${d} gün` : new Date(ms).toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
+};
+const EXT_COLOR = { pdf: "#E5484D", doc: "#2F7BFF", docx: "#2F7BFF", xls: "#1E9E63", xlsx: "#1E9E63", csv: "#1E9E63", ppt: "#F97316", pptx: "#F97316", zip: "#A16207", rar: "#A16207", "7z": "#A16207", exe: "#64748B", msi: "#64748B", txt: "#64748B", png: "#7C5CFF", jpg: "#7C5CFF", jpeg: "#7C5CFF", mp4: "#EC4899", mp3: "#EC4899" };
+function fileGlyph(e) {
+  if (e.dir) return '<svg viewBox="0 0 40 34" width="40" height="34"><path d="M3 7a4 4 0 0 1 4-4h8l4 4h14a4 4 0 0 1 4 4v16a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4z" fill="#5B9BFF"/></svg>';
+  const ext = (e.name.split(".").pop() || "").toLowerCase();
+  return `<span class="fg" style="--fc:${EXT_COLOR[ext] || "#64748B"}">${esc(ext.slice(0, 4).toUpperCase())}</span>`;
+}
+
+async function renderStack(st) {
+  let sort = st.sort || "date";
+  let view = st.view || "grid";
+  const box = el("div", "stk");
+  panel.append(box);
+
+  async function draw() {
+    const list = (await invoke("stack_list", { path: st.path, sort, limit: view === "fan" ? 9 : 60 }).catch(() => [])) || [];
+    box.className = `stk ${view}`;
+    box.innerHTML = `
+      <div class="stk-head"><strong>${esc(st.name)}</strong><span>${list.length ? list.length + (list.length >= 60 ? "+" : "") + " öğe" : ""}</span>
+        <div class="stk-seg"><button data-s="date" class="${sort === "date" ? "on" : ""}">Tarih</button><button data-s="name" class="${sort === "name" ? "on" : ""}">Ad</button></div>
+        <div class="stk-seg"><button data-v="grid" class="${view === "grid" ? "on" : ""}" title="Izgara">▦</button><button data-v="fan" class="${view === "fan" ? "on" : ""}" title="Yelpaze">◜</button></div>
+      </div>
+      <div class="stk-body"></div>
+      <div class="stk-foot"><button class="stk-open">Klasörü aç</button></div>`;
+    const body = box.querySelector(".stk-body");
+    if (!list.length) body.innerHTML = '<div class="stk-empty">Bu klasör boş.</div>';
+    const items = (view === "fan" ? [...list].reverse() : list).map((e, i, arr) => {
+      const it = el("button", "stk-it");
+      it.title = `${e.name}\n${fileAgo(e.modified)} önce`;
+      it.innerHTML = `<span class="stk-th">${fileGlyph(e)}</span><span class="stk-nm"></span>${view === "grid" ? `<small>${fileAgo(e.modified)}</small>` : ""}`;
+      it.querySelector(".stk-nm").textContent = e.name;
+      if (view === "fan") {
+        // Yelpaze: alttan (dock'a yakın) yukarı doğru hafif kavisli
+        const k = arr.length - 1 - i;
+        it.style.setProperty("--k", k);
+        it.style.animationDelay = `${k * 22}ms`;
+      } else {
+        it.style.animationDelay = `${Math.min(i, 24) * 12}ms`;
+      }
+      it.onclick = () => { invoke("launch_app", { path: e.path }); invoke("popover_close"); };
+      return { it, e };
+    });
+    body.append(...items.map((x) => x.it));
+    // Küçük resimler (aynı anda en çok 4 istek)
+    let q = items.slice();
+    const worker = async () => {
+      while (q.length) {
+        const { it, e } = q.shift();
+        if (e.dir) continue;
+        const u = await invoke("file_thumb", { path: e.path, size: view === "fan" ? 64 : 96 }).catch(() => null);
+        if (u) it.querySelector(".stk-th").innerHTML = `<img src="${u}" alt="">`;
+      }
+    };
+    Promise.all([worker(), worker(), worker(), worker()]);
+    box.querySelectorAll("[data-s]").forEach((b) => (b.onclick = () => { sort = b.dataset.s; draw(); }));
+    box.querySelectorAll("[data-v]").forEach((b) => (b.onclick = () => { view = b.dataset.v; draw(); }));
+    box.querySelector(".stk-open").onclick = () => { invoke("launch_app", { path: "explorer.exe", args: `"${st.path}"` }); invoke("popover_close"); };
+    relayout();
+  }
+  await draw();
+}
+
+// ---------------------------------------------------------------------------
 // Başlangıç
 // ---------------------------------------------------------------------------
 (async () => {
@@ -1128,6 +1201,7 @@ async function mockInvoke(cmd, args) {
         },
       };
     if (q.get("kind") === "tray") return { kind: "tray", serial: 1, key: "tray", payload: null };
+    if (q.get("kind") === "stack") return { kind: "stack", serial: 1, key: "dl", payload: { name: "İndirilenler", path: "C:\\Users\\x\\Downloads", view: q.get("view") || "grid", sort: "date" } };
     if (q.get("kind") === "quick") return { kind: "quick", serial: 1, key: "quick", payload: null };
     if (q.get("kind") === "media") return { kind: "media", serial: 1, key: "media", payload: { exclude: "Spotify.exe#0" } };
     if (q.get("kind") === "clipboard") return { kind: "clipboard", serial: 1, key: "clipboard", payload: null };
@@ -1157,6 +1231,9 @@ async function mockInvoke(cmd, args) {
     };
   }
   if (cmd === "theme_dark") return (q.get("theme") || "dark") === "dark";
+  if (cmd === "stack_list") return ["Fatura-Ekim.pdf", "Ekran görüntüsü 2026-11-02.png", "Kurulum.exe", "Sunum.pptx", "Tatil fotoğrafı.jpg", "Veri analizi.xlsx", "Notlar.txt", "Arşiv.zip", "Proje", "Rapor taslağı.docx", "Video.mp4", "Müzik.mp3"]
+    .slice(0, args.limit || 60).map((n, i) => ({ name: n, path: "C:\\x\\" + n, dir: !n.includes("."), modified: Date.now() - i * 3600e3 * 7, size: 1e6 }));
+  if (cmd === "file_thumb") return /png|jpg/.test(args.path) ? MOCK.wallpaper(args.path.includes("png") ? "ocean" : "sunset").image : null;
   if (cmd === "quick_state") return {
     audio: { volume: 64, muted: false, devices: [{ id: "a", name: "Hoparlör (Realtek Audio)", default: true }, { id: "b", name: "AirPods Pro", default: false }, { id: "c", name: "DELL U2723QE (HDMI)", default: false }] },
     radios: [{ kind: "wifi", name: "Wi-Fi", on: true }, { kind: "bluetooth", name: "Bluetooth", on: q.get("bt") === "1" }],

@@ -37,6 +37,8 @@ const WIDGETS = [
   { id: "screentime", name: "Ekran süresi ve kaynaklar", desc: "Aktif süre ile CPU, RAM, GPU, disk dönüşümlü; tıklayınca grafikli kullanım paneli." },
   { id: "ticker", name: "Piyasa ve haberler", desc: "Döviz, altın ve haber başlıkları dönüşümlü; tıklayınca kategorili haber paneli." },
   { id: "media", name: "Müzik", desc: "Spotify, YouTube ve diğer oynatıcılar; birden çoksa tekerlekle kaydır." },
+  { id: "stacks", name: "Klasör yığınları", desc: "İndirilenler gibi klasörler; tıklayınca son dosyalar ızgara ya da yelpaze halinde." },
+  { id: "live", name: "Canlı etkinlikler", desc: "İndirmeler, zamanlayıcı, mikrofon/kamera kullanımı, şarj; yalnızca bir şey sürerken görünür." },
   { id: "clipboard", name: "Pano geçmişi", desc: "Son kopyaladığın metin ve görseller; tıkla, tekrar kopyalansın." },
   { id: "system", name: "Sistem düğmeleri", desc: "Arka plan uygulamaları (tepsi), hızlı ayarlar, bildirimler, görev görünümü." },
   { id: "clock", name: "Saat ve hava durumu", desc: "Saat, tarih, sıcaklık; tıklayınca saatlik ve 6 günlük tahmin." },
@@ -143,6 +145,16 @@ function bind() {
   $("#city-go").onclick = searchCity;
   $("#city-q").onkeydown = (e) => { if (e.key === "Enter") searchCity(); };
   // Güncellemeler
+  $("#stack-add").onclick = async () => {
+    const path = await invoke("pick_folder").catch(() => null);
+    if (!path) return;
+    cfg.stacks = cfg.stacks || [];
+    if (cfg.stacks.some((x) => x.path.toLowerCase() === path.toLowerCase())) return;
+    cfg.stacks.push({ name: path.split(/[\\/]/).filter(Boolean).pop(), path, view: "grid", sort: "date" });
+    if (!cfg.widgets.includes("stacks")) cfg.widgets.unshift("stacks");
+    renderStacks();
+    changed();
+  };
   $("#win-notif").onclick = () => invoke("launch_app", { path: "ms-settings:notifications" });
   let delArm = 0;
   $("#tel-delete").onclick = async () => {
@@ -311,6 +323,8 @@ function refresh() {
   const custom = $("#swatches input[type=color]");
   if (custom && document.activeElement !== custom) custom.value = cfg.accent;
 
+  $("#mag-row").classList.toggle("disabled", !cfg.magnify);
+  $("#mag-val").textContent = `En fazla %${Math.round(((cfg.magnify_scale || 1.4) - 1) * 100)} büyür`;
   $("#radius-val").textContent = `${cfg.radius} px`;
   $("#margin-val").textContent = `${cfg.bottom_margin} px`;
   $("#delay-val").textContent = `${(cfg.hide_delay_ms / 1000).toLocaleString("tr-TR")} sn sonra gizlenir`;
@@ -330,6 +344,7 @@ function refresh() {
   renderChips();
   renderMonitors();
   renderWidgets();
+  renderStacks();
 }
 
 function drawPalette() {
@@ -496,6 +511,34 @@ function renderPinned() {
   });
 }
 
+function renderStacks() {
+  const list = $("#stacks");
+  if (!list) return;
+  list.replaceChildren();
+  const stacks = cfg.stacks || [];
+  if (!stacks.length) {
+    list.append(el("div", "empty", "Henüz klasör yığını yok."));
+    return;
+  }
+  stacks.forEach((st, i) => {
+    const row = el("div", "item");
+    row.append(el("span", "ico", '<svg viewBox="0 0 40 34" width="26" height="22"><path d="M3 7a4 4 0 0 1 4-4h8l4 4h14a4 4 0 0 1 4 4v16a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4z" fill="var(--accent)"/></svg>'));
+    row.append(el("div", "grow", `<strong>${esc(st.name)}</strong><small>${esc(st.path)}</small>`));
+    const seg = el("div", "seg small");
+    for (const [v, label] of [["grid", "Izgara"], ["fan", "Yelpaze"]]) {
+      const b = el("button", st.view === v ? "on" : "", label);
+      b.onclick = () => { st.view = v; renderStacks(); changed(); };
+      seg.append(b);
+    }
+    row.append(seg);
+    const x = el("button", "icon-btn", SVG.x);
+    x.setAttribute("aria-label", "Kaldır");
+    x.onclick = () => { stacks.splice(i, 1); renderStacks(); changed(); };
+    row.append(x);
+    list.append(row);
+  });
+}
+
 function move(arr, i, d) {
   const j = i + d;
   if (j < 0 || j >= arr.length) return;
@@ -647,6 +690,8 @@ async function mockInvoke(cmd) {
         update: { auto_check: true, auto_install: true },
         autostart: true,
         explorer_menu: true,
+        magnify: true, magnify_scale: 1.4,
+        stacks: [{ name: "İndirilenler", path: "%USERPROFILE%\\Downloads", view: "grid", sort: "date" }],
         notifications: { enabled: true, balloons: true, bounce: true, bounce_sec: 10, show_text: true },
         clipboard: { enabled: true, max_items: 40 },
         telemetry: { enabled: true, install_id: "3f6c1b2a-0000-4000-8000-000000000000", notice_shown: true },

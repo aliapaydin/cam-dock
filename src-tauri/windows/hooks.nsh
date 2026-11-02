@@ -25,5 +25,6 @@
   ; Gezgin sağ tık menüsü ve Windows ile başlat kaydı
   DeleteRegKey HKCU "Software\Classes\exefile\shell\CamDockPin"
   DeleteRegKey HKCU "Software\Classes\lnkfile\shell\CamDockPin"
+  DeleteRegKey HKCU "Software\Classes\Directory\shell\CamDockStack"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "CamDock"
 !macroend

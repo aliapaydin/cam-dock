@@ -131,6 +131,28 @@ impl Default for Clipboard {
     }
 }
 
+/// Klasör yığını: dock'ta klasör simgesi, tıklayınca son dosyalar.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Stack {
+    pub name: String,
+    pub path: String,
+    /// "grid" (ızgara) | "fan" (yelpaze)
+    pub view: String,
+    /// "date" (en yeni önce) | "name"
+    pub sort: String,
+}
+
+impl Default for Stack {
+    fn default() -> Self {
+        Self { name: String::new(), path: String::new(), view: "grid".into(), sort: "date".into() }
+    }
+}
+
+pub fn downloads_stack() -> Stack {
+    Stack { name: "İndirilenler".into(), path: "%USERPROFILE%\\Downloads".into(), ..Default::default() }
+}
+
 /// Anonim kullanım istatistiği (sifirgecikme.com). Varsayılan açık, kapatılabilir.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -220,6 +242,12 @@ pub struct Config {
     pub app_order: Vec<String>,
     /// Simge düzeni kilitli: sürükleyerek taşınamaz
     pub apps_locked: bool,
+    /// Klasör yığınları
+    pub stacks: Vec<Stack>,
+    /// Mac gibi büyüteç: fare üstündeyken simgeler büyür
+    pub magnify: bool,
+    /// En büyük ölçek (1.1–1.45)
+    pub magnify_scale: f32,
     /// Sırasıyla gösterilecek widget'lar:
     /// calendar, screentime, ticker, media, system, clock
     /// Önizleme (örnek veri, Faz 2'de bağlanacak): mail, claude
@@ -275,6 +303,9 @@ impl Default for Config {
             show_running: true,
             app_order: Vec::new(),
             apps_locked: false,
+            stacks: vec![downloads_stack()],
+            magnify: true,
+            magnify_scale: 1.4,
             pinned: vec![
                 p("Dosya Gezgini", "C:\\Windows\\explorer.exe"),
                 p("Chrome", "%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe"),
@@ -283,7 +314,7 @@ impl Default for Config {
                 p("Spotify", "%APPDATA%\\Spotify\\Spotify.exe"),
                 p("Telegram", "%APPDATA%\\Telegram Desktop\\Telegram.exe"),
             ],
-            widgets: ["calendar", "screentime", "ticker", "media", "clipboard", "system", "clock", "lock"]
+            widgets: ["stacks", "live", "calendar", "screentime", "ticker", "media", "clipboard", "system", "clock", "lock"]
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
@@ -296,7 +327,7 @@ impl Default for Config {
             telemetry: Telemetry::default(),
             autostart: true,
             explorer_menu: true,
-            migrations: 6,
+            migrations: 7,
         }
     }
 }
@@ -382,6 +413,20 @@ pub fn load() -> Config {
                     cfg.widgets.insert(at, "clipboard".into());
                 }
                 cfg.migrations = 6;
+                save(&cfg);
+            }
+            // v0.17: klasör yığınları (İndirilenler) ve canlı etkinlikler
+            if cfg.migrations < 7 {
+                if !cfg.widgets.iter().any(|w| w == "live") {
+                    cfg.widgets.insert(0, "live".into());
+                }
+                if !cfg.widgets.iter().any(|w| w == "stacks") {
+                    cfg.widgets.insert(0, "stacks".into());
+                }
+                if cfg.stacks.is_empty() {
+                    cfg.stacks.push(downloads_stack());
+                }
+                cfg.migrations = 7;
                 save(&cfg);
             }
             cfg

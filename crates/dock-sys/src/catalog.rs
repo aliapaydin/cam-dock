@@ -13,7 +13,7 @@ use windows::Win32::System::Com::{
 use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
 use windows::Win32::UI::Shell::{
     BHID_EnumItems, FileOpenDialog, IEnumShellItems, IFileOpenDialog, IShellItem, IShellItem2,
-    SHGetKnownFolderItem, FOLDERID_AppsFolder, FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM,
+    SHGetKnownFolderItem, FOLDERID_AppsFolder, FOS_FILEMUSTEXIST, FOS_PICKFOLDERS, FOS_FORCEFILESYSTEM,
     FOS_NODEREFERENCELINKS, KF_FLAG_DEFAULT, SIGDN_FILESYSPATH, SIGDN_NORMALDISPLAY,
     SIGDN_PARENTRELATIVEPARSING,
 };
@@ -102,6 +102,24 @@ pub fn pick_app(owner: isize) -> Option<String> {
         let title = wide("Dock'a eklenecek uygulamayı seç");
         let _ = dlg.SetTitle(PCWSTR(title.as_ptr()));
         let _ = dlg.SetOptions(FOS_FILEMUSTEXIST | FOS_FORCEFILESYSTEM | FOS_NODEREFERENCELINKS);
+        let owner = (owner != 0).then(|| HWND(owner as *mut core::ffi::c_void));
+        dlg.Show(owner).ok()?;
+        let item = dlg.GetResult().ok()?;
+        item.GetDisplayName(SIGDN_FILESYSPATH).ok().map(|p| take(p))
+    })
+    .join()
+    .ok()
+    .flatten()
+}
+
+/// Klasör seçme penceresi (klasör yığını eklemek için).
+pub fn pick_folder(owner: isize) -> Option<String> {
+    std::thread::spawn(move || unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let dlg: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
+        let title = wide("Dock'a yığın olarak eklenecek klasörü seç");
+        let _ = dlg.SetTitle(PCWSTR(title.as_ptr()));
+        let _ = dlg.SetOptions(FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
         let owner = (owner != 0).then(|| HWND(owner as *mut core::ffi::c_void));
         dlg.Show(owner).ok()?;
         let item = dlg.GetResult().ok()?;

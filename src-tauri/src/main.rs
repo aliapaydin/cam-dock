@@ -9,6 +9,8 @@ mod platform;
 mod popover;
 mod screentime;
 mod theme;
+mod stacks;
+mod live;
 mod pinreq;
 mod telemetry;
 mod quickset;
@@ -56,6 +58,7 @@ pub struct AppState {
     pub clips: Mutex<clip::History>,
     pub claude: Mutex<claude::Usage>,
     pub quick: Mutex<quickset::QuickState>,
+    pub live: Mutex<live::LiveState>,
     /// Sağ tık menüsü açılan uygulama
     pub app_menu: Mutex<Option<commands::AppMenuItem>>,
 }
@@ -88,6 +91,13 @@ fn cleanup(app: &tauri::AppHandle) {
 fn on_menu(app: &tauri::AppHandle, id: &str) {
     if id.starts_with("am:") {
         commands::app_menu_action(app, id);
+        return;
+    }
+    if let Some(m) = id.strip_prefix("timer:") {
+        match m.parse::<u64>() {
+            Ok(n) => live::timer_start(app, n),
+            Err(_) => app.state::<AppState>().live.lock().unwrap().timer = None,
+        }
         return;
     }
     if id == "apps:lock" {
@@ -171,6 +181,7 @@ fn main() {
         clips: Mutex::new(clip::History::default()),
         claude: Mutex::new(claude::Usage::default()),
         quick: Mutex::new(quickset::QuickState::default()),
+        live: Mutex::new(live::LiveState::default()),
         app_menu: Mutex::new(None),
     };
 
@@ -238,6 +249,11 @@ fn main() {
             telemetry::telemetry_delete,
             telemetry::telemetry_notice_seen,
             quickset::quick_state,
+            live::live_state,
+            stacks::stack_list,
+            stacks::file_thumb,
+            stacks::pick_folder,
+            live::live_timer,
             quickset::quick_volume,
             quickset::quick_audio_device,
             quickset::quick_brightness,
@@ -292,6 +308,7 @@ fn main() {
             telemetry::spawn(handle.clone());
             updater::spawn(handle.clone());
             notify::spawn(handle.clone());
+            live::spawn(handle.clone());
             clip::spawn(handle.clone());
             claude::spawn(handle.clone());
             // Sistem kaynakları: saniyede bir örnekle.

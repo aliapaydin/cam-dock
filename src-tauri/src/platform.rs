@@ -412,6 +412,15 @@ mod imp {
     pub fn single_instance() -> bool {
         dock_sys::single_instance()
     }
+    pub fn privacy_using(cap: &str) -> Vec<String> {
+        dock_sys::privacy::using(cap)
+    }
+    pub fn thumbnail_png(path: &str, size: i32) -> Option<Vec<u8>> {
+        icons::thumbnail_png(path, size)
+    }
+    pub fn pick_folder(owner: isize) -> Option<String> {
+        catalog::pick_folder(owner)
+    }
     pub fn reg_dword(key: &str, name: &str) -> Option<u32> {
         autostart::reg_dword(key, name)
     }
@@ -624,6 +633,15 @@ mod imp {
     }
     pub fn single_instance() -> bool {
         true
+    }
+    pub fn privacy_using(_cap: &str) -> Vec<String> {
+        Vec::new()
+    }
+    pub fn thumbnail_png(_path: &str, _size: i32) -> Option<Vec<u8>> {
+        None
+    }
+    pub fn pick_folder(_owner: isize) -> Option<String> {
+        None
     }
     pub fn reg_dword(_key: &str, _name: &str) -> Option<u32> {
         None

@@ -17,11 +17,13 @@ fn req_path() -> std::path::PathBuf {
 /// `--pin` ile açıldıysa isteği kuyruğa yaz.
 pub fn queue_from_args() {
     let args: Vec<String> = std::env::args().collect();
-    if let Some(i) = args.iter().position(|a| a == "--pin") {
-        if let Some(p) = args.get(i + 1) {
-            use std::io::Write;
-            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(req_path()) {
-                let _ = writeln!(f, "{p}");
+    for (flag, prefix) in [("--pin", ""), ("--stack", "stack:")] {
+        if let Some(i) = args.iter().position(|a| a == flag) {
+            if let Some(p) = args.get(i + 1) {
+                use std::io::Write;
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(req_path()) {
+                    let _ = writeln!(f, "{prefix}{p}");
+                }
             }
         }
     }
@@ -41,6 +43,17 @@ pub fn sync_menu(enabled: bool) {
         platform::reg_set_sz(&key, Some("Icon"), &format!("\"{exe}\",0"));
         platform::reg_set_sz(&format!("{key}\\command"), None, &format!("\"{exe}\" --pin \"%1\""));
     }
+    // Klasörler: "Cam Dock'a yığın olarak ekle"
+    let key = "Software\\Classes\\Directory\\shell\\CamDockStack";
+    if !enabled {
+        platform::reg_delete_tree(key);
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else { return };
+    let exe = exe.to_string_lossy().to_string();
+    platform::reg_set_sz(key, None, "Cam Dock'a yığın olarak ekle");
+    platform::reg_set_sz(key, Some("Icon"), &format!("\"{exe}\",0"));
+    platform::reg_set_sz(&format!("{key}\\command"), None, &format!("\"{exe}\" --stack \"%1\""));
 }
 
 fn stem(p: &str) -> String {
@@ -55,10 +68,15 @@ pub fn process(app: &AppHandle) {
     let Ok(text) = std::fs::read_to_string(&path) else { return };
     let _ = std::fs::remove_file(&path);
     let mut added = Vec::new();
+    let mut stacks_to_add: Vec<String> = Vec::new();
     {
         let state = app.state::<AppState>();
         let mut cfg = state.cfg.lock().unwrap();
         for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            if let Some(dir) = line.strip_prefix("stack:") {
+                stacks_to_add.push(dir.to_string());
+                continue;
+            }
             let raw = line.trim_matches('"').to_string();
             let lower = raw.to_lowercase();
             // Kısayolun adı okunaklı ("WhatsApp"); hedef exe ise pencereyle eşleşsin diye exe'yi sabitle.
@@ -79,6 +97,12 @@ pub fn process(app: &AppHandle) {
         }
         if !added.is_empty() {
             config::save(&cfg);
+        }
+    }
+    for d in stacks_to_add {
+        if crate::stacks::add(app, &d) {
+            let name = d.trim_matches('"').trim_end_matches('\\').rsplit('\\').next().unwrap_or("").to_string();
+            added.push(format!("{name} (yığın)"));
         }
     }
     if !added.is_empty() {

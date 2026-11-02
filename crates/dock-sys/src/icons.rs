@@ -57,6 +57,23 @@ pub fn shell_icon_png(parsing_name: &str, size: i32) -> Option<Vec<u8>> {
     }
 }
 
+/// Dosyanın küçük resmi (görsel, video, PDF önizlemesi); yoksa simgesi.
+pub fn thumbnail_png(path: &str, size: i32) -> Option<Vec<u8>> {
+    use windows::Win32::UI::Shell::SIIGBF_RESIZETOFIT;
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let w = wide(path);
+        let factory: IShellItemImageFactory = SHCreateItemFromParsingName(PCWSTR(w.as_ptr()), None).ok()?;
+        let bmp = factory
+            .GetImage(SIZE { cx: size, cy: size }, SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK)
+            .or_else(|_| factory.GetImage(SIZE { cx: size, cy: size }, SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK))
+            .ok()?;
+        let out = bitmap_png(bmp);
+        let _ = DeleteObject(HGDIOBJ(bmp.0));
+        out
+    }
+}
+
 /// Pencerenin kendi ikonu (son çare; küçültülmüş ya da ikonu çıkarılamayan uygulamalar).
 pub fn window_icon_png(window: isize, size: i32) -> Option<Vec<u8>> {
     unsafe {
