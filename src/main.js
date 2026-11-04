@@ -1421,6 +1421,79 @@ function liveWidget() {
     return el;
   }
 
+  // İndirmeler tek, küçük bir kartta; birden çoksa satırlar dikey kayarak döner
+  let dlIdx = 0, dlRot = 0, dlHold = 0;
+  const DL_ROW = 34;
+  function fmtEta(sec) {
+    if (!isFinite(sec) || sec <= 0) return "";
+    if (sec < 60) return "<1 dk";
+    const m = Math.round(sec / 60);
+    return m < 60 ? `${m} dk` : `${Math.floor(m / 60)} sa ${m % 60} dk`;
+  }
+  function renderDownloads(dls) {
+    const el = pill("dl", "lp-dl", `
+      <span class="lp-ic"><svg class="lp-ring" viewBox="0 0 36 36" width="32" height="32"><circle cx="18" cy="18" r="15" class="tr"/><circle cx="18" cy="18" r="15" class="tv"/></svg><span class="spin"></span><span class="ico"></span></span>
+      <span class="dl-vp"><span class="dl-track"></span></span><i class="dl-count"></i>`, () => {
+        const d = el._dls?.[dlIdx];
+        if (d) invoke("launch_app", { path: "explorer.exe", args: `/select,"${d.path}"` });
+      });
+    if (!el._wheel) {
+      el._wheel = true;
+      el.addEventListener("wheel", (e) => {
+        if ((el._dls?.length || 0) < 2) return;
+        e.preventDefault();
+        dlIdx = (dlIdx + (e.deltaY > 0 ? 1 : -1) + el._dls.length) % el._dls.length;
+        dlHold = Date.now();
+        paint();
+      }, { passive: false });
+      el.addEventListener("mouseenter", () => { dlHold = Date.now() + 1e9; });
+      el.addEventListener("mouseleave", () => { dlHold = Date.now(); });
+    }
+    el._dls = dls;
+    const track = el.querySelector(".dl-track");
+    while (track.children.length < dls.length) track.append($("span", "dl-row"));
+    while (track.children.length > dls.length) track.lastChild.remove();
+    dls.forEach((d, i) => {
+      const row = track.children[i];
+      const pct = d.total > 0 ? Math.min(100, (d.bytes / d.total) * 100) : null;
+      let sub;
+      if (d.done) sub = `İndirildi · ${fmtBytes(d.bytes)}`;
+      else if (d.total > 0) {
+        const eta = d.speed > 1024 ? fmtEta((d.total - d.bytes) / d.speed) : "";
+        sub = `%${Math.floor(pct)} · ${fmtBytes(d.total)}${eta ? ` · ${eta}` : ""}`;
+      } else sub = `${fmtBytes(d.bytes)}${d.speed > 1024 ? ` · ${fmtBytes(d.speed)}/sn` : ""}`;
+      row.innerHTML = `<b></b><small></small>`;
+      row.querySelector("b").textContent = d.name;
+      row.querySelector("small").textContent = sub;
+      row.dataset.pct = pct == null ? "" : pct.toFixed(1);
+      row.classList.toggle("done", !!d.done);
+    });
+    if (dlIdx >= dls.length) dlIdx = 0;
+    // Birden fazlaysa 3,5 sn'de bir sıradakine kay (fare üstündeyken durur)
+    if (dls.length > 1 && Date.now() - dlHold > 3500 && Date.now() - dlRot > 3500) {
+      dlRot = Date.now();
+      dlIdx = (dlIdx + 1) % dls.length;
+    }
+    paint();
+    function paint() {
+      const d = dls[dlIdx] || dls[0];
+      track.style.transform = `translateY(${-dlIdx * DL_ROW}px)`;
+      const cnt = el.querySelector(".dl-count");
+      cnt.textContent = dls.length > 1 ? `${dlIdx + 1}/${dls.length}` : "";
+      cnt.hidden = dls.length < 2;
+      el.classList.toggle("multi", dls.length > 1);
+      const pct = d.total > 0 ? Math.min(1, d.bytes / d.total) : null;
+      const C = 2 * Math.PI * 15;
+      const tv = el.querySelector(".tv");
+      tv.setAttribute("stroke-dasharray", C);
+      tv.setAttribute("stroke-dashoffset", C * (1 - (pct ?? 0)));
+      el.classList.toggle("known", pct != null && !d.done);
+      el.classList.toggle("done", !!d.done);
+      el.querySelector(".ico").innerHTML = d.done ? LIVE_ICON.ok : LIVE_ICON.dl;
+      el.title = dls.map((x) => `${x.name}${x.total ? ` — %${Math.round((x.bytes / x.total) * 100)}` : ""}`).join("\n") + "\nKlasörde göstermek için tıkla";
+    }
+  }
+
   async function poll() {
     const s = await invoke("live_state").catch(() => null);
     if (!s) return;
@@ -1441,18 +1514,9 @@ function liveWidget() {
       if (Date.now() - armedStop > 3000) el.querySelector("small").textContent = `Zamanlayıcı · ${t.label}`;
       el.classList.toggle("urgent", t.left_ms < 60000);
     }
-    for (const d of (s.downloads || []).slice(0, 2)) {
-      const el = pill("dl:" + d.path + d.done, "lp-dl" + (d.done ? " done" : ""), `
-        <span class="lp-ic"><span class="spin"></span>${d.done ? LIVE_ICON.ok : LIVE_ICON.dl}</span>
-        <span class="lp-tx"><b></b><small></small></span>`, () => {
-          invoke("launch_app", { path: "explorer.exe", args: `/select,"${d.path}"` });
-        });
-      el.querySelector("b").textContent = d.name;
-      el.querySelector("small").textContent = d.done
-        ? `İndirildi · ${fmtBytes(d.bytes)} · göster`
-        : `${fmtBytes(d.bytes)}${d.speed > 1024 ? ` · ${fmtBytes(d.speed)}/sn` : " · bekleniyor"}`;
-      el.title = d.done ? `${d.name}\nKlasörde göstermek için tıkla` : `${d.name} indiriliyor`;
-    }
+    const dls = s.downloads || [];
+    if (dls.length) renderDownloads(dls);
+
     if (s.mic?.length) {
       const el = pill("mic", "lp-mic", `<span class="lp-ic">${LIVE_ICON.mic}<i class="dot"></i></span><span class="lp-tx"><b>Mikrofon açık</b><small></small></span>`,
         () => invoke("launch_app", { path: "ms-settings:privacy-microphone" }));
@@ -1661,7 +1725,11 @@ async function mockInvoke(cmd, args) {
       return null;
     case "live_state":
       return {
-        downloads: [{ name: "PowerBI-Rapor-Ekim.pbix", path: "C:\\Users\\x\\Downloads\\a.crdownload", bytes: 48_300_000, speed: 3_400_000, done: false }],
+        downloads: [
+          { name: "Unity Kits Megapack - Changes.zip", path: "C:\\Users\\x\\Downloads\\a.crdownload", bytes: 46_200_000, total: 139_000_000, speed: 90_000, done: false },
+          { name: "Unity Kits Megapack (1).zip", path: "C:\\Users\\x\\Downloads\\b.crdownload", bytes: 48_900_000, total: 276_000_000, speed: 88_000, done: false },
+          { name: "Kurulum.exe", path: "C:\\Users\\x\\Downloads\\c.crdownload", bytes: 2_100_000, total: 0, speed: 0, done: false },
+        ],
         timer: { label: "25 dk", total_ms: 1500000, left_ms: 1103000 },
         mic: ["Teams"], cam: [], charging: null,
       };
