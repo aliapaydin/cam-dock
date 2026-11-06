@@ -25,6 +25,9 @@ pub struct CatalogApp {
     pub path: String,
     /// Store uygulamasıysa AppUserModelID
     pub aumid: String,
+    /// Uygulamalar klasöründeki kimlik (masaüstü uygulamalarında AppID)
+    #[serde(skip)]
+    pub id: String,
 }
 
 unsafe fn take(p: PWSTR) -> String {
@@ -76,7 +79,7 @@ pub fn apps() -> Vec<CatalogApp> {
             } else {
                 (format!("shell:AppsFolder\\{id}"), String::new())
             };
-            out.push(CatalogApp { name, path, aumid });
+            out.push(CatalogApp { name, path, aumid, id: id.clone() });
         }
     }
     out.sort_by_key(|a| a.name.to_lowercase());

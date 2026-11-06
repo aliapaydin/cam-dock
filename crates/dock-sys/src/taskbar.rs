@@ -17,7 +17,7 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK};
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, FindWindowExW, FindWindowW, GetClassNameW, GetWindowRect,
+    DispatchMessageW, FindWindowExW, GetClassNameW, GetWindowRect,
     GetWindowThreadProcessId, IsWindowVisible, MsgWaitForMultipleObjects, PeekMessageW,
     SetForegroundWindow, ShowWindowAsync, TranslateMessage, EVENT_OBJECT_CREATE,
     EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_SHOW, MSG, OBJID_WINDOW, PM_REMOVE, QS_ALLINPUT,
@@ -34,13 +34,12 @@ static TARGETS: Mutex<Option<Vec<Rect>>> = Mutex::new(None);
 
 fn tray_windows() -> Vec<HWND> {
     let mut out = Vec::new();
-    let main = wide("Shell_TrayWnd");
     let secondary = wide("Shell_SecondaryTrayWnd");
     unsafe {
-        if let Ok(h) = FindWindowW(PCWSTR(main.as_ptr()), PCWSTR::null()) {
-            if !h.is_invalid() {
-                out.push(h);
-            }
+        // Tepsi kancasının sahte Shell_TrayWnd'si hariç, Explorer'ınki
+        let real = crate::trayhook::real_tray();
+        if real != 0 {
+            out.push(HWND(real as *mut core::ffi::c_void));
         }
         let mut after: Option<HWND> = None;
         loop {

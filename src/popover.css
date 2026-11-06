@@ -184,22 +184,66 @@ button { font: inherit; color: inherit; cursor: default; }
 .side-foot button:hover { filter: brightness(1.06); }
 
 /* ---------- Tepsi ---------- */
+/* Biraz daha şeffaf cam, üstte yavaşça kayan bir ışık */
+.panel[data-kind="tray"] { background: var(--bg-soft, var(--bg)); overflow: hidden; }
+[data-theme="dark"] .panel[data-kind="tray"] { --bg-soft: rgba(16, 20, 34, 0.40); }
+[data-theme="light"] .panel[data-kind="tray"] { --bg-soft: rgba(246, 248, 252, 0.62); }
+.panel[data-kind="tray"]::before {
+  content: ""; position: absolute; left: -20%; right: -20%; top: -70px; height: 200px; pointer-events: none; z-index: 0;
+  background: radial-gradient(50% 60% at 30% 50%, rgba(47, 123, 255, .30), transparent 70%),
+              radial-gradient(40% 55% at 75% 40%, rgba(168, 85, 247, .22), transparent 70%);
+  filter: blur(8px); opacity: 0; transition: opacity .6s;
+  animation: trayGlow 9s ease-in-out infinite alternate;
+}
+.panel[data-kind="tray"].in::before { opacity: 1; }
+.panel[data-kind="tray"] > * { position: relative; z-index: 1; }
+@keyframes trayGlow { from { transform: translateX(-6%); } to { transform: translateX(6%); } }
+
+.tray-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 4px 12px; }
+.tray-title { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.tray-count {
+  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--hover); color: var(--text-2); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.tray-hint { font-size: 11px; color: var(--text-3); }
 .tray-grid {
-  display: grid; grid-template-columns: repeat(4, 76px); gap: 6px;
-  max-height: 336px; overflow-y: auto; scrollbar-width: thin; padding-right: 2px;
+  display: grid; grid-template-columns: repeat(4, 80px); gap: 8px;
+  max-height: 352px; overflow-y: auto; scrollbar-width: thin; padding: 2px;
 }
 .tray-app {
-  height: 76px; border: 1px solid transparent; border-radius: 14px; background: transparent;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 6px;
-  transition: background .12s, border-color .12s;
+  position: relative; overflow: hidden;
+  height: 82px; border: 1px solid var(--cell-line); border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .015));
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 6px;
+  transition: transform .28s cubic-bezier(.3, 1.4, .5, 1), background .18s, border-color .18s, box-shadow .2s;
 }
-.tray-app:hover { background: var(--hover); border-color: var(--cell-line); }
-.tray-app img, .tray-app .glyph { width: 30px; height: 30px; border-radius: 8px; }
+[data-theme="light"] .tray-app { background: linear-gradient(180deg, rgba(255, 255, 255, .55), rgba(255, 255, 255, .25)); }
+.panel.in .tray-app { animation: trayIn .5s cubic-bezier(.25, 1.25, .45, 1) both; animation-delay: calc(var(--i, 0) * 28ms + 40ms); }
+@keyframes trayIn { from { opacity: 0; transform: translateY(10px) scale(.86); } to { opacity: 1; transform: none; } }
+.tray-app:hover {
+  transform: translateY(-3px); background: var(--hover); border-color: var(--line);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, .22), inset 0 1px 0 var(--hi);
+}
+.tray-app:active { transform: translateY(-1px) scale(.96); transition-duration: .1s; }
+.tray-app .ic { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; transition: transform .3s cubic-bezier(.3, 1.5, .5, 1); }
+.tray-app:hover .ic { transform: scale(1.12); }
+.tray-app img, .tray-app .glyph { width: 32px; height: 32px; border-radius: 8px; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .25)); }
 .tray-app .glyph { background: var(--cell); display: flex; align-items: center; justify-content: center; font-weight: 700; }
-.tray-app .nm { font-size: 11px; max-width: 64px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
+.tray-app .nm { font-size: 11px; max-width: 68px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
+.tray-app:hover .nm { color: var(--text); }
+.tray-app.pro::after {
+  content: ""; position: absolute; top: 8px; right: 8px; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 8px var(--accent);
+}
+.tray-app .rip {
+  position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; pointer-events: none;
+  background: rgba(255, 255, 255, .35); animation: trayRip .6s ease-out forwards;
+}
+@keyframes trayRip { to { transform: scale(22); opacity: 0; } }
 .tray-empty { padding: 16px 6px; color: var(--text-2); font-size: 13px; width: 300px; }
-.tray-foot { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--cell-line); display: flex; }
-.tray-foot button { border: 0; background: transparent; color: var(--accent); font-size: 12px; font-weight: 600; padding: 4px 6px; border-radius: 8px; }
+.tray-foot { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--cell-line); display: flex; justify-content: space-between; }
+.tray-foot button { border: 0; background: transparent; color: var(--accent); font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 8px; transition: background .15s; }
+.tray-foot button:last-child { color: var(--text-2); }
 .tray-foot button:hover { background: var(--hover); }
 
 /* ---------- Grafik ipucu ---------- */

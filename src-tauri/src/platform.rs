@@ -50,6 +50,21 @@ pub struct SysInfo {
     pub os: String,
 }
 
+/// Atlama listesi öğesi (uygulamanın taskbar sağ tık menüsündeki görev/öğe).
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct JumpEntry {
+    pub title: String,
+    pub path: String,
+    pub args: String,
+    pub separator: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct JumpList {
+    pub categories: Vec<(String, Vec<JumpEntry>)>,
+    pub tasks: Vec<JumpEntry>,
+}
+
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct TrayApp {
     pub name: String,
@@ -273,6 +288,30 @@ mod imp {
             .into_iter()
             .map(|a| TrayApp { name: a.name, exe: a.exe, icon: a.icon, promoted: a.promoted })
             .collect()
+    }
+    /// Uygulamanın atlama listesi (COM/STA: kendi iş parçacığında).
+    pub fn jumplist(path: &str, aumid: &str) -> JumpList {
+        let (path, aumid) = (path.to_string(), aumid.to_string());
+        std::thread::spawn(move || {
+            let conv = |e: jumplist::Entry| JumpEntry { title: e.title, path: e.path, args: e.args, separator: e.separator };
+            let jl = jumplist::for_app(&path, &aumid);
+            JumpList {
+                categories: jl.categories.into_iter().map(|(n, v)| (n, v.into_iter().map(conv).collect())).collect(),
+                tasks: jl.tasks.into_iter().map(conv).collect(),
+            }
+        })
+        .join()
+        .unwrap_or_default()
+    }
+    pub fn trayhook_start() {
+        trayhook::start()
+    }
+    pub fn trayhook_stop() {
+        trayhook::stop()
+    }
+    /// Tepsi simgesinin kendi sağ tık menüsü; simge bilinmiyorsa false.
+    pub fn tray_context_menu(exe: &str) -> bool {
+        trayhook::context_menu(exe)
     }
     /// Ana iş parçacığında çağrılmalı.
     pub fn install_taskbar_hook() -> bool {
@@ -543,6 +582,14 @@ mod imp {
         Vec::new()
     }
     pub fn install_taskbar_hook() -> bool {
+        false
+    }
+    pub fn jumplist(_path: &str, _aumid: &str) -> JumpList {
+        JumpList::default()
+    }
+    pub fn trayhook_start() {}
+    pub fn trayhook_stop() {}
+    pub fn tray_context_menu(_exe: &str) -> bool {
         false
     }
     pub fn taskbar_hook_current() -> bool {

@@ -246,10 +246,12 @@ pub struct Config {
     pub stacks: Vec<Stack>,
     /// Mac gibi büyüteç: fare üstündeyken simgeler büyür
     pub magnify: bool,
-    /// En büyük ölçek (1.1–1.8)
     /// Görünen en fazla uygulama simgesi (0 = ekran genişliğine göre otomatik)
     pub apps_max_visible: u32,
+    /// En büyük ölçek (1.1–1.8)
     pub magnify_scale: f32,
+    /// Tepsi uygulamalarının kendi sağ tık menüleri (Shell_NotifyIcon kancası)
+    pub tray_menus: bool,
     /// Sırasıyla gösterilecek widget'lar:
     /// calendar, screentime, ticker, media, system, clock
     /// Önizleme (örnek veri, Faz 2'de bağlanacak): mail, claude
@@ -309,6 +311,7 @@ impl Default for Config {
             magnify: true,
             magnify_scale: 1.6,
             apps_max_visible: 0,
+            tray_menus: true,
             pinned: vec![
                 p("Dosya Gezgini", "C:\\Windows\\explorer.exe"),
                 p("Chrome", "%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe"),

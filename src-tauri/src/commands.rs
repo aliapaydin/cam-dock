@@ -212,6 +212,11 @@ pub async fn save_config(app: AppHandle, cfg: Config) -> Result<(), String> {
         apply_autostart(cfg.autostart);
     }
     crate::pinreq::sync_menu(cfg.explorer_menu);
+    if cfg.tray_menus {
+        platform::trayhook_start();
+    } else {
+        platform::trayhook_stop();
+    }
     // Ekran seçimi değiştiyse dock'ları aç/kapat, taskbar'ı güncelle
     // (pencere oluşturma bloklayıcı: komut havuzunun dışında).
     run(move || {
@@ -1054,6 +1059,9 @@ pub struct AppMenuItem {
     pub windows: Vec<(isize, String)>,
     #[serde(default)]
     pub pinned: bool,
+    /// Menüde gösterilen atlama listesi öğeleri ("am:jl:<sıra>")
+    #[serde(skip)]
+    pub jump: Vec<platform::JumpEntry>,
 }
 
 /// Tarayıcıysa: (gizli pencere etiketi, gizli pencere bayrağı, yeni pencere bayrağı)
@@ -1069,15 +1077,55 @@ fn browser_flags(path: &str) -> Option<(&'static str, &'static str, &'static str
 }
 
 /// Bir uygulama simgesine sağ tıklama menüsü.
+/// Üstte uygulamanın kendi atlama listesi (taskbar'daki gibi: kategoriler,
+/// görevler), altında dock'un pencere/sabitleme seçenekleri.
 #[tauri::command]
-pub fn app_menu(window: WebviewWindow, state: State<'_, AppState>, item: AppMenuItem) -> Result<(), String> {
+pub async fn app_menu(window: WebviewWindow, state: State<'_, AppState>, mut item: AppMenuItem) -> Result<(), String> {
     use tauri::menu::{MenuItemBuilder, PredefinedMenuItem};
     let app = window.app_handle();
     let is_file = !item.path.to_lowercase().starts_with("shell:") && item.path.contains(":\\");
     let is_exe = item.path.to_lowercase().ends_with(".exe");
+    let jl = platform::jumplist(&config::expand_env(&item.path), &item.aumid);
+    let short = |t: &str| {
+        let mut s: String = t.chars().take(56).collect();
+        if t.chars().count() > 56 {
+            s.push('…');
+        }
+        s
+    };
     let mut b = MenuBuilder::new(app);
-    b = b.item(&MenuItemBuilder::with_id("am:noop", &item.name).enabled(false).build(app).map_err(err)?);
-    b = b.item(&PredefinedMenuItem::separator(app).map_err(err)?);
+    let mut jump: Vec<platform::JumpEntry> = Vec::new();
+    let mut hn = 0;
+    let mut header = |t: &str| {
+        hn += 1;
+        MenuItemBuilder::with_id(format!("am:noop:{hn}"), t).enabled(false).build(app).map_err(err)
+    };
+    for (name, entries) in &jl.categories {
+        b = b.item(&header(name)?);
+        for e in entries.iter().take(10) {
+            b = b.text(format!("am:jl:{}", jump.len()), short(&e.title));
+            jump.push(e.clone());
+        }
+        b = b.item(&PredefinedMenuItem::separator(app).map_err(err)?);
+    }
+    if !jl.tasks.is_empty() {
+        b = b.item(&header("Görevler")?);
+        for e in &jl.tasks {
+            if e.separator {
+                b = b.item(&PredefinedMenuItem::separator(app).map_err(err)?);
+                continue;
+            }
+            b = b.text(format!("am:jl:{}", jump.len()), short(&e.title));
+            jump.push(e.clone());
+        }
+        b = b.item(&PredefinedMenuItem::separator(app).map_err(err)?);
+    }
+    let has_tasks = !jl.tasks.is_empty();
+    if jump.is_empty() {
+        b = b.item(&header(&item.name)?);
+        b = b.item(&PredefinedMenuItem::separator(app).map_err(err)?);
+    }
+    item.jump = jump;
     if !item.windows.is_empty() {
         for (h, title) in item.windows.iter().take(10) {
             let mut t: String = title.chars().take(60).collect();
@@ -1088,9 +1136,11 @@ pub fn app_menu(window: WebviewWindow, state: State<'_, AppState>, item: AppMenu
         }
         b = b.item(&PredefinedMenuItem::separator(app).map_err(err)?);
     }
-    b = b.text("am:new", "Yeni pencere");
-    if let Some((label, _, _)) = browser_flags(&item.path) {
-        b = b.text("am:private", label);
+    b = b.text("am:new", if has_tasks { short(&item.name) } else { "Yeni pencere".to_string() });
+    if !has_tasks {
+        if let Some((label, _, _)) = browser_flags(&item.path) {
+            b = b.text("am:private", label);
+        }
     }
     if is_exe {
         b = b.text("am:admin", "Yönetici olarak çalıştır");
@@ -1111,6 +1161,13 @@ pub fn app_menu(window: WebviewWindow, state: State<'_, AppState>, item: AppMenu
     window.popup_menu(&menu).map_err(err)
 }
 
+/// Tepsi uygulamasına sağ tık: uygulamanın kendi tepsi menüsünü açtırır.
+/// Simgesi henüz bilinmiyorsa false (arayüz kendi menüsünü gösterir).
+#[tauri::command]
+pub async fn tray_menu(exe: String) -> bool {
+    run(move || platform::tray_context_menu(&exe)).await.unwrap_or(false)
+}
+
 /// Uygulama menüsünden seçim (main.rs'teki menü olayından çağrılır).
 pub fn app_menu_action(app: &AppHandle, id: &str) {
     let state = app.state::<AppState>();
@@ -1127,6 +1184,19 @@ pub fn app_menu_action(app: &AppHandle, id: &str) {
     let app = app.clone();
     // Pencere işlemleri ve ShellExecute ana iş parçacığını meşgul etmesin.
     std::thread::spawn(move || {
+        if let Some(n) = id.strip_prefix("am:jl:") {
+            if let Some(e) = n.parse::<usize>().ok().and_then(|n| item.jump.get(n).cloned()) {
+                if !e.path.is_empty() {
+                    let args = (!e.args.is_empty()).then_some(e.args.as_str());
+                    if e.path.to_lowercase().starts_with("shell:") || e.path.starts_with("::") {
+                        platform::launch("explorer.exe", Some(&e.path));
+                    } else {
+                        platform::launch(&e.path, args);
+                    }
+                }
+            }
+            return;
+        }
         if let Some(h) = id.strip_prefix("am:win:") {
             if let Ok(h) = h.parse::<isize>() {
                 platform::bring_front(h);

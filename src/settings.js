@@ -690,6 +690,7 @@ async function mockInvoke(cmd) {
         update: { auto_check: true, auto_install: true },
         autostart: true,
         explorer_menu: true,
+        tray_menus: true,
         magnify: true, magnify_scale: 1.4,
         stacks: [{ name: "İndirilenler", path: "%USERPROFILE%\\Downloads", view: "grid", sort: "date" }],
         notifications: { enabled: true, balloons: true, bounce: true, bounce_sec: 10, show_text: true },

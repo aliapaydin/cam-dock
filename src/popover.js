@@ -148,8 +148,11 @@ function sendThumbs() {
 // ---------------------------------------------------------------------------
 async function renderTray() {
   const apps = await invoke("tray_apps").catch(() => []);
-  const head = el("div", "win-head");
-  head.append(el("div", "", `<strong>Arka planda çalışanlar</strong> <span>· ${apps.length}</span>`));
+  const head = el("div", "tray-head");
+  head.append(
+    el("div", "tray-title", `<strong>Arka planda çalışanlar</strong><span class="tray-count">${apps.length}</span>`),
+    el("span", "tray-hint", "Sağ tık: uygulamanın menüsü"),
+  );
   panel.append(head);
   if (!apps.length) {
     panel.append(el("div", "tray-empty", "Tepside çalışan uygulama bulunamadı."));
@@ -157,32 +160,55 @@ async function renderTray() {
     const grid = el("div", "tray-grid");
     // Öne çıkarılmış (taskbar'da görünen) simgeler önce
     apps.sort((a, b) => Number(b.promoted) - Number(a.promoted));
-    for (const a of apps) {
+    apps.forEach((a, i) => {
       const t = el("button", "tray-app");
-      t.title = `${a.name}\n${a.exe}`;
+      t.style.setProperty("--i", i);
       a.name = a.name.replace(/\.exe$/i, "");
+      t.title = `${a.name}\n${a.exe}`;
       t.setAttribute("aria-label", a.name);
+      const ic = el("span", "ic");
       // Önce uygulamanın kendi ikonu (tepsi görüntüsü koyu taskbar için beyaz
       // çizilmiş olabiliyor), yoksa Windows'un sakladığı tepsi simgesi.
       const glyph = a.icon ? Object.assign(new Image(), { src: a.icon, alt: "" }) : el("span", "glyph", esc(a.name.slice(0, 1).toUpperCase()));
-      t.append(glyph);
+      ic.append(glyph);
+      t.append(ic);
       invoke("app_icon", { path: a.exe, aumid: null, hwnd: null }).then((url) => {
         if (url) glyph.replaceWith(Object.assign(new Image(), { src: url, alt: "" }));
       }).catch(() => {});
       t.append(el("span", "nm", esc(a.name)));
-      t.onclick = () => {
+      if (a.promoted) t.classList.add("pro");
+      const ripple = (e) => {
+        const r = t.getBoundingClientRect();
+        const w = el("i", "rip");
+        w.style.left = `${e.clientX - r.left}px`;
+        w.style.top = `${e.clientY - r.top}px`;
+        t.append(w);
+        setTimeout(() => w.remove(), 600);
+      };
+      t.onclick = (e) => {
+        ripple(e);
         // Çoğu tepsi uygulaması tek örnekli: yeniden başlatmak penceresini açar.
         invoke("launch_app", { path: a.exe });
-        invoke("popover_close");
+        setTimeout(() => invoke("popover_close"), 140);
+      };
+      // Sağ tık: taskbar'daki gibi uygulamanın kendi tepsi menüsü. Simgesi
+      // henüz bilinmiyorsa (yeni açılmış) dock'un uygulama menüsü.
+      t.oncontextmenu = async (e) => {
+        e.preventDefault();
+        ripple(e);
+        const ok = await invoke("tray_menu", { exe: a.exe }).catch(() => false);
+        if (!ok) invoke("app_menu", { item: { name: a.name, path: a.exe, args: null, aumid: "", windows: [], pinned: false } }).catch(() => {});
       };
       grid.append(t);
-    }
+    });
     panel.append(grid);
   }
   const foot = el("div", "tray-foot");
   const set = el("button", "", "Bildirim alanı ayarları");
   set.onclick = () => { invoke("launch_app", { path: "ms-settings:taskbar" }); invoke("popover_close"); };
-  foot.append(set);
+  const tm = el("button", "", "Görev Yöneticisi");
+  tm.onclick = () => { invoke("launch_app", { path: "taskmgr.exe" }); invoke("popover_close"); };
+  foot.append(set, tm);
   panel.append(foot);
 }
 
@@ -1265,7 +1291,7 @@ async function mockInvoke(cmd, args) {
   if (cmd === "wallpaper") return MOCK.wallpaper(q.get("wall"));
   if (cmd === "fetch_text") return /open-meteo|geojs/.test(args.url) ? MOCK.fetch(args.url) : mockFetch(args.url);
   if (cmd === "tray_apps")
-    return ["Steam", "Discord", "OneDrive", "Telegram", "NVIDIA", "Bluetooth"].map((n, i) => ({ name: n, exe: `C:\\${n}.exe`, icon: null, promoted: i < 2 }));
+    return ["Steam", "Discord", "OneDrive", "Telegram", "NVIDIA", "Bluetooth", "Docker Desktop", "PowerToys", "Logi Options+", "1Password"].map((n, i) => ({ name: n, exe: `C:\\${n}.exe`, icon: null, promoted: i < 2 }));
   return null;
 }
 

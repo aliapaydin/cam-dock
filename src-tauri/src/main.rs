@@ -84,6 +84,7 @@ fn cleanup(app: &tauri::AppHandle) {
     } else {
         docks::restore_taskbar(&state);
     }
+    platform::trayhook_stop();
     platform::release_all();
     state.screen.lock().unwrap().save();
 }
@@ -223,6 +224,7 @@ fn main() {
             commands::sys_stats,
             commands::system_theme,
             commands::tray_apps,
+            commands::tray_menu,
             commands::fetch_text,
             commands::screen_time,
             commands::usage_data,
@@ -308,6 +310,9 @@ fn main() {
             pinreq::process(&handle);
             telemetry::spawn(handle.clone());
             updater::spawn(handle.clone());
+            if handle.state::<AppState>().cfg.lock().unwrap().tray_menus {
+                platform::trayhook_start();
+            }
             notify::spawn(handle.clone());
             live::spawn(handle.clone());
             clip::spawn(handle.clone());

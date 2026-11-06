@@ -11,6 +11,7 @@ pub mod clipboard;
 pub mod glass;
 pub mod icons;
 pub mod input;
+pub mod jumplist;
 pub mod media;
 pub mod monitor;
 pub mod privacy;
@@ -21,6 +22,7 @@ pub mod sysinfo;
 pub mod taskbar;
 pub mod thumbs;
 pub mod tray;
+pub mod trayhook;
 pub mod wallpaper;
 pub mod winlist;
 
