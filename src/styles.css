@@ -759,3 +759,34 @@ button.cell.w-calendar { font: inherit; color: inherit; }
 }
 .stack-btn:hover .st-thumbs img { transform: translateX(calc(-50% + (var(--k) - 1) * 7px)) translateY(calc(var(--k) * -4px - 3px)) rotate(calc((var(--k) - 1) * 14deg)); }
 .stack-btn .st-ic { transform-origin: 50% 100%; transition: transform .28s cubic-bezier(.2, .9, .3, 1); }
+
+/* ---------- Etkin hücre: kenarında dönen ince ışık ---------- */
+@property --ra { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+.act-ring {
+  position: absolute; inset: 0; border-radius: inherit; padding: 1.5px; pointer-events: none; z-index: 3;
+  background: conic-gradient(from var(--ra),
+    transparent 0deg, transparent 200deg,
+    color-mix(in srgb, var(--accent) 35%, transparent) 260deg,
+    var(--accent) 320deg, #fff 340deg, var(--accent) 352deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  opacity: 0; transition: opacity .3s ease;
+  animation: actRing 2.6s linear infinite;
+  animation-play-state: paused;
+}
+.active > .act-ring, .is-active > .act-ring { opacity: 1; animation-play-state: running; }
+@keyframes actRing { to { --ra: 360deg; } }
+/* Dönen ışık varken sabit çerçeve daha silik kalsın */
+.cell.active { border-color: color-mix(in srgb, var(--accent) 22%, transparent) !important; }
+
+/* ---------- Basınca çökme, bırakınca yaylanma ---------- */
+.pressed { scale: .965; transition: scale .12s cubic-bezier(.3, 0, .6, 1) !important; }
+.ctrl.pressed { scale: .84; }
+.app.start.pressed, .stack-btn.pressed { scale: .86; }
+.lp.pressed { scale: .94; }
+.released { transition: scale .48s cubic-bezier(.25, 1.7, .45, 1) !important; }
+@media (prefers-reduced-motion: reduce) {
+  .act-ring { animation: none; }
+  .pressed { scale: 1; }
+}

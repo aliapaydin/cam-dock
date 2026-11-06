@@ -279,6 +279,40 @@ listen("toast-click", (e) => {
 });
 invoke("notif_state").then((s) => { if (s) { notifSnap = s; appsApi.redraw(); } }).catch(() => {});
 
+// Paneli açık hücre: tek bir tane olur. Başka bir hücreye geçince (dışarı
+// tıklamadan) öncekinin çerçevesi kalıyordu; açılan dışındakileri temizle.
+// Etkin hücrenin kenarında ince, dönen bir ışık çizgisi.
+function markActive(el, on, cls = "active") {
+  if (on) {
+    for (const o of document.querySelectorAll("#dock .active, #dock .is-active")) {
+      if (o !== el) { o.classList.remove("active", "is-active"); }
+    }
+    if (!el.querySelector(":scope > .act-ring")) el.append($("i", "act-ring"));
+  }
+  el.classList.toggle(cls, on);
+}
+
+// Basınca çökme, bırakınca yaylanarak geri gelme
+function pressFx(root) {
+  root.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    const t = e.target.closest(".ctrl, .app.start, .stack-btn, .lp, button.cell, .cell.media, .cell.sys, .cell.clock.has-wx");
+    if (!t || !root.contains(t)) return;
+    // İçteki düğme (oynat/ileri) basılıyorsa hücrenin kendisi çökmesin
+    t.classList.remove("released");
+    t.classList.add("pressed");
+    const up = () => {
+      t.classList.remove("pressed");
+      t.classList.add("released");
+      setTimeout(() => t.classList.remove("released"), 480);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  });
+}
+
 function appsWidget() {
   const wrap = $("div", "apps");
   const start = $("button", "app start", `<span class="glyph">${ICON.start}</span>`);
@@ -732,7 +766,7 @@ function calendarWidget() {
   c.onclick = async () => {
     const r = c.getBoundingClientRect();
     const res = await invoke("popover_open", { kind: "calendar", key: "cal", anchor: r.left + r.width / 2, payload: null }).catch(() => "");
-    c.classList.toggle("active", res === "opened" || res === "open");
+    markActive(c, res === "opened" || res === "open");
   };
   calendarCell = c;
   return c;
@@ -797,7 +831,7 @@ function claudeWidget() {
   c.onclick = async () => {
     const r = c.getBoundingClientRect();
     const res = await invoke("popover_open", { kind: "claude", key: "claude", anchor: r.left + r.width / 2, payload: null }).catch(() => "");
-    c.classList.toggle("active", res === "opened" || res === "open");
+    markActive(c, res === "opened" || res === "open");
   };
   claudeCell = c;
   return c;
@@ -824,7 +858,7 @@ function clipboardWidget() {
   c.onclick = async () => {
     const r = c.getBoundingClientRect();
     const res = await invoke("popover_open", { kind: "clipboard", key: "clipboard", anchor: r.left + r.width / 2, payload: null }).catch(() => "");
-    c.classList.toggle("active", res === "opened" || res === "open");
+    markActive(c, res === "opened" || res === "open");
   };
   clipCell = c;
   return c;
@@ -966,7 +1000,7 @@ function screenTimeWidget() {
   c.onclick = async () => {
     const r = c.getBoundingClientRect();
     const res = await invoke("popover_open", { kind: "usage", key: "usage", anchor: r.left + r.width / 2, payload: null }).catch(() => "");
-    c.classList.toggle("active", res === "opened" || res === "open");
+    markActive(c, res === "opened" || res === "open");
   };
 
   every(30_000, async () => {
@@ -1104,7 +1138,7 @@ function tickerWidget() {
       kind: "news", key: "news", anchor: r.left + r.width / 2,
       payload: { markets: t.markets, feeds: t.feeds, focus: current?.kind === "news" ? current.link : null },
     }).catch(() => "");
-    c.classList.toggle("active", res === "opened" || res === "open");
+    markActive(c, res === "opened" || res === "open");
   };
   c.onwheel = (e) => { e.preventDefault(); advance(); };
 
@@ -1268,7 +1302,7 @@ function mediaWidget() {
     if (sessions.length < 2) return;
     const r = c.getBoundingClientRect();
     const res = await invoke("popover_open", { kind: "media", key: "media", anchor: r.left + r.width / 2, payload: { exclude: selected } }).catch(() => "");
-    c.classList.toggle("active", res === "opened" || res === "open");
+    markActive(c, res === "opened" || res === "open");
   };
   mediaCell = c;
 
@@ -1316,7 +1350,7 @@ function clockWidget() {
     c.onclick = async () => {
       const r = c.getBoundingClientRect();
       const res = await invoke("popover_open", { kind: "weather", key: "weather", anchor: r.left + r.width / 2, payload: null }).catch(() => "");
-      c.classList.toggle("active", res === "opened" || res === "open");
+      markActive(c, res === "opened" || res === "open");
     };
   }
   clockCell = c;
@@ -1577,7 +1611,7 @@ function stacksWidget() {
     b.onclick = async () => {
       const r = b.getBoundingClientRect();
       const res = await invoke("popover_open", { kind: "stack", key: st.path, anchor: r.left + r.width / 2, payload: st }).catch(() => "");
-      b.classList.toggle("is-active", res === "opened" || res === "open");
+      markActive(b, res === "opened" || res === "open", "is-active");
       stacksCell = b;
       refresh();
     };
@@ -1640,6 +1674,8 @@ async function init() {
   }
 }
 
+pressFx(dock);
+
 dock.addEventListener("contextmenu", (e) => {
   e.preventDefault();
   invoke("show_menu").catch(console.error);
@@ -1671,6 +1707,8 @@ init();
 async function mockInvoke(cmd, args) {
   const params = new URLSearchParams(location.search);
   switch (cmd) {
+    case "popover_open":
+      return "opened";
     case "get_config":
       return {
         theme: params.get("theme") || "system",

@@ -185,18 +185,18 @@ button { font: inherit; color: inherit; cursor: default; }
 
 /* ---------- Tepsi ---------- */
 /* Biraz daha şeffaf cam, üstte yavaşça kayan bir ışık */
-.panel[data-kind="tray"] { background: var(--bg-soft, var(--bg)); overflow: hidden; }
-[data-theme="dark"] .panel[data-kind="tray"] { --bg-soft: rgba(16, 20, 34, 0.40); }
-[data-theme="light"] .panel[data-kind="tray"] { --bg-soft: rgba(246, 248, 252, 0.62); }
-.panel[data-kind="tray"]::before {
+.panel[data-kind="tray"], .panel[data-kind="stack"] { background: var(--bg-soft, var(--bg)); overflow: hidden; }
+[data-theme="dark"] :is(.panel[data-kind="tray"], .panel[data-kind="stack"]) { --bg-soft: rgba(16, 20, 34, 0.40); }
+[data-theme="light"] :is(.panel[data-kind="tray"], .panel[data-kind="stack"]) { --bg-soft: rgba(246, 248, 252, 0.62); }
+.panel[data-kind="tray"]::before, .panel[data-kind="stack"]::before {
   content: ""; position: absolute; left: -20%; right: -20%; top: -70px; height: 200px; pointer-events: none; z-index: 0;
   background: radial-gradient(50% 60% at 30% 50%, rgba(47, 123, 255, .30), transparent 70%),
               radial-gradient(40% 55% at 75% 40%, rgba(168, 85, 247, .22), transparent 70%);
   filter: blur(8px); opacity: 0; transition: opacity .6s;
   animation: trayGlow 9s ease-in-out infinite alternate;
 }
-.panel[data-kind="tray"].in::before { opacity: 1; }
-.panel[data-kind="tray"] > * { position: relative; z-index: 1; }
+.panel[data-kind="tray"].in::before, .panel[data-kind="stack"].in::before { opacity: 1; }
+.panel[data-kind="tray"] > *, .panel[data-kind="stack"] > * { position: relative; z-index: 1; }
 @keyframes trayGlow { from { transform: translateX(-6%); } to { transform: translateX(6%); } }
 
 .tray-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 4px 12px; }
@@ -235,7 +235,7 @@ button { font: inherit; color: inherit; cursor: default; }
   content: ""; position: absolute; top: 8px; right: 8px; width: 6px; height: 6px; border-radius: 50%;
   background: var(--accent); box-shadow: 0 0 8px var(--accent);
 }
-.tray-app .rip {
+.tray-app .rip, .stk-it .rip {
   position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; pointer-events: none;
   background: rgba(255, 255, 255, .35); animation: trayRip .6s ease-out forwards;
 }
@@ -647,3 +647,25 @@ button.qs-ic:hover { background: var(--hover); }
 .stk.fan .fg { width: 30px; height: 38px; font-size: 8.5px; padding-bottom: 5px; }
 .stk.fan .stk-nm { font-size: 12.5px; font-weight: 600; -webkit-line-clamp: 1; }
 @keyframes fan-in { from { opacity: 0; transform: translateY(30px) scale(.7); } }
+
+/* Izgara yığın: arka plan uygulamaları panelindeki kartlar gibi */
+.stk.grid .stk-body { gap: 8px; padding: 2px 8px 4px 2px; }
+.stk.grid .stk-it {
+  position: relative; overflow: hidden;
+  border: 1px solid var(--cell-line); border-radius: 16px; padding: 10px 6px 8px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .015));
+  animation: trayIn .5s cubic-bezier(.25, 1.25, .45, 1) both;
+  transition: transform .28s cubic-bezier(.3, 1.4, .5, 1), background .18s, border-color .18s, box-shadow .2s;
+}
+[data-theme="light"] .stk.grid .stk-it { background: linear-gradient(180deg, rgba(255, 255, 255, .55), rgba(255, 255, 255, .25)); }
+.stk.grid .stk-it:hover {
+  transform: translateY(-3px); background: var(--hover); border-color: var(--line);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, .22), inset 0 1px 0 var(--hi);
+}
+.stk.grid .stk-it:active { transform: translateY(-1px) scale(.96); transition-duration: .1s; }
+.stk.grid .stk-th { transition: transform .3s cubic-bezier(.3, 1.5, .5, 1); }
+.stk.grid .stk-it:hover .stk-th { transform: scale(1.07); }
+.stk-seg, .stk-foot button { transition: background .15s, transform .25s cubic-bezier(.3, 1.6, .5, 1); }
+.stk-seg button { transition: background .2s, color .2s; }
+.stk-foot button:hover { background: var(--hover); }
+.stk-foot button:active, .tray-foot button:active { transform: scale(.94); }

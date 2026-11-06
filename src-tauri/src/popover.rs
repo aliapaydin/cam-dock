@@ -107,6 +107,11 @@ pub async fn popover_open(app: AppHandle, window: WebviewWindow, kind: String, k
                 }
                 return Ok("open".into());
             }
+            // Başka ekrandaki dock'ta açık panel yerini yeniye bırakıyor:
+            // oradaki hücrenin "etkin" görünümü de kalksın.
+            if o.dock != dock {
+                let _ = app.emit_to(o.dock.as_str(), "popover-closed", o.kind.clone());
+            }
         }
     }
     clear_thumbs(&state);

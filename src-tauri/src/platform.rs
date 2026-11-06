@@ -336,6 +336,9 @@ mod imp {
     pub fn open_start() {
         input::open_start_menu()
     }
+    pub fn start_menu_open() -> bool {
+        monitor::foreground_is_start_menu()
+    }
     pub fn win_combo(letter: char) {
         input::win_combo(letter)
     }
@@ -608,6 +611,9 @@ mod imp {
         false
     }
     pub fn open_start() {}
+    pub fn start_menu_open() -> bool {
+        false
+    }
     pub fn win_combo(_letter: char) {}
     pub fn win_combo_tab() {}
     pub fn monitor_list() -> Vec<(String, Rect, f64, bool)> {

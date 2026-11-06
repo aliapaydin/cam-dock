@@ -882,7 +882,17 @@ pub async fn open_start(app: AppHandle) {
     let _ = run(move || {
         let _ = &app;
 
-    platform::open_start();
+    // Açıksa kapat, kapalıysa aç. Başlat menüsü dışarı tıklanınca (dock'a
+    // basınca) kendiliğinden kapanıyor; hemen ardından Win tuşu göndermek
+    // onu yeniden açıyordu. Az önce açıktıysa tıklama zaten kapattı.
+    let open_now = platform::start_menu_open();
+    let just_closed = docks::START_SEEN
+        .lock()
+        .unwrap()
+        .map_or(false, |t| t.elapsed() < std::time::Duration::from_millis(600));
+    if open_now || !just_closed {
+        platform::open_start();
+    }
 
     }).await;
 }

@@ -256,6 +256,21 @@ pub fn foreground_is_shell_flyout() -> bool {
     false
 }
 
+/// Ön planda Windows 11 Başlat menüsü mü açık?
+pub fn foreground_is_start_menu() -> bool {
+    let fg = foreground();
+    if fg == 0 || class_name(fg) != "Windows.UI.Core.CoreWindow" {
+        return false;
+    }
+    let mut pid = 0u32;
+    unsafe {
+        windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(hwnd(fg), Some(&mut pid));
+    }
+    crate::winlist::exe_of_pid(pid)
+        .map(|e| e.to_ascii_lowercase().ends_with("\\startmenuexperiencehost.exe"))
+        .unwrap_or(false)
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct MonitorInfo {
     pub name: String,

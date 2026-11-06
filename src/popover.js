@@ -1175,7 +1175,15 @@ async function renderStack(st) {
         it.style.setProperty("--k", k);
         it.style.animationDelay = `${k * 22}ms`;
       } else {
-        it.style.animationDelay = `${Math.min(i, 24) * 12}ms`;
+        it.style.animationDelay = `${Math.min(i, 24) * 24 + 40}ms`;
+        it.addEventListener("pointerdown", (ev) => {
+          const r = it.getBoundingClientRect();
+          const w = el("i", "rip");
+          w.style.left = `${ev.clientX - r.left}px`;
+          w.style.top = `${ev.clientY - r.top}px`;
+          it.append(w);
+          setTimeout(() => w.remove(), 600);
+        });
       }
       it.onclick = () => { invoke("launch_app", { path: e.path }); invoke("popover_close"); };
       return { it, e };

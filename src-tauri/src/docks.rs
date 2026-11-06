@@ -642,6 +642,9 @@ fn update_visibility(app: &AppHandle, state: &AppState, vis: &Vis, hwnds: &[isiz
     }
 }
 
+/// Başlat menüsünün en son ön planda görüldüğü an (Başlat düğmesi aç/kapa).
+pub static START_SEEN: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
 /// Arka plan döngüsü (100 ms): görünürlük, taskbar'ı gizli tutma, son ön plan
 /// penceresi, ekran süresi, monitör takıp çıkarma.
 pub fn spawn_watcher(app: AppHandle) {
@@ -659,6 +662,9 @@ pub fn spawn_watcher(app: AppHandle) {
                 state.last_fg.store(fg, std::sync::atomic::Ordering::SeqCst);
             }
 
+            if platform::start_menu_open() {
+                *START_SEEN.lock().unwrap() = Some(std::time::Instant::now());
+            }
             update_visibility(&app, &state, &vis, &hwnds, fg);
             crate::popover::watch(&app, fg);
 
