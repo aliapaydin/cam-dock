@@ -1683,7 +1683,14 @@ dock.addEventListener("contextmenu", (e) => {
 
 // Ekran eklenip çıkarılınca ya da ayar değişince yeniden yerleş.
 listen("relayout", () => { lastSize = ""; queueLayout(); });
-listen("dock-visibility", (e) => { dockVisible = !!e.payload; });
+listen("dock-visibility", (e) => { dockVisible = !!e.payload; setCalm(); });
+// Fare başka ekrandayken ya da dock gizliyken sürekli animasyonları durdur:
+// kesintisiz kare üretimi diğer ekrandaki imleci takıltıyordu.
+let cursorHere = true;
+listen("cursor-here", (e) => { cursorHere = !!e.payload; setCalm(); });
+function setCalm() {
+  document.documentElement.classList.toggle("calm", !cursorHere || !dockVisible);
+}
 listen("popover-closed", (e) => {
   const cell = { calendar: calendarCell, usage: screenCell, news: tickerCell, weather: clockCell, claude: claudeCell, clipboard: clipCell, media: mediaCell }[e.payload];
   if (e.payload === "stack") stacksCell?.classList.remove("is-active");

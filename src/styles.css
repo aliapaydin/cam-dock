@@ -189,7 +189,7 @@ img { -webkit-user-drag: none; }
   filter: blur(.6px) saturate(1.2);
   opacity: .9;
   pointer-events: none;
-  animation: swirl 4.5s linear infinite;
+  animation: swirl 4.5s steps(180) infinite;
 }
 .app.is-active::after {
   content: "";
@@ -206,7 +206,7 @@ img { -webkit-user-drag: none; }
   opacity: .55;
   z-index: -1;
   pointer-events: none;
-  animation: swirl 4.5s linear infinite, glow 3.2s ease-in-out infinite;
+  animation: swirl 4.5s steps(180) infinite, glow 3.2s ease-in-out infinite;
 }
 .app.is-active { isolation: isolate; }
 .app.is-active img, .app.is-active .glyph { position: relative; z-index: 1; }
@@ -772,7 +772,7 @@ button.cell.w-calendar { font: inherit; color: inherit; }
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
   opacity: 0; transition: opacity .3s ease;
-  animation: actRing 2.6s linear infinite;
+  animation: actRing 2.6s steps(104) infinite;
   animation-play-state: paused;
 }
 .active > .act-ring, .is-active > .act-ring { opacity: 1; animation-play-state: running; }
@@ -790,3 +790,6 @@ button.cell.w-calendar { font: inherit; color: inherit; }
   .act-ring { animation: none; }
   .pressed { scale: 1; }
 }
+
+/* Fare başka ekrandayken / dock gizliyken: sonsuz animasyonlar duraklar */
+.calm *, .calm *::before, .calm *::after { animation-play-state: paused !important; }

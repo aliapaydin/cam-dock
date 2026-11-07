@@ -33,6 +33,8 @@ pub struct Dock {
     /// Pencerenin dock'un üstünde büyüteç için ayırdığı boşluk (fiziksel px).
     /// `target` dock'un kendi dikdörtgenidir; pencere bu kadar yukarıdan başlar.
     pub head: i32,
+    /// Fare bu dock'un ekranında mı (değilken animasyonlar durur)
+    pub cursor_here: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -288,6 +290,7 @@ pub fn sync(app: &AppHandle) {
                         dark: true,
                         tint: None,
                         head: 0,
+                        cursor_here: true,
                     },
                 );
             }
@@ -562,11 +565,20 @@ fn update_visibility(app: &AppHandle, state: &AppState, vis: &Vis, hwnds: &[isiz
     let pop_dock = state.pop.lock().unwrap().open.as_ref().map(|o| o.dock.clone());
 
     let mut acts = Vec::new();
+    let mut here_changes: Vec<(String, bool)> = Vec::new();
     {
         let mut docks = state.docks.lock().unwrap();
         for d in docks.values_mut() {
             let Some((x, y, w, h)) = d.target else { continue };
             let m = d.mon_rect;
+            // Fare başka ekrandayken dock'taki sürekli animasyonlar durur: yüksek
+            // yenileme hızlı ekranda kesintisiz kare üretmek, Windows'ta diğer
+            // ekrandaki imlecin takılıp kaybolmasına yol açıyordu.
+            let here = cursor.0 >= m.0 && cursor.0 < m.2 && cursor.1 >= m.1 && cursor.1 < m.3;
+            if here != d.cursor_here {
+                d.cursor_here = here;
+                here_changes.push((d.label.clone(), here));
+            }
 
             if fs_mon.as_deref() == Some(d.monitor.as_str()) {
                 if !d.fs_hidden {
@@ -620,6 +632,9 @@ fn update_visibility(app: &AppHandle, state: &AppState, vis: &Vis, hwnds: &[isiz
         }
     } // kilit burada bırakılır
 
+    for (label, here) in here_changes {
+        let _ = app.emit_to(label.as_str(), "cursor-here", here);
+    }
     for a in acts {
         match a {
             Act::Hide(d) => {
