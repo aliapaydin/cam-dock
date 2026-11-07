@@ -345,6 +345,7 @@ function refresh() {
   renderMonitors();
   renderWidgets();
   renderStacks();
+  renderPhone();
 }
 
 function drawPalette() {
@@ -511,6 +512,122 @@ function renderPinned() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Telefon ekranı
+// ---------------------------------------------------------------------------
+const PH_PAGES = { home: "Ana ekran (saat, hava, müzik, performans)", media: "Müzik çalar", shortcuts: "Kısayol tuşları", stats: "Performans grafikleri" };
+const PH_KIND = { app: "Uygulama", keys: "Tuşlar", action: "İşlem" };
+const PH_ACTIONS = { mute: "Sessize al", lock: "Kilitle", playpause: "Oynat/duraklat" };
+let phTimer = null;
+
+function renderPhone() {
+  if (!cfg.phone) return;
+  const ph = cfg.phone;
+  // Sayfalar: açık olanlar sırayla, kapalılar altta
+  const pages = $("#ph-pages");
+  pages.replaceChildren();
+  const all = [...ph.pages, ...Object.keys(PH_PAGES).filter((k) => !ph.pages.includes(k))];
+  all.forEach((k) => {
+    const on = ph.pages.includes(k);
+    const i = ph.pages.indexOf(k);
+    const row = el("div", "item");
+    row.append(el("div", "grow", `<strong>${esc(PH_PAGES[k] || k)}</strong>`));
+    if (on) {
+      const up = el("button", "icon-btn", "↑");
+      up.setAttribute("aria-label", "Yukarı");
+      up.disabled = i === 0;
+      up.onclick = () => { [ph.pages[i - 1], ph.pages[i]] = [ph.pages[i], ph.pages[i - 1]]; renderPhone(); changed(); };
+      const dn = el("button", "icon-btn", "↓");
+      dn.setAttribute("aria-label", "Aşağı");
+      dn.disabled = i === ph.pages.length - 1;
+      dn.onclick = () => { [ph.pages[i + 1], ph.pages[i]] = [ph.pages[i], ph.pages[i + 1]]; renderPhone(); changed(); };
+      row.append(up, dn);
+    }
+    const sw = el("label", "switch", `<input type="checkbox" ${on ? "checked" : ""}><span></span>`);
+    sw.querySelector("input").onchange = (e) => {
+      if (e.target.checked) ph.pages.push(k);
+      else if (ph.pages.length > 1) ph.pages = ph.pages.filter((x) => x !== k);
+      renderPhone();
+      changed();
+    };
+    row.append(sw);
+    pages.append(row);
+  });
+  // Kısayollar
+  const sc = $("#ph-shortcuts");
+  sc.replaceChildren();
+  if (!ph.shortcuts.length) sc.append(el("div", "empty", "Kısayol yok."));
+  ph.shortcuts.forEach((s, i) => {
+    const row = el("div", "item");
+    row.append(el("span", "emo", esc(s.icon || "⚡")));
+    const val = s.kind === "action" ? (PH_ACTIONS[s.value] || s.value) : s.value;
+    row.append(el("div", "grow", `<strong>${esc(s.label)}</strong><small>${esc(PH_KIND[s.kind] || s.kind)} · ${esc(val)}</small>`));
+    const up = el("button", "icon-btn", "↑");
+    up.disabled = i === 0;
+    up.onclick = () => { [ph.shortcuts[i - 1], ph.shortcuts[i]] = [ph.shortcuts[i], ph.shortcuts[i - 1]]; renderPhone(); changed(); };
+    const x = el("button", "icon-btn", SVG.x);
+    x.setAttribute("aria-label", "Kaldır");
+    x.onclick = () => { ph.shortcuts.splice(i, 1); renderPhone(); changed(); };
+    row.append(up, x);
+    sc.append(row);
+  });
+  refreshPhone();
+}
+
+async function refreshPhone() {
+  clearTimeout(phTimer);
+  if (!$('.page[data-page="phone"]')?.classList.contains("active")) return;
+  phTimer = setTimeout(refreshPhone, 2000);
+  const st = await invoke("phone_status").catch(() => null);
+  if (!st) return;
+  $("#ph-live").hidden = !st.enabled;
+  $("#ph-pin").textContent = st.pin.replace(/(\d{3})(\d{3})/, "$1 $2");
+  $("#ph-addr").textContent = st.enabled
+    ? (st.listening ? `${st.pc} · ${st.ip || "?"}:${st.port}` : `${st.port} numaralı bağlantı noktası kullanılamıyor`)
+    : "";
+  if ($("#ph-qr").dataset.u !== st.apk_url) {
+    $("#ph-qr").innerHTML = st.apk_qr;
+    $("#ph-qr").dataset.u = st.apk_url;
+  }
+  $("#ph-apk-link").onclick = (e) => { e.preventDefault(); navigator.clipboard?.writeText(st.apk_url); e.target.textContent = "Kopyalandı"; };
+  $("#ph-usb").textContent = st.enabled && cfg.phone.usb && st.usb ? `USB: ${st.usb}` : "";
+  const box = $("#ph-devices");
+  box.replaceChildren();
+  if (!st.devices.length) box.append(el("div", "empty", "Henüz eşleşmiş telefon yok."));
+  for (const d of st.devices) {
+    const row = el("div", "item");
+    const on = st.connected.includes(d.name);
+    row.append(el("span", "emo", "📱"));
+    const when = d.last_seen ? new Date(d.last_seen * 1000).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+    row.append(el("div", "grow", `<strong>${esc(d.name)}</strong><small>${on ? "Bağlı" : when ? "Son bağlantı " + when : ""}</small>`));
+    if (on) row.append(el("i", "on-dot"));
+    const x = el("button", "icon-btn", SVG.x);
+    x.setAttribute("aria-label", "Eşleşmeyi kaldır");
+    x.onclick = async () => { await invoke("phone_forget", { name: d.name }); refreshPhone(); };
+    row.append(x);
+    box.append(row);
+  }
+}
+
+function bindPhone() {
+  $("#ph-renew").onclick = async () => { await invoke("phone_renew_pin"); refreshPhone(); };
+  const kind = $("#ph-sc-kind");
+  const value = $("#ph-sc-value");
+  kind.onchange = () => {
+    value.placeholder = { app: "ör. C:\\Program Files\\…\\uygulama.exe", keys: "ör. win+shift+s", action: "mute, lock ya da playpause" }[kind.value];
+  };
+  $("#ph-sc-add").onclick = () => {
+    const label = $("#ph-sc-label").value.trim();
+    const v = value.value.trim();
+    if (!label || !v) return;
+    cfg.phone.shortcuts.push({ label, icon: $("#ph-sc-icon").value.trim() || "⚡", kind: kind.value, value: v });
+    $("#ph-sc-label").value = ""; value.value = ""; $("#ph-sc-icon").value = "";
+    renderPhone();
+    changed();
+  };
+  for (const t of $$(".tab")) t.addEventListener("click", () => setTimeout(refreshPhone, 50));
+}
+
 function renderStacks() {
   const list = $("#stacks");
   if (!list) return;
@@ -643,6 +760,7 @@ async function init() {
   cfg.widgets = cfg.widgets.map((w) => (w === "currency" ? "ticker" : w));
   $("#cfg-path").textContent = config_path;
   bind();
+  bindPhone();
   refresh();
   renderPinned();
   loadMonitors();
@@ -668,6 +786,10 @@ init();
 async function mockInvoke(cmd) {
   const q = new URLSearchParams(location.search);
   switch (cmd) {
+    case "phone_status":
+      return { enabled: true, listening: true, port: 47800, ip: "192.168.1.20", pc: "ALI-PC", pin: "482913", clients: 1, connected: ["OMIX O1 Icon"],
+        devices: [{ name: "OMIX O1 Icon", last_seen: 1762540000 }, { name: "OMIX O1 Icon (USB)", last_seen: 1762440000 }], usb: "OMIX O1 Icon kablo ile bağlı.",
+        apk_url: "https://example.com/x.apk", apk_qr: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#fff"/><rect x="1" y="1" width="3" height="3"/><rect x="6" y="1" width="3" height="3"/><rect x="1" y="6" width="3" height="3"/><rect x="5" y="5" width="1" height="1"/><rect x="7" y="7" width="2" height="2"/></svg>' };
     case "get_config":
       return {
         theme: q.get("theme") || "dark", backdrop: "acrylic", hide_taskbar: true, dock_visibility: q.get("vis") || "smart",
@@ -696,6 +818,11 @@ async function mockInvoke(cmd) {
         notifications: { enabled: true, balloons: true, bounce: true, bounce_sec: 10, show_text: true },
         clipboard: { enabled: true, max_items: 40 },
         telemetry: { enabled: true, install_id: "3f6c1b2a-0000-4000-8000-000000000000", notice_shown: true },
+        phone: { enabled: true, usb: true, pages: ["home", "media", "shortcuts", "stats"], devices: [], shortcuts: [
+          { label: "Görev Yöneticisi", icon: "📊", kind: "keys", value: "ctrl+shift+esc" },
+          { label: "Ekran görüntüsü", icon: "✂️", kind: "keys", value: "win+shift+s" },
+          { label: "Hesap makinesi", icon: "🧮", kind: "app", value: "calc.exe" },
+          { label: "Kilitle", icon: "🔒", kind: "action", value: "lock" } ] },
       };
     case "theme_dark": return (q.get("theme") || "dark") === "dark";
     case "wallpaper": return MOCK.wallpaper(q.get("wall"));

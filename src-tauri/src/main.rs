@@ -18,6 +18,7 @@ mod notify;
 mod clip;
 mod claude;
 mod updater;
+mod phone;
 
 use config::Config;
 use std::collections::HashMap;
@@ -85,6 +86,7 @@ fn cleanup(app: &tauri::AppHandle) {
         docks::restore_taskbar(&state);
     }
     platform::trayhook_stop();
+    phone::shutdown();
     platform::release_all();
     state.screen.lock().unwrap().save();
 }
@@ -225,6 +227,9 @@ fn main() {
             commands::system_theme,
             commands::tray_apps,
             commands::tray_menu,
+            commands::phone_status,
+            commands::phone_renew_pin,
+            commands::phone_forget,
             commands::fetch_text,
             commands::screen_time,
             commands::usage_data,
@@ -313,6 +318,7 @@ fn main() {
             if handle.state::<AppState>().cfg.lock().unwrap().tray_menus {
                 platform::trayhook_start();
             }
+            phone::sync(&handle);
             notify::spawn(handle.clone());
             live::spawn(handle.clone());
             clip::spawn(handle.clone());

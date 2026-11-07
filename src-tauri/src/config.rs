@@ -153,6 +153,69 @@ pub fn downloads_stack() -> Stack {
     Stack { name: "İndirilenler".into(), path: "%USERPROFILE%\\Downloads".into(), ..Default::default() }
 }
 
+/// Telefon ekranı: Android telefon Wi-Fi ya da USB ile ikinci ekran/kumanda.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Phone {
+    pub enabled: bool,
+    /// Kablo takılınca ADB üzerinden bağlan (telefonda USB hata ayıklama gerekir)
+    pub usb: bool,
+    /// Gösterilecek sayfalar, sırasıyla: home, media, shortcuts, stats
+    pub pages: Vec<String>,
+    pub shortcuts: Vec<PhoneShortcut>,
+    /// Eşleşmiş cihazlar (yalnızca telefon komutlarıyla değişir)
+    pub devices: Vec<PhoneDevice>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct PhoneShortcut {
+    pub label: String,
+    /// Simge (emoji ya da tek karakter)
+    pub icon: String,
+    /// "app" (yol/komut), "keys" (ör. win+shift+s), "action" (mute, lock, sleep)
+    pub kind: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct PhoneDevice {
+    pub name: String,
+    pub token: String,
+    /// Son bağlantı (unix sn)
+    pub last_seen: u64,
+}
+
+fn sc(label: &str, icon: &str, kind: &str, value: &str) -> PhoneShortcut {
+    PhoneShortcut { label: label.into(), icon: icon.into(), kind: kind.into(), value: value.into() }
+}
+
+pub fn default_phone_shortcuts() -> Vec<PhoneShortcut> {
+    vec![
+        sc("Görev Yöneticisi", "📊", "keys", "ctrl+shift+esc"),
+        sc("Ekran görüntüsü", "✂️", "keys", "win+shift+s"),
+        sc("Masaüstü", "🖥️", "keys", "win+d"),
+        sc("Görev görünümü", "🗂️", "keys", "win+tab"),
+        sc("Dosya Gezgini", "📁", "keys", "win+e"),
+        sc("Hesap makinesi", "🧮", "app", "calc.exe"),
+        sc("Sessize al", "🔇", "action", "mute"),
+        sc("Kilitle", "🔒", "action", "lock"),
+    ]
+}
+
+impl Default for Phone {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            usb: true,
+            pages: vec!["home".into(), "media".into(), "shortcuts".into(), "stats".into()],
+            shortcuts: default_phone_shortcuts(),
+            devices: Vec::new(),
+        }
+    }
+}
+
 /// Anonim kullanım istatistiği (sifirgecikme.com). Varsayılan açık, kapatılabilir.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -263,6 +326,7 @@ pub struct Config {
     pub notifications: Notifications,
     pub clipboard: Clipboard,
     pub telemetry: Telemetry,
+    pub phone: Phone,
     /// Windows açılınca başlat
     pub autostart: bool,
     /// Gezgin'de .exe ve kısayollara sağ tıklayınca "Cam Dock'a sabitle"
@@ -331,6 +395,7 @@ impl Default for Config {
             notifications: Notifications::default(),
             clipboard: Clipboard::default(),
             telemetry: Telemetry::default(),
+            phone: Phone::default(),
             autostart: true,
             explorer_menu: true,
             migrations: 8,

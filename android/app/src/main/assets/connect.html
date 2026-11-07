@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #0b0e14; color: #f3f5fa; font: 15px/1.35 system-ui, Roboto, sans-serif; overflow: hidden; }
+  #bg { position: fixed; inset: 0; overflow: hidden; }
+  #bg i { position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%; filter: blur(70px); opacity: .3; animation: d 24s ease-in-out infinite alternate; }
+  #bg i:nth-child(1) { background: #2f7bff; left: -20vmax; top: -25vmax; }
+  #bg i:nth-child(2) { background: #a855f7; right: -25vmax; bottom: -20vmax; opacity: .2; animation-duration: 30s; }
+  @keyframes d { to { transform: translate(8vmax, 6vmax) scale(1.1); } }
+  main { position: relative; height: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding: max(18px, env(safe-area-inset-top)) max(22px, env(safe-area-inset-left)); align-items: center; }
+  @media (orientation: portrait) { main { grid-template-columns: 1fr; align-content: center; } }
+  .logo { width: 58px; height: 58px; border-radius: 17px; background: linear-gradient(135deg, #2f7bff, #a855f7); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 13px; box-shadow: 0 10px 30px rgba(47,123,255,.35); }
+  .logo span { width: 32px; height: 8px; border-radius: 4px; background: rgba(255,255,255,.92); }
+  h1 { font-size: 26px; margin: 14px 0 6px; }
+  p { margin: 6px 0; color: rgba(243,245,250,.66); font-size: 14px; }
+  b { color: #f3f5fa; }
+  .card { background: rgba(255,255,255,.055); border: 1px solid rgba(255,255,255,.09); border-radius: 22px; padding: 16px; box-shadow: inset 0 1px 0 rgba(255,255,255,.12); }
+  .head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: rgba(243,245,250,.45); margin-bottom: 10px; }
+  .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.2); border-top-color: #2f7bff; animation: r .8s linear infinite; }
+  @keyframes r { to { transform: rotate(360deg); } }
+  #list { display: flex; flex-direction: column; gap: 8px; min-height: 58px; }
+  .pc { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.06); color: inherit; font: inherit; text-align: left; animation: in .45s cubic-bezier(.3,1.4,.5,1) both; transition: transform .4s cubic-bezier(.25,1.7,.45,1); }
+  .pc:active { transform: scale(.96); transition-duration: .1s; }
+  .pc .ic { width: 38px; height: 38px; border-radius: 11px; background: rgba(47,123,255,.2); display: flex; align-items: center; justify-content: center; font-size: 20px; }
+  .pc strong { display: block; }
+  .pc small { color: rgba(243,245,250,.5); }
+  .empty { color: rgba(243,245,250,.5); font-size: 13px; padding: 8px 2px; }
+  @keyframes in { from { opacity: 0; transform: translateY(8px) scale(.95); } }
+  .manual { display: flex; gap: 8px; margin-top: 12px; }
+  input { flex: 1; min-width: 0; padding: 11px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #fff; font: inherit; outline: none; }
+  input:focus { border-color: #2f7bff; }
+  button.go { padding: 0 16px; border: 0; border-radius: 12px; background: #2f7bff; color: #fff; font: 700 14px system-ui; }
+  .tip { font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div id="bg"><i></i><i></i></div>
+<main>
+  <section>
+    <div class="logo"><span></span></div>
+    <h1>Cam Dock Telefon</h1>
+    <p>Bilgisayarda <b>Cam Dock → Ayarlar → Telefon ekranı</b>'nı aç.</p>
+    <p class="tip"><b>Wi-Fi:</b> telefon ve bilgisayar aynı ağda olsun, listeden bilgisayarını seç.</p>
+    <p class="tip"><b>Kablo:</b> telefonda Geliştirici seçenekleri → USB hata ayıklama'yı aç ve kabloyu tak; Cam Dock gerisini halleder.</p>
+  </section>
+  <section class="card">
+    <div class="head"><span>Ağdaki bilgisayarlar</span><i class="spin"></i></div>
+    <div id="list"><div class="empty">Aranıyor…</div></div>
+    <div class="manual">
+      <input id="ip" inputmode="decimal" placeholder="ya da adres: 192.168.1.20" aria-label="Bilgisayarın adresi">
+      <button class="go" id="go">Bağlan</button>
+    </div>
+  </section>
+</main>
+<script>
+  const A = window.Android;
+  const list = document.getElementById("list");
+  const seen = new Map();
+  window.onFound = (arr) => {
+    for (const o of arr) seen.set(o.ip, o);
+    if (!seen.size) { list.innerHTML = '<div class="empty">Henüz bulunamadı. Cam Dock açık ve telefon ekranı ayarı açık mı?</div>'; return; }
+    list.replaceChildren(...[...seen.values()].map((o) => {
+      const b = document.createElement("button");
+      b.className = "pc";
+      b.innerHTML = `<span class="ic">🖥️</span><span><strong></strong><small></small></span>`;
+      b.querySelector("strong").textContent = o.name || o.ip;
+      b.querySelector("small").textContent = `${o.ip}:${o.port || 47800}`;
+      b.onclick = () => A.connect(o.ip, o.port || 47800);
+      return b;
+    }));
+  };
+  const ip = document.getElementById("ip");
+  try { ip.value = A?.lastHost?.() || ""; } catch {}
+  document.getElementById("go").onclick = () => {
+    const v = ip.value.trim();
+    if (!v) return;
+    const [h, p] = v.split(":");
+    A.connect(h, Number(p) || 47800);
+  };
+  const scan = () => { try { A.discover(); } catch {} };
+  scan();
+  setInterval(scan, 4000);
+  // Bilinen bilgisayar geri gelince kendiliğinden bağlan
+  setInterval(() => { try { A.retryLast(); } catch {} }, 4000);
+</script>
+</body>
+</html>

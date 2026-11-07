@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0b0e14">
+  <title>Cam Dock</title>
+  <link rel="stylesheet" href="phone.css">
+</head>
+<body>
+  <div id="bg" aria-hidden="true"><i></i><i></i><i></i></div>
+  <main id="pages" aria-live="polite"></main>
+  <nav id="dots" aria-label="Sayfalar"></nav>
+  <div id="conn" class="conn"><i></i><span>Bağlanıyor…</span></div>
+
+  <div id="pair" class="pair" hidden>
+    <div class="pair-card">
+      <div class="pair-logo"><span></span></div>
+      <h1>Bilgisayara bağlan</h1>
+      <p id="pair-pc">Cam Dock</p>
+      <p class="muted">Bilgisayarda <b>Ayarlar → Telefon ekranı</b> bölümündeki 6 haneli kodu gir.</p>
+      <input id="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" aria-label="Eşleşme kodu">
+      <p id="pair-err" class="err" role="alert"></p>
+      <button id="pair-go" class="btn">Bağlan</button>
+      <button id="pair-other" class="link" hidden>Başka bir bilgisayar seç</button>
+    </div>
+  </div>
+  <script src="phone.js"></script>
+</body>
+</html>

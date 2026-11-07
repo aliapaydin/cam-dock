@@ -19,6 +19,7 @@
         <button class="tab" data-tab="displays">Ekranlar</button>
         <button class="tab" data-tab="apps">Uygulamalar</button>
         <button class="tab" data-tab="widgets">Widget'lar</button>
+        <button class="tab" data-tab="phone">Telefon ekranı</button>
         <button class="tab" data-tab="about">Hakkında</button>
       </nav>
       <p class="saved" id="saved" aria-live="polite"></p>
@@ -227,6 +228,54 @@
         </div>
       </section>
 
+      <!-- TELEFON -->
+      <section class="page" data-page="phone">
+        <h1>Telefon ekranı</h1>
+        <p class="hint">Android telefonu ikinci ekran ve kumanda olarak kullan: saat, hava durumu, performans, müzik ve kısayol tuşları. Wi-Fi ile bağlanır; kablo takılıysa kablodan.</p>
+        <div class="card">
+          <div class="row">
+            <div class="label"><strong>Telefon ekranını aç</strong><span>Yerel ağda telefonların bağlanabileceği küçük bir sunucu açılır. İlk açılışta Windows güvenlik duvarı izin isteyebilir: “Özel ağlar”a izin ver.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="phone.enabled"><span></span></label>
+          </div>
+          <div class="row">
+            <div class="label"><strong>Kablo ile bağlan (USB)</strong><span>Telefonda Geliştirici seçenekleri → USB hata ayıklama açıkken kablo takılınca uygulamayı kurar ve kendiliğinden açar. Gerekli araçlar ilk kullanımda Google'dan indirilir.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="phone.usb"><span></span></label>
+          </div>
+        </div>
+        <div id="ph-live" class="ph-live" hidden>
+          <div class="card ph-pin">
+            <span class="ph-k">Eşleşme kodu</span>
+            <strong id="ph-pin">------</strong>
+            <span class="ph-s" id="ph-addr"></span>
+            <button class="btn ghost small" id="ph-renew">Yeni kod</button>
+          </div>
+          <div class="card ph-apk">
+            <div class="ph-qr" id="ph-qr"></div>
+            <div>
+              <strong>Uygulamayı indir</strong>
+              <p class="hint">Telefonun kamerasıyla okut, APK'yı indir ve aç. “Bilinmeyen uygulamaları yükle” izni istenirse tarayıcına izin ver. Kablo modunda Cam Dock uygulamayı kendisi kurar.</p>
+              <a href="#" id="ph-apk-link" class="small-link">Bağlantıyı kopyala</a>
+            </div>
+          </div>
+        </div>
+        <p class="hint" id="ph-usb"></p>
+        <h2>Eşleşmiş telefonlar</h2>
+        <div class="card list" id="ph-devices"></div>
+        <h2>Sayfalar</h2>
+        <p class="hint">Telefonda sağa sola kaydırarak geçilir. Sırayı oklarla değiştir.</p>
+        <div class="card list" id="ph-pages"></div>
+        <h2>Kısayol tuşları</h2>
+        <p class="hint">Kısayol sayfasındaki düğmeler. Tür: uygulama (yol ya da komut), tuşlar (ör. <code>ctrl+shift+esc</code>, <code>win+d</code>, <code>volume_up</code>) ya da işlem (sessize al, kilitle, oynat/duraklat).</p>
+        <div class="card list" id="ph-shortcuts"></div>
+        <div class="ph-add">
+          <input id="ph-sc-icon" maxlength="4" placeholder="⚡" aria-label="Simge">
+          <input id="ph-sc-label" placeholder="Ad" aria-label="Kısayol adı">
+          <select id="ph-sc-kind" aria-label="Tür"><option value="app">Uygulama</option><option value="keys">Tuşlar</option><option value="action">İşlem</option></select>
+          <input id="ph-sc-value" placeholder="ör. win+shift+s" aria-label="Değer">
+          <button class="btn" id="ph-sc-add">Ekle</button>
+        </div>
+      </section>
+
       <!-- WIDGET'LAR -->
       <section class="page" data-page="widgets">
         <h1>Widget'lar</h1>
@@ -360,7 +409,7 @@
         <h2>Güncellemeler</h2>
         <div class="card">
           <div class="row">
-            <div class="label"><strong id="upd-title">Cam Dock 0.19.1</strong><span id="upd-desc"></span>
+            <div class="label"><strong id="upd-title">Cam Dock 0.20.0</strong><span id="upd-desc"></span>
               <span class="upd-bar" id="upd-bar"><i></i></span></div>
             <div class="upd-btns"><button class="btn ghost" id="upd-check">Denetle</button><button class="btn" id="upd-install">Şimdi güncelle</button></div>
           </div>
@@ -375,7 +424,7 @@
         </div>
 
         <div class="card">
-          <div class="row"><div class="label"><strong>Cam Dock</strong><span>Sürüm 0.19.1</span></div></div>
+          <div class="row"><div class="label"><strong>Cam Dock</strong><span>Sürüm 0.20.0</span></div></div>
           <div class="row"><div class="label"><strong>Ayar dosyası</strong><span id="cfg-path" class="mono"></span></div>
             <button class="btn ghost" id="open-cfg">Aç</button></div>
           <div class="row"><div class="label"><strong>Tanılama kaydı</strong><span>Dock'un ne zaman neden hareket ettiğini ve cam katmanının durumunu yazar. Bir sorun olursa bu dosyayı gönder.</span><span id="log-path" class="mono"></span></div>

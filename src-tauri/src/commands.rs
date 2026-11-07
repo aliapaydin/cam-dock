@@ -196,6 +196,8 @@ pub async fn save_config(app: AppHandle, cfg: Config) -> Result<(), String> {
         // Simge sırası ve kilidi dock'tan ayrı komutlarla değişir.
         cfg.app_order = cur.app_order.clone();
         cfg.apps_locked = cur.apps_locked;
+        // Eşleşmiş telefonlar yalnızca telefon komutlarıyla değişir.
+        cfg.phone.devices = cur.phone.devices.clone();
         let changed = (cur.telemetry.enabled != cfg.telemetry.enabled).then_some(cfg.telemetry.enabled);
         *cur = cfg.clone();
         changed
@@ -212,6 +214,7 @@ pub async fn save_config(app: AppHandle, cfg: Config) -> Result<(), String> {
         apply_autostart(cfg.autostart);
     }
     crate::pinreq::sync_menu(cfg.explorer_menu);
+    crate::phone::sync(&app);
     if cfg.tray_menus {
         platform::trayhook_start();
     } else {
@@ -1267,4 +1270,20 @@ pub fn app_menu_action(app: &AppHandle, id: &str) {
             _ => {}
         }
     });
+}
+
+/// Ayarlar → Telefon ekranı: durum, PIN, eşleşmiş cihazlar, APK karekodu.
+#[tauri::command]
+pub async fn phone_status(app: AppHandle) -> serde_json::Value {
+    run(move || crate::phone::status(&app)).await.unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn phone_renew_pin() {
+    crate::phone::renew_pin();
+}
+
+#[tauri::command]
+pub fn phone_forget(app: AppHandle, name: String) {
+    crate::phone::forget(&app, &name);
 }

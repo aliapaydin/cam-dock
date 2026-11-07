@@ -6,10 +6,55 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Telefon uygulaması (Android, WebView kabuğu). Derlenemezse Windows sürümü
+  # yine yayınlanır; APK o sürümde eksik kalır.
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+      - name: APK derle
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_B64" ]; then
+            echo "$ANDROID_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/camdock.jks"
+            export ANDROID_KEYSTORE="$RUNNER_TEMP/camdock.jks"
+          else
+            echo "::warning title=İmza anahtarı yok::APK hata ayıklama imzasıyla derlendi"
+          fi
+          gradle -p android assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          if [ $status -ne 0 ]; then
+            msg=$(grep -E "^e: |error:|What went wrong" -A3 build.log | head -20 | tr '\n' ' ' | cut -c1-900)
+            echo "::error title=APK derlenemedi::$msg"
+            exit $status
+          fi
+          cp android/app/build/outputs/apk/release/app-release.apk CamDock-Telefon.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: camdock-phone
+          path: CamDock-Telefon.apk
+
   build:
+    needs: android
+    if: ${{ !cancelled() }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: camdock-phone
+          path: phone-apk
 
       - uses: actions/setup-node@v4
         with:
@@ -71,7 +116,10 @@ jobs:
           if (-not $setup) { Write-Host "::error title=Kurulum dosyası yok::NSIS çıktısı bulunamadı"; exit 1 }
           $notes = (git log -1 --pretty=%B) -join "`n"
           $notes = ($notes -split "`n" | Where-Object { $_ -notmatch '^(Co-Authored-By|Claude-Session):' }) -join "`n"
-          $out = gh release create $tag $setup.FullName --repo $env:REPO --title "Cam Dock $ver" --notes $notes 2>&1
+          $files = @($setup.FullName)
+          $apk = Get-ChildItem phone-apk/CamDock-Telefon.apk -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($apk) { $files += $apk.FullName } else { Write-Host "::warning title=APK yok::Telefon uygulaması bu sürümde yok" }
+          $out = gh release create $tag @files --repo $env:REPO --title "Cam Dock $ver" --notes $notes 2>&1
           if ($LASTEXITCODE -ne 0) {
             Write-Host "::error title=Sürüm oluşturulamadı::$($out -join ' ')"
             exit 1

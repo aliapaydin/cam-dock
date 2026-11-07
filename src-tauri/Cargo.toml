@@ -1,6 +1,6 @@
 [package]
 name = "cam-dock"
-version = "0.19.1"
+version = "0.20.0"
 authors = ["Ali Apaydın <apaydin.a@gmail.com>"]
 description = "Windows 11 için cam dock (klasik taskbar yerine)"
 edition = "2021"
@@ -18,6 +18,9 @@ ureq = "2.12"
 uuid = { version = "1", features = ["v4"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
 dock-sys = { path = "../crates/dock-sys" }

@@ -306,6 +306,23 @@ mod imp {
     pub fn trayhook_start() {
         trayhook::start()
     }
+    pub fn send_combo(spec: &str) -> bool {
+        input::send_combo(spec)
+    }
+    pub fn net_bytes() -> (u64, u64) {
+        dock_sys::net::bytes()
+    }
+    /// (ses 0–100, sessiz)
+    pub fn volume() -> (f32, bool) {
+        let a = dock_sys::quick::audio_state();
+        (a.volume, a.muted)
+    }
+    pub fn set_volume(v: f32) -> bool {
+        dock_sys::quick::set_volume(v)
+    }
+    pub fn set_mute(m: bool) -> bool {
+        dock_sys::quick::set_mute(m)
+    }
     pub fn trayhook_stop() {
         trayhook::stop()
     }
@@ -591,6 +608,21 @@ mod imp {
         JumpList::default()
     }
     pub fn trayhook_start() {}
+    pub fn send_combo(_spec: &str) -> bool {
+        false
+    }
+    pub fn net_bytes() -> (u64, u64) {
+        (0, 0)
+    }
+    pub fn volume() -> (f32, bool) {
+        (50.0, false)
+    }
+    pub fn set_volume(_v: f32) -> bool {
+        false
+    }
+    pub fn set_mute(_m: bool) -> bool {
+        false
+    }
     pub fn trayhook_stop() {}
     pub fn tray_context_menu(_exe: &str) -> bool {
         false
