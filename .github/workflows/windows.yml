@@ -68,7 +68,22 @@ jobs:
 
       - run: npm install
 
-      - run: npm run build
+      # NSIS araçları GitHub'dan indiriliyor; bağlantı hatalarına karşı önbellek ve yeniden deneme
+      - uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/tauri
+          key: tauri-tools-v1
+
+      - name: Derle
+        shell: pwsh
+        run: |
+          for ($i = 1; $i -le 3; $i++) {
+            npm run build
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Write-Host "Derleme denemesi $i başarısız; 30 sn sonra yeniden denenecek"
+            Start-Sleep -Seconds 30
+          }
+          exit 1
 
       - uses: actions/upload-artifact@v4
         with:
