@@ -307,3 +307,4 @@ input[type="range"] { width: 220px; accent-color: var(--accent); flex: 0 0 auto;
 .ph-add #ph-sc-icon { text-align: center; }
 .item .emo { width: 30px; height: 30px; border-radius: 8px; background: var(--card-2); display: flex; align-items: center; justify-content: center; font-size: 17px; flex: none; }
 .item .on-dot { width: 8px; height: 8px; border-radius: 50%; background: #22C55E; box-shadow: 0 0 8px #22C55E; flex: none; }
+.row select { padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--text); font-size: 13px; min-width: 170px; }

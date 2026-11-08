@@ -261,8 +261,34 @@
         <p class="hint" id="ph-usb"></p>
         <h2>Eşleşmiş telefonlar</h2>
         <div class="card list" id="ph-devices"></div>
+        <h2>Görünüm</h2>
+        <div class="card">
+          <div class="row">
+            <div class="label"><strong>Tema</strong><span>Telefonda noktalara dokunup oradan da değiştirebilirsin.</span></div>
+            <select data-bind="phone.theme">
+              <option value="pc">Bilgisayarla aynı</option>
+              <option value="dark">Koyu</option>
+              <option value="light">Açık</option>
+              <option value="amoled">AMOLED (tam siyah)</option>
+              <option value="midnight">Gece mavisi</option>
+            </select>
+          </div>
+          <div class="row">
+            <div class="label"><strong>Ana sayfaya dön</strong><span>Telefona bir süre dokunulmazsa ilk sayfaya geri döner.</span></div>
+            <select data-bind="phone.idle_home" data-type="number">
+              <option value="0">Hiç</option>
+              <option value="60">1 dakika sonra</option>
+              <option value="120">2 dakika sonra</option>
+              <option value="300">5 dakika sonra</option>
+            </select>
+          </div>
+          <div class="row">
+            <div class="label"><strong>Gece karart</strong><span>23.00 ile 07.00 arasında dokunulmayınca ekran kararır, saat okunur kalır.</span></div>
+            <label class="switch"><input type="checkbox" data-bind="phone.night_dim"><span></span></label>
+          </div>
+        </div>
         <h2>Sayfalar</h2>
-        <p class="hint">Telefonda sağa sola kaydırarak geçilir. Sırayı oklarla değiştir.</p>
+        <p class="hint">Telefonda sağa sola kaydırarak, ses tuşlarıyla ya da noktalara dokunarak geçilir. Sırayı oklarla değiştir.</p>
         <div class="card list" id="ph-pages"></div>
         <h2>Kısayol tuşları</h2>
         <p class="hint">Kısayol sayfasındaki düğmeler. Tür: uygulama (yol ya da komut), tuşlar (ör. <code>ctrl+shift+esc</code>, <code>win+d</code>, <code>volume_up</code>) ya da işlem (sessize al, kilitle, oynat/duraklat).</p>
@@ -409,7 +435,7 @@
         <h2>Güncellemeler</h2>
         <div class="card">
           <div class="row">
-            <div class="label"><strong id="upd-title">Cam Dock 0.20.1</strong><span id="upd-desc"></span>
+            <div class="label"><strong id="upd-title">Cam Dock 0.21.0</strong><span id="upd-desc"></span>
               <span class="upd-bar" id="upd-bar"><i></i></span></div>
             <div class="upd-btns"><button class="btn ghost" id="upd-check">Denetle</button><button class="btn" id="upd-install">Şimdi güncelle</button></div>
           </div>
@@ -424,7 +450,7 @@
         </div>
 
         <div class="card">
-          <div class="row"><div class="label"><strong>Cam Dock</strong><span>Sürüm 0.20.1</span></div></div>
+          <div class="row"><div class="label"><strong>Cam Dock</strong><span>Sürüm 0.21.0</span></div></div>
           <div class="row"><div class="label"><strong>Ayar dosyası</strong><span id="cfg-path" class="mono"></span></div>
             <button class="btn ghost" id="open-cfg">Aç</button></div>
           <div class="row"><div class="label"><strong>Tanılama kaydı</strong><span>Dock'un ne zaman neden hareket ettiğini ve cam katmanının durumunu yazar. Bir sorun olursa bu dosyayı gönder.</span><span id="log-path" class="mono"></span></div>

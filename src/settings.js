@@ -113,6 +113,9 @@ function bind() {
   for (const input of $$("input[type=number][data-bind]")) {
     input.onchange = () => set(input.dataset.bind, Math.max(1, Number(input.value) || 1));
   }
+  for (const sel of $$("select[data-bind]")) {
+    sel.onchange = () => set(sel.dataset.bind, sel.dataset.type === "number" ? Number(sel.value) : sel.value);
+  }
   for (const input of $$("input[type=time][data-bind]")) {
     input.onchange = () => { if (/^\d\d:\d\d$/.test(input.value)) set(input.dataset.bind, input.value); };
   }
@@ -316,6 +319,7 @@ function refresh() {
     group.classList.toggle("on", String(get(g.dataset.bind)) === group.dataset.v);
   }
   for (const input of $$("input[type=checkbox][data-bind]")) input.checked = !!get(input.dataset.bind);
+  for (const sel of $$("select[data-bind]")) sel.value = String(get(sel.dataset.bind) ?? "");
   for (const input of $$("input[type=range][data-bind], input[type=number][data-bind], select[data-bind]")) {
     if (document.activeElement !== input) input.value = get(input.dataset.bind);
   }
@@ -515,7 +519,16 @@ function renderPinned() {
 // ---------------------------------------------------------------------------
 // Telefon ekranı
 // ---------------------------------------------------------------------------
-const PH_PAGES = { home: "Ana ekran (saat, hava, müzik, performans)", media: "Müzik çalar", shortcuts: "Kısayol tuşları", stats: "Performans grafikleri" };
+const PH_PAGES = {
+  home: "Ana ekran — saat, hava, müzik, metrikler",
+  dashboard: "Gösterge — halkalar, müzik, kısayollar",
+  system: "Sistem — işlemci, ekran kartı, bellek, diskler, ağ",
+  status: "Durum — Claude kotası, telefon pili, en çok işlemci, ses",
+  ambient: "Ortam — analog saat, güneş ve ay, hava kalitesi, 7 gün",
+  media: "Müzik çalar",
+  shortcuts: "Kısayol tuşları",
+  clock: "Büyük saat",
+};
 const PH_KIND = { app: "Uygulama", keys: "Tuşlar", action: "İşlem" };
 const PH_ACTIONS = { mute: "Sessize al", lock: "Kilitle", playpause: "Oynat/duraklat" };
 let phTimer = null;
@@ -526,6 +539,7 @@ function renderPhone() {
   // Sayfalar: açık olanlar sırayla, kapalılar altta
   const pages = $("#ph-pages");
   pages.replaceChildren();
+  ph.pages = ph.pages.map((k) => (k === "stats" ? "system" : k)).filter((k, i, a) => PH_PAGES[k] && a.indexOf(k) === i);
   const all = [...ph.pages, ...Object.keys(PH_PAGES).filter((k) => !ph.pages.includes(k))];
   all.forEach((k) => {
     const on = ph.pages.includes(k);
@@ -818,7 +832,7 @@ async function mockInvoke(cmd) {
         notifications: { enabled: true, balloons: true, bounce: true, bounce_sec: 10, show_text: true },
         clipboard: { enabled: true, max_items: 40 },
         telemetry: { enabled: true, install_id: "3f6c1b2a-0000-4000-8000-000000000000", notice_shown: true },
-        phone: { enabled: true, usb: true, pages: ["home", "media", "shortcuts", "stats"], devices: [], shortcuts: [
+        phone: { enabled: true, usb: true, theme: "pc", idle_home: 120, night_dim: true, pages: ["home", "dashboard", "system", "status", "ambient", "media", "shortcuts"], devices: [], shortcuts: [
           { label: "Görev Yöneticisi", icon: "📊", kind: "keys", value: "ctrl+shift+esc" },
           { label: "Ekran görüntüsü", icon: "✂️", kind: "keys", value: "win+shift+s" },
           { label: "Hesap makinesi", icon: "🧮", kind: "app", value: "calc.exe" },

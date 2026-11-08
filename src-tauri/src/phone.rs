@@ -70,6 +70,9 @@ pub fn sync(app: &AppHandle) {
         let a = app.clone();
         std::thread::spawn(move || usb_loop(a));
     }
+    if cfg.enabled && !MON_STARTED.swap(true, Ordering::SeqCst) {
+        std::thread::spawn(monitor);
+    }
 }
 
 /// Çıkışta: ADB sunucusunu kapat (başlattıysak).
@@ -181,6 +184,8 @@ struct Session {
     net_prev: Option<(u64, u64, Instant)>,
     info_at: Option<Instant>,
     battery: (i32, bool),
+    icons: std::collections::HashSet<String>,
+    last_claude: String,
 }
 
 fn ws(app: AppHandle, s: TcpStream) -> std::io::Result<()> {
@@ -196,6 +201,8 @@ fn ws(app: AppHandle, s: TcpStream) -> std::io::Result<()> {
         net_prev: None,
         info_at: None,
         battery: (-1, false),
+        icons: Default::default(),
+        last_claude: String::new(),
     };
     CLIENTS.fetch_add(1, Ordering::SeqCst);
     let result = (|| -> Result<(), Error> {
@@ -324,6 +331,12 @@ fn on_message(app: &AppHandle, ses: &mut Session, msg: &Value) -> Vec<Value> {
             platform::set_mute(msg["m"].as_bool().unwrap_or(false));
             vec![]
         }
+        "kill" => {
+            if let Some(name) = msg["name"].as_str() {
+                KILLS.lock().unwrap().push((name.to_string(), msg["all"].as_bool().unwrap_or(false)));
+            }
+            vec![]
+        }
         "run" => {
             let i = msg["i"].as_u64().unwrap_or(u64::MAX) as usize;
             let sc = app.state::<AppState>().cfg.lock().unwrap().phone.shortcuts.get(i).cloned();
@@ -416,6 +429,31 @@ fn push(app: &AppHandle, ses: &mut Session) -> Vec<Value> {
     out.push(mj);
     let (v, muted) = platform::volume();
     out.push(json!({ "t": "vol", "v": v, "m": muted }));
+    // Süreçler, diskler, ping (simgeler bir kez)
+    let extra = EXTRA.lock().unwrap().clone();
+    if let Some(x) = &extra {
+        use base64::Engine;
+        let mut icons = serde_json::Map::new();
+        for p in &x.procs {
+            if !p.exe.is_empty() && ses.icons.insert(p.exe.clone()) {
+                if let Some(png) = platform::icon_png(&p.exe, 32) {
+                    icons.insert(p.exe.clone(), json!(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png))));
+                }
+            }
+        }
+        out.push(json!({
+            "t": "sys", "procs": x.procs, "total_procs": x.total_procs, "disks": x.disks,
+            "ping": x.ping, "uptime": x.uptime, "icons": icons,
+        }));
+    }
+    // Claude kullanımı (değişince)
+    let cl = state.claude.lock().unwrap().clone();
+    let cj = json!({ "t": "claude", "state": cl.state, "limits": cl.limits.iter().map(|l| json!({ "label": l.label, "percent": l.percent, "resets_at": l.resets_at })).collect::<Vec<_>>() });
+    let cs = cj.to_string();
+    if cs != ses.last_claude {
+        ses.last_claude = cs;
+        out.push(cj);
+    }
     // Ayarlar değiştiyse (sayfalar, kısayollar, hava durumu konumu)
     let cfg = state.cfg.lock().unwrap().clone();
     let dark = {
@@ -430,6 +468,12 @@ fn push(app: &AppHandle, ses: &mut Session) -> Vec<Value> {
         "weather": { "enabled": cfg.weather.enabled, "lat": cfg.weather.lat, "lon": cfg.weather.lon, "city": cfg.weather.city },
         "accent": cfg.accent,
         "dark": dark,
+        "theme": cfg.phone.theme,
+        "idle_home": cfg.phone.idle_home,
+        "night_dim": cfg.phone.night_dim,
+        "cpu_name": extra.as_ref().map(|x| x.cpu_name.clone()).unwrap_or_default(),
+        "gpu_name": extra.as_ref().map(|x| x.gpu_name.clone()).unwrap_or_default(),
+        "cores": extra.as_ref().map(|x| x.cores).unwrap_or(0),
     });
     let cs = cj.to_string();
     if cs != ses.last_cfg {
@@ -437,6 +481,163 @@ fn push(app: &AppHandle, ses: &mut Session) -> Vec<Value> {
         out.push(cj);
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// Süreçler, diskler, ping (yalnızca bağlı telefon varken)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Default, serde::Serialize)]
+struct Proc {
+    name: String,
+    exe: String,
+    count: u32,
+    cpu: f32,
+    mem: f64,
+}
+
+#[derive(Clone, Default, serde::Serialize)]
+struct Disk {
+    name: String,
+    used: f64,
+    total: f64,
+}
+
+#[derive(Clone, Default)]
+struct Extra {
+    procs: Vec<Proc>,
+    total_procs: usize,
+    disks: Vec<Disk>,
+    ping: Option<f64>,
+    uptime: u64,
+    cpu_name: String,
+    gpu_name: String,
+    cores: usize,
+}
+
+static EXTRA: Mutex<Option<Extra>> = Mutex::new(None);
+static MON_STARTED: AtomicBool = AtomicBool::new(false);
+/// Telefondan gelen "kapat" istekleri: (ad, hepsi)
+static KILLS: Mutex<Vec<(String, bool)>> = Mutex::new(Vec::new());
+
+/// Kapatılmasına izin verilmeyen sistem süreçleri
+const PROTECTED: &[&str] = &[
+    "system", "registry", "smss", "csrss", "wininit", "winlogon", "services", "lsass", "svchost", "dwm",
+    "fontdrvhost", "memory compression", "secure system", "lsaiso", "explorer", "cam dock", "cam-dock",
+];
+
+fn gpu_name() -> String {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let out = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", "(Get-CimInstance Win32_VideoController | Sort-Object AdapterRAM -Descending | Select-Object -First 1).Name"])
+            .creation_flags(0x0800_0000)
+            .output();
+        if let Ok(o) = out {
+            return String::from_utf8_lossy(&o.stdout).trim().to_string();
+        }
+    }
+    String::new()
+}
+
+fn monitor() {
+    use sysinfo::{Disks, ProcessesToUpdate, System};
+    let mut sys = System::new();
+    sys.refresh_cpu_all();
+    let cpu_name = sys.cpus().first().map(|c| c.brand().trim().to_string()).unwrap_or_default();
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    let gpu = gpu_name();
+    let mut disks_at: Option<Instant> = None;
+    let mut disks: Vec<Disk> = Vec::new();
+    let mut ping_at: Option<Instant> = None;
+    let mut ping: Option<f64> = None;
+    loop {
+        if CLIENTS.load(Ordering::SeqCst) == 0 {
+            std::thread::sleep(Duration::from_secs(1));
+            continue;
+        }
+        sys.refresh_processes(ProcessesToUpdate::All, true);
+        // Kapatma istekleri
+        let kills: Vec<(String, bool)> = std::mem::take(&mut *KILLS.lock().unwrap());
+        for (name, all) in kills {
+            let key = name.to_lowercase();
+            if PROTECTED.contains(&key.as_str()) {
+                continue;
+            }
+            let mut list: Vec<&sysinfo::Process> = sys
+                .processes()
+                .values()
+                .filter(|p| p.name().to_string_lossy().to_lowercase().trim_end_matches(".exe") == key)
+                .collect();
+            list.sort_by(|a, b| b.cpu_usage().partial_cmp(&a.cpu_usage()).unwrap_or(std::cmp::Ordering::Equal));
+            for p in list.iter().take(if all { usize::MAX } else { 1 }) {
+                dlog!("telefon: süreç kapatılıyor {}", name);
+                p.kill();
+            }
+        }
+        // Ada göre grupla
+        let mut map: std::collections::HashMap<String, Proc> = std::collections::HashMap::new();
+        let total = sys.processes().len();
+        for p in sys.processes().values() {
+            let raw = p.name().to_string_lossy().to_string();
+            let name = raw.trim_end_matches(".exe").trim_end_matches(".EXE").to_string();
+            let low = name.to_lowercase();
+            if low.is_empty() || low == "idle" || low == "system idle process" || low == "memory compression" {
+                continue;
+            }
+            let e = map.entry(low).or_insert_with(|| Proc {
+                name: name.clone(),
+                exe: p.exe().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(),
+                ..Default::default()
+            });
+            e.count += 1;
+            e.cpu += p.cpu_usage() / cores as f32;
+            e.mem += p.memory() as f64 / 1_073_741_824.0;
+            if e.exe.is_empty() {
+                if let Some(x) = p.exe() {
+                    e.exe = x.to_string_lossy().to_string();
+                }
+            }
+        }
+        let mut procs: Vec<Proc> = map.into_values().collect();
+        procs.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
+        procs.truncate(8);
+        if disks_at.map_or(true, |t| t.elapsed() > Duration::from_secs(30)) {
+            disks_at = Some(Instant::now());
+            let list = Disks::new_with_refreshed_list();
+            disks = list
+                .iter()
+                .filter(|d| d.total_space() > 1_000_000_000)
+                .map(|d| {
+                    let total = d.total_space() as f64 / 1_073_741_824.0;
+                    let free = d.available_space() as f64 / 1_073_741_824.0;
+                    let name = d.mount_point().to_string_lossy().trim_end_matches('\\').to_string();
+                    Disk { name, used: total - free, total }
+                })
+                .collect();
+            disks.sort_by(|a, b| a.name.cmp(&b.name));
+            disks.dedup_by(|a, b| a.name == b.name);
+        }
+        if ping_at.map_or(true, |t| t.elapsed() > Duration::from_secs(5)) {
+            ping_at = Some(Instant::now());
+            let t = Instant::now();
+            ping = TcpStream::connect_timeout(&"1.1.1.1:443".parse().unwrap(), Duration::from_millis(1500))
+                .ok()
+                .map(|_| t.elapsed().as_secs_f64() * 1000.0);
+        }
+        *EXTRA.lock().unwrap() = Some(Extra {
+            procs,
+            total_procs: total,
+            disks: disks.clone(),
+            ping,
+            uptime: System::uptime(),
+            cpu_name: cpu_name.clone(),
+            gpu_name: gpu.clone(),
+            cores,
+        });
+        std::thread::sleep(Duration::from_secs(2));
+    }
 }
 
 // ---------------------------------------------------------------------------

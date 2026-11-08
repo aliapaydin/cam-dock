@@ -4,6 +4,9 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
+import android.view.KeyEvent
 import android.graphics.Color
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -75,6 +78,19 @@ class MainActivity : Activity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) immersive()
+    }
+
+    /** Ses tuşları sayfa değiştirir (panel açıkken). */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val code = event.keyCode
+        if (!onConnectPage && (code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN)) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                val dir = if (code == KeyEvent.KEYCODE_VOLUME_UP) -1 else 1
+                js("window.pageStep && window.pageStep($dir)")
+            }
+            return true
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     @Suppress("DEPRECATION")
@@ -169,6 +185,18 @@ class MainActivity : Activity() {
             val m = Build.MODEL ?: "Android"
             val maker = Build.MANUFACTURER ?: ""
             return if (m.lowercase().startsWith(maker.lowercase())) m else "$maker $m".trim()
+        }
+
+        /** Telefon pili: {"level":82,"charging":true,"temp":30} */
+        @JavascriptInterface fun battery(): String {
+            val i = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return ""
+            val level = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+            val scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, 100).coerceAtLeast(1)
+            val status = i.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+            val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+            val temp = i.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) / 10
+            if (level < 0) return ""
+            return JSONObject().put("level", level * 100 / scale).put("charging", charging).put("temp", temp).toString()
         }
 
         @JavascriptInterface fun version(): String = BuildConfigVersion.name(this@MainActivity)

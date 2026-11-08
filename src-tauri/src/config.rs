@@ -160,8 +160,15 @@ pub struct Phone {
     pub enabled: bool,
     /// Kablo takılınca ADB üzerinden bağlan (telefonda USB hata ayıklama gerekir)
     pub usb: bool,
-    /// Gösterilecek sayfalar, sırasıyla: home, media, shortcuts, stats
+    /// Gösterilecek sayfalar, sırasıyla: home, dashboard, system, status,
+    /// ambient, media, shortcuts, clock
     pub pages: Vec<String>,
+    /// Telefon teması: pc (bilgisayarla aynı), dark, light, amoled, midnight
+    pub theme: String,
+    /// Bu kadar saniye dokunulmazsa ilk sayfaya dön (0 = dönme)
+    pub idle_home: u32,
+    /// Gece (23–07) dokunulmayınca ekranı karart
+    pub night_dim: bool,
     pub shortcuts: Vec<PhoneShortcut>,
     /// Eşleşmiş cihazlar (yalnızca telefon komutlarıyla değişir)
     pub devices: Vec<PhoneDevice>,
@@ -191,6 +198,10 @@ fn sc(label: &str, icon: &str, kind: &str, value: &str) -> PhoneShortcut {
     PhoneShortcut { label: label.into(), icon: icon.into(), kind: kind.into(), value: value.into() }
 }
 
+pub fn default_phone_pages() -> Vec<String> {
+    ["home", "dashboard", "system", "status", "ambient", "media", "shortcuts"].iter().map(|s| s.to_string()).collect()
+}
+
 pub fn default_phone_shortcuts() -> Vec<PhoneShortcut> {
     vec![
         sc("Görev Yöneticisi", "📊", "keys", "ctrl+shift+esc"),
@@ -209,7 +220,10 @@ impl Default for Phone {
         Self {
             enabled: false,
             usb: true,
-            pages: vec!["home".into(), "media".into(), "shortcuts".into(), "stats".into()],
+            pages: default_phone_pages(),
+            theme: "pc".into(),
+            idle_home: 120,
+            night_dim: true,
             shortcuts: default_phone_shortcuts(),
             devices: Vec::new(),
         }
@@ -398,7 +412,7 @@ impl Default for Config {
             phone: Phone::default(),
             autostart: true,
             explorer_menu: true,
-            migrations: 8,
+            migrations: 9,
         }
     }
 }
@@ -506,6 +520,14 @@ pub fn load() -> Config {
                     cfg.magnify_scale = 1.6;
                 }
                 cfg.migrations = 8;
+                save(&cfg);
+            }
+            // v0.21: telefon ekranında yeni sayfalar; eski varsayılanı yenisine çevir
+            if cfg.migrations < 9 {
+                if cfg.phone.pages == ["home", "media", "shortcuts", "stats"] {
+                    cfg.phone.pages = default_phone_pages();
+                }
+                cfg.migrations = 9;
                 save(&cfg);
             }
             cfg
