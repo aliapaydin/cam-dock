@@ -362,6 +362,48 @@ pub fn restore_taskbar(state: &AppState) {
     }
 }
 
+/// Bekçi süreci: Cam Dock Görev Yöneticisi'nden sonlandırılır ya da çökerse
+/// taskbar'ı geri getirir. Düzgün çıkışta durum dosyası silinmiş olur, bekçi
+/// bir şey yapmaz; Windows kapanırken de dokunmaz (açılışta gizli kalsın).
+pub fn guard_wait(pid: u32) {
+    platform::wait_process_exit(pid);
+    std::thread::sleep(std::time::Duration::from_millis(800));
+    if guard_path().exists() && !platform::session_ending() {
+        emergency_restore();
+    }
+}
+
+/// Bekçiyi başlatır. Ara bir süreç üzerinden açılır ki Görev Yöneticisi'nde
+/// Cam Dock'un altında görünmesin ve "Görevi sonlandır" onu da kapatmasın.
+pub fn guard_spawn() {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let Ok(exe) = std::env::current_exe() else { return };
+        let _ = std::process::Command::new(exe)
+            .args(["--guard-launch", &std::process::id().to_string()])
+            .creation_flags(0x0800_0000 | 0x0000_0200) // CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
+            .spawn();
+    }
+}
+
+/// Ara süreç: bekçiyi bağımsız başlatıp hemen çıkar.
+pub fn guard_launch(pid: u32) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let Ok(exe) = std::env::current_exe() else { return };
+        let flags = 0x0000_0008 | 0x0000_0200; // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.args(["--guard", &pid.to_string()]);
+        if cmd.creation_flags(flags | 0x0100_0000).spawn().is_err() {
+            // İş nesnesinden ayrılmaya izin yoksa onsuz
+            let _ = std::process::Command::new(&exe).args(["--guard", &pid.to_string()]).creation_flags(flags).spawn();
+        }
+    }
+    let _ = pid;
+}
+
 pub fn emergency_restore() {
     let prev = guard_read().unwrap_or(2);
     platform::restore_taskbar(prev);
@@ -655,6 +697,49 @@ fn update_visibility(app: &AppHandle, state: &AppState, vis: &Vis, hwnds: &[isiz
             }
         }
     }
+}
+
+/// Dock arayüzünün son "yaşıyorum" sinyali (etiket → an, çizim sağlıklı mı)
+pub static ALIVE: std::sync::Mutex<Option<std::collections::HashMap<String, (std::time::Instant, bool)>>> = std::sync::Mutex::new(None);
+
+/// Dock arayüzü (WebView) donarsa ya da çizimi durursa yeniden yükler.
+/// Ekran kartı sürecinin çökmesi dock'u yarı saydam/bozuk bırakabiliyordu.
+pub fn spawn_watchdog(app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut last_tick = std::time::Instant::now();
+        let mut strikes: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            let now = std::time::Instant::now();
+            let slept = now.duration_since(last_tick) > std::time::Duration::from_secs(15);
+            last_tick = now;
+            let mut g = ALIVE.lock().unwrap();
+            let map = g.get_or_insert_with(std::collections::HashMap::new);
+            if slept {
+                // Uyku/hazırda bekleme dönüşü: sayaçları sıfırla
+                for v in map.values_mut() {
+                    v.0 = now;
+                }
+                continue;
+            }
+            let state = app.state::<AppState>();
+            let shown: Vec<String> = state.docks.lock().unwrap().values().filter(|d| d.shown).map(|d| d.label.clone()).collect();
+            for label in shown {
+                let Some(&(at, draws)) = map.get(&label) else { continue };
+                let stale = now.duration_since(at) > std::time::Duration::from_secs(25);
+                let n = strikes.entry(label.clone()).or_insert(0);
+                *n = if stale || !draws { *n + 1 } else { 0 };
+                if *n >= 2 {
+                    *n = 0;
+                    map.insert(label.clone(), (now, true));
+                    dlog!("{label}: arayüz yanıt vermiyor ({}), yeniden yükleniyor", if stale { "sinyal yok" } else { "çizim durdu" });
+                    if let Some(w) = app.get_webview_window(&label) {
+                        let _ = w.reload();
+                    }
+                }
+            }
+        }
+    });
 }
 
 /// Başlat menüsünün en son ön planda görüldüğü an (Başlat düğmesi aç/kapa).

@@ -1687,6 +1687,17 @@ listen("dock-visibility", (e) => { dockVisible = !!e.payload; setCalm(); });
 // Fare başka ekrandayken ya da dock gizliyken sürekli animasyonları durdur:
 // kesintisiz kare üretimi diğer ekrandaki imleci takıltıyordu.
 let cursorHere = true;
+// Dock'un sağlık sinyali: 4 sn'de bir tek bir çizim karesi iste; gelmezse
+// (ekran kartı süreci çöktüyse) Cam Dock arayüzü yeniden yükler.
+if (TAURI) {
+  let drew = true;
+  setInterval(() => {
+    invoke("dock_alive", { draws: drew }).catch(() => {});
+    if (document.visibilityState !== "visible") { drew = true; return; }
+    drew = false;
+    requestAnimationFrame(() => { drew = true; });
+  }, 4000);
+}
 listen("cursor-here", (e) => { cursorHere = !!e.payload; setCalm(); });
 function setCalm() {
   document.documentElement.classList.toggle("calm", !cursorHere || !dockVisible);

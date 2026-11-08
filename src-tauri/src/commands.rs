@@ -987,6 +987,7 @@ pub fn show_menu(window: WebviewWindow, state: State<'_, AppState>) -> Result<()
         .separator()
         .text("apps:lock", if state.cfg.lock().unwrap().apps_locked { "Simge düzeninin kilidini aç" } else { "Simge düzenini kaydet ve kilitle" })
         .text("settings", "Cam Dock ayarları…")
+        .text("dock:reload", "Dock'u yenile")
         .item(&theme)
         .text("quit", "Çık (taskbar geri gelir)")
         .build()
@@ -1286,4 +1287,11 @@ pub fn phone_renew_pin() {
 #[tauri::command]
 pub fn phone_forget(app: AppHandle, name: String) {
     crate::phone::forget(&app, &name);
+}
+
+/// Dock arayüzünün "yaşıyorum" sinyali; `draws`: son çizim isteği karşılandı mı.
+#[tauri::command]
+pub fn dock_alive(window: WebviewWindow, draws: bool) {
+    let mut g = crate::docks::ALIVE.lock().unwrap();
+    g.get_or_insert_with(Default::default).insert(window.label().to_string(), (std::time::Instant::now(), draws));
 }

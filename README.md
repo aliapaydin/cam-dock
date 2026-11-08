@@ -1,4 +1,4 @@
-# Cam Dock — v0.21.0
+# Cam Dock — v0.21.1
 
 Windows 11'deki klasik taskbar'ın yerine geçen cam dock. Tauri 2 (Rust + WebView2) ile yazıldı.
 

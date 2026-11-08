@@ -103,6 +103,14 @@ fn on_menu(app: &tauri::AppHandle, id: &str) {
         }
         return;
     }
+    if id == "dock:reload" {
+        for (label, w) in app.webview_windows() {
+            if label.starts_with("dock") {
+                let _ = w.reload();
+            }
+        }
+        return;
+    }
     if id == "apps:lock" {
         let locked = !app.state::<AppState>().cfg.lock().unwrap().apps_locked;
         commands::set_apps_locked(app.clone(), locked);
@@ -139,6 +147,16 @@ fn main() {
     // Kaldırma programı: (izin açıksa) kaldırıldığını bildir ve çık.
     if std::env::args().any(|a| a == "--uninstall-ping") {
         telemetry::uninstall_ping();
+        return;
+    }
+    let args: Vec<String> = std::env::args().collect();
+    let arg_after = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).and_then(|v| v.parse::<u32>().ok());
+    if let Some(pid) = arg_after("--guard") {
+        docks::guard_wait(pid);
+        return;
+    }
+    if let Some(pid) = arg_after("--guard-launch") {
+        docks::guard_launch(pid);
         return;
     }
     if std::env::args().any(|a| a == "--restore-taskbar") {
@@ -230,6 +248,7 @@ fn main() {
             commands::phone_status,
             commands::phone_renew_pin,
             commands::phone_forget,
+            commands::dock_alive,
             commands::fetch_text,
             commands::screen_time,
             commands::usage_data,
@@ -319,6 +338,8 @@ fn main() {
                 platform::trayhook_start();
             }
             phone::sync(&handle);
+            docks::guard_spawn();
+            docks::spawn_watchdog(handle.clone());
             notify::spawn(handle.clone());
             live::spawn(handle.clone());
             clip::spawn(handle.clone());

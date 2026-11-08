@@ -47,6 +47,18 @@ fn pid_of(h: HWND) -> u32 {
     pid
 }
 
+/// Süreç kapanana kadar bekler (bekçi süreci için).
+pub fn wait_exit(pid: u32) {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{WaitForSingleObject, INFINITE, PROCESS_SYNCHRONIZE};
+    unsafe {
+        if let Ok(h) = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) {
+            WaitForSingleObject(h, INFINITE);
+            let _ = CloseHandle(h);
+        }
+    }
+}
+
 pub fn exe_of_pid(pid: u32) -> Option<String> {
     unsafe {
         let proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;

@@ -465,6 +465,9 @@ mod imp {
     pub fn session_ending() -> bool {
         taskbar::session_ending()
     }
+    pub fn wait_process_exit(pid: u32) {
+        winlist::wait_exit(pid)
+    }
     pub fn taskbar_ensure_autohide() {
         taskbar::ensure_autohide()
     }
@@ -716,6 +719,7 @@ mod imp {
     pub fn session_ending() -> bool {
         false
     }
+    pub fn wait_process_exit(_pid: u32) {}
     pub fn taskbar_ensure_autohide() {}
     pub fn explorer_pid() -> u32 {
         0

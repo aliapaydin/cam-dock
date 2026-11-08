@@ -57,6 +57,33 @@ fn agent() -> ureq::Agent {
         .build()
 }
 
+/// GitHub zaman zaman 502/503/504 veriyor: geçici hatalarda birkaç kez yeniden dene.
+fn get_retry(url: &str, accept: Option<&str>) -> Result<ureq::Response, ureq::Error> {
+    let waits = [3u64, 8, 20];
+    let mut attempt = 0;
+    loop {
+        let mut req = agent().get(url).set("User-Agent", "CamDock-Updater");
+        if let Some(a) = accept {
+            req = req.set("Accept", a);
+        }
+        match req.call() {
+            Ok(r) => return Ok(r),
+            Err(e) => {
+                let transient = match &e {
+                    ureq::Error::Status(code, _) => *code >= 500 || *code == 429,
+                    ureq::Error::Transport(_) => true,
+                };
+                if !transient || attempt >= waits.len() {
+                    return Err(e);
+                }
+                dlog!("güncelleme: geçici hata ({e}), {} sn sonra yeniden denenecek", waits[attempt]);
+                std::thread::sleep(std::time::Duration::from_secs(waits[attempt]));
+                attempt += 1;
+            }
+        }
+    }
+}
+
 /// Denetle ve gerekiyorsa indir. Bloklar: iş parçacığında çağır.
 pub fn check(app: &AppHandle, manual: bool) {
     {
@@ -75,11 +102,7 @@ pub fn check(app: &AppHandle, manual: bool) {
         s.error.clear();
     });
     let res: Result<(), String> = (|| {
-        let resp = agent()
-            .get(LATEST)
-            .set("Accept", "application/vnd.github+json")
-            .set("User-Agent", "CamDock-Updater")
-            .call()
+        let resp = get_retry(LATEST, Some("application/vnd.github+json"))
             .map_err(|e| match e {
                 ureq::Error::Status(404, _) => "Henüz yayınlanmış sürüm yok".to_string(),
                 e => format!("Sunucuya ulaşılamadı: {e}"),
@@ -117,11 +140,10 @@ pub fn check(app: &AppHandle, manual: bool) {
         let dir = std::env::temp_dir().join("camdock-update");
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join(name.replace(' ', "_"));
-        let resp = agent()
-            .get(&url)
-            .set("User-Agent", "CamDock-Updater")
-            .call()
-            .map_err(|e| format!("İndirme başarısız: {e}"))?;
+        let resp = get_retry(&url, None).map_err(|e| match e {
+            ureq::Error::Status(code, _) if code >= 500 => format!("GitHub şu an yanıt vermiyor ({code}); biraz sonra kendiliğinden yeniden denenecek"),
+            e => format!("İndirme başarısız: {e}"),
+        })?;
         let mut reader = resp.into_reader();
         let mut file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
         let mut buf = vec![0u8; 64 * 1024];
@@ -214,7 +236,10 @@ pub fn spawn(app: AppHandle) {
                 let cfg = state.cfg.lock().unwrap();
                 (cfg.update.auto_check, cfg.update.auto_install)
             };
-            if auto_check && last_check.elapsed() >= std::time::Duration::from_secs(6 * 3600) {
+            // Hata verdiyse (GitHub geçici olarak yanıtsız) 20 dakika sonra yeniden dene
+            let failed = app.state::<AppState>().update.lock().unwrap().state == "error";
+            let due = if failed { 20 * 60 } else { 6 * 3600 };
+            if auto_check && last_check.elapsed() >= std::time::Duration::from_secs(due) {
                 last_check = std::time::Instant::now();
                 check(&app, false);
             }
