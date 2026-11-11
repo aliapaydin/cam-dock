@@ -86,6 +86,9 @@ fn get_retry(url: &str, accept: Option<&str>) -> Result<ureq::Response, ureq::Er
 
 /// Denetle ve gerekiyorsa indir. Bloklar: iş parçacığında çağır.
 pub fn check(app: &AppHandle, manual: bool) {
+    if crate::platform::is_store() {
+        return;
+    }
     {
         let s = app.state::<AppState>().update.lock().unwrap().clone();
         if matches!(s.state.as_str(), "checking" | "downloading" | "installing") {
@@ -227,6 +230,10 @@ pub fn install(app: &AppHandle) -> bool {
 /// Açılıştan 20 sn sonra ve 6 saatte bir denetler; indirilen güncelleme
 /// bilgisayar 3 dakika boşta kalınca kurulur.
 pub fn spawn(app: AppHandle) {
+    // Store sürümünü Microsoft Store günceller; kendi kendini güncellemek yasak
+    if crate::platform::is_store() {
+        return;
+    }
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_secs(20));
         let mut last_check = std::time::Instant::now() - std::time::Duration::from_secs(7 * 3600);

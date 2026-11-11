@@ -468,6 +468,14 @@ mod imp {
     pub fn wait_process_exit(pid: u32) {
         winlist::wait_exit(pid)
     }
+    /// Microsoft Store (MSIX) sürümü mü?
+    pub fn is_store() -> bool {
+        static S: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *S.get_or_init(dock_sys::package::is_packaged)
+    }
+    pub fn store_startup_set(enabled: bool) -> bool {
+        dock_sys::package::startup_set(enabled)
+    }
     pub fn taskbar_ensure_autohide() {
         taskbar::ensure_autohide()
     }
@@ -720,6 +728,12 @@ mod imp {
         false
     }
     pub fn wait_process_exit(_pid: u32) {}
+    pub fn is_store() -> bool {
+        false
+    }
+    pub fn store_startup_set(_enabled: bool) -> bool {
+        false
+    }
     pub fn taskbar_ensure_autohide() {}
     pub fn explorer_pid() -> u32 {
         0

@@ -85,6 +85,32 @@ jobs:
           }
           exit 1
 
+      # Microsoft Store paketi (MSIX). Aynı exe; Store sürümü olduğunu çalışırken
+      # kendisi anlar (kendi güncelleyicisi kapanır, Windows ile başlat paketten).
+      # Partner Center imzalar; buradaki paket imzasızdır.
+      - name: Store paketi (MSIX)
+        shell: pwsh
+        run: |
+          $ver = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version + ".0"
+          $kit = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\10.*\x64" -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          $mk = Join-Path $kit.FullName "makeappx.exe"
+          $mp = Join-Path $kit.FullName "makepri.exe"
+          $d = "msix"
+          New-Item -ItemType Directory $d -Force | Out-Null
+          Copy-Item src-tauri/target/release/cam-dock.exe $d
+          Copy-Item store/Assets "$d/Assets" -Recurse
+          (Get-Content store/AppxManifest.xml -Raw).Replace("__VERSION__", $ver) | Set-Content "$d/AppxManifest.xml" -Encoding utf8
+          & $mp new /pr $d /cf store/priconfig.xml /of "$d/resources.pri" /mn "$d/AppxManifest.xml" /o
+          if ($LASTEXITCODE) { Write-Host "::error title=MSIX::makepri başarısız"; exit 1 }
+          & $mk pack /d $d /p "CamDock_${ver}_x64.msix" /o
+          if ($LASTEXITCODE) { Write-Host "::error title=MSIX::makeappx başarısız"; exit 1 }
+          Write-Host "::notice title=Store paketi::CamDock_${ver}_x64.msix hazır (Artifacts → CamDock-Store)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CamDock-Store
+          path: CamDock_*_x64.msix
+
       - uses: actions/upload-artifact@v4
         with:
           name: cam-dock-windows

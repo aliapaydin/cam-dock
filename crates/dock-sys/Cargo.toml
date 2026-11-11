@@ -14,6 +14,7 @@ windows-core = "0.62"
 [dependencies.windows]
 version = "0.62"
 features = [
+  "ApplicationModel",
   "Win32_Foundation",
   "Win32_Graphics_Dwm",
   "Win32_Storage_EnhancedStorage",

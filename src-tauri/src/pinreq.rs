@@ -31,6 +31,10 @@ pub fn queue_from_args() {
 
 /// Menü kayıtlarını ayara göre ekler/kaldırır (exe yolu değişmiş olabilir).
 pub fn sync_menu(enabled: bool) {
+    // Store sürümünde kayıt defteri paket içine yönlendirildiği için Gezgin görmez
+    if platform::is_store() {
+        return;
+    }
     for class in CLASSES {
         let key = format!("Software\\Classes\\{class}\\shell\\{VERB}");
         if !enabled {

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cam Dock — Microsoft Store (MSIX) paketi. Sürüm CI'da tauri.conf.json'dan
+  doldurulur (__VERSION__). Identity değerleri Partner Center → Product identity
+  ile birebir aynı olmalı.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap desktop rescap">
+
+  <Identity
+    Name="AliApaydin.CamDock"
+    Publisher="CN=BA57EB18-640B-433D-88C6-EB1D10E9A905"
+    Version="__VERSION__"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Cam Dock</DisplayName>
+    <PublisherDisplayName>Ali Apaydin</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>Windows 11 için cam görünümlü dock ve taskbar.</Description>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="tr-TR" />
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Applications>
+    <Application Id="CamDock" Executable="cam-dock.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Cam Dock"
+        Description="Windows 11 için cam görünümlü dock ve taskbar"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile
+          Wide310x150Logo="Assets\Wide310x150Logo.png"
+          Square71x71Logo="Assets\SmallTile.png"
+          Square310x310Logo="Assets\LargeTile.png"
+          ShortName="Cam Dock" />
+      </uap:VisualElements>
+      <Extensions>
+        <!-- Windows ile başlat (Ayarlar'dan ve Görev Yöneticisi'nden açılıp kapanır) -->
+        <desktop:Extension Category="windows.startupTask" Executable="cam-dock.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="CamDockStartup" Enabled="true" DisplayName="Cam Dock" />
+        </desktop:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <Capability Name="privateNetworkClientServer" />
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

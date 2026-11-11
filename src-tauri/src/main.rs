@@ -249,6 +249,7 @@ fn main() {
             commands::phone_renew_pin,
             commands::phone_forget,
             commands::dock_alive,
+            commands::app_edition,
             commands::fetch_text,
             commands::screen_time,
             commands::usage_data,

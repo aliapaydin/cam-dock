@@ -862,6 +862,14 @@ pub fn autostart_state() -> bool {
 /// Windows ile başlat: önce oturum açma görevi (Windows'un başlangıç
 /// gecikmesine takılmaz), olmazsa Run anahtarı.
 pub fn apply_autostart(enabled: bool) {
+    // Store sürümü: paketin kendi başlangıç görevi (WinRT; ayrı iş parçacığında)
+    if platform::is_store() {
+        std::thread::spawn(move || {
+            let ok = platform::store_startup_set(enabled);
+            crate::dlog!("Windows ile başlat (Store): {} ({})", if enabled { "açık" } else { "kapalı" }, if ok { "uygulandı" } else { "Windows izin vermedi" });
+        });
+        return;
+    }
     let exe = std::env::current_exe().ok().map(|p| p.to_string_lossy().to_string());
     if !enabled {
         platform::task_delete();
@@ -1294,4 +1302,10 @@ pub fn phone_forget(app: AppHandle, name: String) {
 pub fn dock_alive(window: WebviewWindow, draws: bool) {
     let mut g = crate::docks::ALIVE.lock().unwrap();
     g.get_or_insert_with(Default::default).insert(window.label().to_string(), (std::time::Instant::now(), draws));
+}
+
+/// Sürüm türü: Microsoft Store (MSIX) mı, GitHub kurulumu mu.
+#[tauri::command]
+pub fn app_edition() -> serde_json::Value {
+    serde_json::json!({ "store": platform::is_store(), "version": env!("CARGO_PKG_VERSION") })
 }

@@ -13,6 +13,7 @@ pub mod icons;
 pub mod input;
 pub mod jumplist;
 pub mod net;
+pub mod package;
 pub mod media;
 pub mod monitor;
 pub mod privacy;

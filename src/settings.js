@@ -264,6 +264,12 @@ loadSun();
 
 let upd = null;
 invoke("update_status").then((u) => { upd = u; drawUpdate(); }).catch(() => {});
+// Microsoft Store sürümü: güncellemeleri Store yapar, Gezgin menüsü yok
+invoke("app_edition").then((e) => {
+  if (!e?.store) return;
+  document.documentElement.classList.add("store");
+  $("#upd-desc").textContent = "Microsoft Store sürümü: güncellemeler Store üzerinden kendiliğinden gelir.";
+}).catch(() => {});
 listen("update-status", (e) => { upd = e.payload; drawUpdate(); });
 function drawUpdate() {
   if (!upd) return;
@@ -277,6 +283,7 @@ function drawUpdate() {
     error: upd.error || "Denetlenemedi.",
   }[upd.state] || "";
   $("#upd-title").textContent = `Cam Dock ${upd.current}`;
+  if (document.documentElement.classList.contains("store")) return;
   $("#upd-desc").textContent = desc;
   $("#upd-bar").style.display = upd.state === "downloading" ? "block" : "none";
   $("#upd-bar i").style.width = `${Math.round(upd.progress * 100)}%`;
