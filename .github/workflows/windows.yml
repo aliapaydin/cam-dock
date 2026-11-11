@@ -92,9 +92,14 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version + ".0"
-          $kit = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\10.*\x64" -Directory | Sort-Object Name -Descending | Select-Object -First 1
-          $mk = Join-Path $kit.FullName "makeappx.exe"
-          $mp = Join-Path $kit.FullName "makepri.exe"
+          # En yeni Windows SDK'nın araçları (makepri ve makeappx olan sürüm)
+          $kit = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\10.*\x64\makepri.exe" |
+            Where-Object { Test-Path (Join-Path $_.DirectoryName "makeappx.exe") } |
+            Sort-Object { [version]($_.Directory.Parent.Name) } -Descending | Select-Object -First 1
+          if (-not $kit) { Write-Host "::error title=MSIX::Windows SDK araçları bulunamadı"; exit 1 }
+          Write-Host "SDK: $($kit.DirectoryName)"
+          $mk = Join-Path $kit.DirectoryName "makeappx.exe"
+          $mp = $kit.FullName
           $d = "msix"
           New-Item -ItemType Directory $d -Force | Out-Null
           Copy-Item src-tauri/target/release/cam-dock.exe $d
