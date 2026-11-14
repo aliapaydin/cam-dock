@@ -328,7 +328,19 @@ mod imp {
     }
     /// Tepsi simgesinin kendi sağ tık menüsü; simge bilinmiyorsa false.
     pub fn tray_context_menu(exe: &str) -> bool {
-        trayhook::context_menu(exe)
+        if trayhook::context_menu(exe) {
+            return true;
+        }
+        // Simge henüz bilinmiyor: uygulamalardan yeniden bildirmelerini iste, bekle, tekrar dene
+        trayhook::rebroadcast();
+        for _ in 0..8 {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            if trayhook::context_menu(exe) {
+                return true;
+            }
+        }
+        crate::dlog!("tepsi menüsü bulunamadı: {exe}; bilinenler: {:?}", trayhook::known());
+        false
     }
     /// Ana iş parçacığında çağrılmalı.
     pub fn install_taskbar_hook() -> bool {

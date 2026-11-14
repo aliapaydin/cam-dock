@@ -275,6 +275,26 @@ pub fn start() {
     });
 }
 
+/// Uygulamalardan tepsi simgelerini yeniden bildirmelerini ister (Explorer
+/// yeniden başlamış gibi). Bilinmeyen bir simge için menü istendiğinde kullanılır.
+pub fn rebroadcast() {
+    if FAKE.load(Ordering::SeqCst) == 0 {
+        return;
+    }
+    unsafe {
+        let name = wide("TaskbarCreated");
+        let m = RegisterWindowMessageW(PCWSTR(name.as_ptr()));
+        if m != 0 {
+            let _ = PostMessageW(Some(HWND_BROADCAST), m, WPARAM(0), LPARAM(0));
+        }
+    }
+}
+
+/// Kayıtlı simgelerin exe adları (tanılama için).
+pub fn known() -> Vec<String> {
+    ICONS.lock().unwrap().iter().map(|i| i.exe.rsplit('\\').next().unwrap_or("").to_string()).collect()
+}
+
 /// Kancayı kapatır (çıkışta): uygulamalar yeniden doğrudan taskbar'a yazar.
 pub fn stop() {
     let h = FAKE.swap(0, Ordering::SeqCst);

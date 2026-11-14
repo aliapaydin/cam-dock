@@ -648,7 +648,7 @@ button.cell.w-calendar { font: inherit; color: inherit; }
 
 /* ---------- Sürükle-bırak ile sıralama ---------- */
 .apps .app { touch-action: none; }
-.apps.drag-on .app { transition: transform .3s cubic-bezier(.2, .9, .3, 1), background .15s ease; }
+.apps.drag-on .app { transition: transform .32s cubic-bezier(.25, 1.25, .45, 1), background .15s ease !important; }
 .apps .app.dragging {
   transition: none !important; z-index: 5;
   background: var(--cell-active-bg);

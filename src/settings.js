@@ -494,6 +494,73 @@ function icon(path, name, aumid) {
   return holder;
 }
 
+// Basılı tutup sürükleyerek sıralama (oklar da çalışmaya devam eder).
+// Satır yukarı kalkar, diğerleri yumuşakça kayarak yer açar; bırakınca yerine oturur.
+function sortable(listEl, arr, onDone) {
+  const rows = () => [...listEl.children].filter((r) => r.classList.contains("item"));
+  listEl.querySelectorAll(".item").forEach((row) => {
+    row.classList.add("sortable");
+    row.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || e.target.closest("button, input, select, label, a")) return;
+      const all = rows();
+      const from = all.indexOf(row);
+      if (from < 0 || all.length < 2) return;
+      const y0 = e.clientY;
+      let active = false, to = from, h = 0, holdTimer = null;
+      const start = () => {
+        if (active) return;
+        active = true;
+        h = row.getBoundingClientRect().height;
+        try { row.setPointerCapture(e.pointerId); } catch {}
+        listEl.classList.add("sorting");
+        row.classList.add("lifted");
+      };
+      holdTimer = setTimeout(start, 220);
+      const move = (ev) => {
+        const dy = ev.clientY - y0;
+        if (!active) {
+          if (Math.abs(dy) > 6) { clearTimeout(holdTimer); start(); } else return;
+        }
+        const minY = -from * h, maxY = (all.length - 1 - from) * h;
+        const y = Math.max(minY - 12, Math.min(maxY + 12, dy));
+        row.style.transform = `translateY(${y}px) scale(1.02)`;
+        const t = Math.max(0, Math.min(all.length - 1, from + Math.round(y / h)));
+        if (t !== to) {
+          to = t;
+          all.forEach((r, i) => {
+            if (r === row) return;
+            let sh = 0;
+            if (from < to && i > from && i <= to) sh = -h;
+            if (from > to && i >= to && i < from) sh = h;
+            r.style.transform = sh ? `translateY(${sh}px)` : "";
+          });
+        }
+      };
+      const up = () => {
+        clearTimeout(holdTimer);
+        row.removeEventListener("pointermove", move);
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
+        if (!active) return;
+        row.classList.add("settling");
+        row.style.transform = `translateY(${(to - from) * h}px)`;
+        setTimeout(() => {
+          listEl.classList.remove("sorting");
+          if (to !== from) {
+            const [m] = arr.splice(from, 1);
+            arr.splice(to, 0, m);
+          }
+          onDone(to !== from);
+        }, 200);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
+    });
+  });
+}
+
 function renderPinned() {
   const list = $("#pinned");
   list.replaceChildren();
@@ -521,6 +588,7 @@ function renderPinned() {
     );
     list.append(row);
   });
+  sortable(list, cfg.pinned, (moved) => { renderPinned(); if (moved) changed(); });
 }
 
 // ---------------------------------------------------------------------------
@@ -592,6 +660,7 @@ function renderPhone() {
     row.append(up, x);
     sc.append(row);
   });
+  sortable(sc, ph.shortcuts, (moved) => { renderPhone(); if (moved) changed(); });
   refreshPhone();
 }
 

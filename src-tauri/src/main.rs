@@ -280,6 +280,7 @@ fn main() {
             stacks::stack_list,
             stacks::file_thumb,
             stacks::pick_folder,
+            stacks::stack_prefs,
             live::live_timer,
             quickset::quick_volume,
             quickset::quick_audio_device,

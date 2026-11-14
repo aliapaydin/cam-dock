@@ -669,3 +669,11 @@ button.qs-ic:hover { background: var(--hover); }
 .stk-seg button { transition: background .2s, color .2s; }
 .stk-foot button:hover { background: var(--hover); }
 .stk-foot button:active, .tray-foot button:active { transform: scale(.94); }
+
+/* Yelpaze kaydırma */
+.stk.fan .stk-body { outline: none; }
+.stk.fan .stk-body.up .stk-it { animation: fan-up .3s cubic-bezier(.3, 1.2, .5, 1) both; animation-delay: 0s !important; }
+.stk.fan .stk-body.down .stk-it { animation: fan-down .3s cubic-bezier(.3, 1.2, .5, 1) both; animation-delay: 0s !important; }
+@keyframes fan-up { from { opacity: .3; translate: 0 -26px; } }
+@keyframes fan-down { from { opacity: .3; translate: 0 26px; } }
+.stk-more { font-size: 11px; color: var(--text-3); text-align: center; margin-top: -4px; }

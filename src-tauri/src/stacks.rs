@@ -120,3 +120,23 @@ pub fn add(app: &AppHandle, path: &str) -> bool {
     dlog!("klasör yığını eklendi");
     true
 }
+
+/// Yığının son kullanılan görünümünü ve sıralamasını kaydeder (bir sonraki
+/// açılışta aynı görünümle açılsın).
+#[tauri::command]
+pub fn stack_prefs(app: AppHandle, path: String, view: Option<String>, sort: Option<String>) {
+    let cfg = {
+        let state = app.state::<AppState>();
+        let mut cfg = state.cfg.lock().unwrap();
+        let Some(st) = cfg.stacks.iter_mut().find(|s| s.path.eq_ignore_ascii_case(&path)) else { return };
+        if let Some(v) = view.filter(|v| v == "grid" || v == "fan") {
+            st.view = v;
+        }
+        if let Some(s) = sort.filter(|s| s == "date" || s == "name") {
+            st.sort = s;
+        }
+        cfg.clone()
+    };
+    config::save(&cfg);
+    crate::emit_config(&app);
+}

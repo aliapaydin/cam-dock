@@ -574,7 +574,9 @@ function appsWidget() {
   function magApply() {
     magRaf = 0;
     const els = magItems();
-    if (magX == null || appsDragging || cfg.magnify === false || !els.length) {
+    // Sürüklerken simgelerin kayma konumlarına dokunma
+    if (appsDragging) return;
+    if (magX == null || cfg.magnify === false || !els.length) {
       for (const b of els) if (!b.classList.contains("dragging") && !b.classList.contains("dropping")) b.style.transform = "";
       return;
     }
@@ -608,6 +610,7 @@ function appsWidget() {
     invoke("dock_region", { expand: [Math.max(0, r.left - 40), r.right + 40] }).catch(() => {});
   });
   vp.addEventListener("mousemove", (e) => {
+    if (appsDragging) return;
     const r = vp.getBoundingClientRect();
     // Kenarlara yaklaşınca kaydır
     edgeV = 0;
@@ -656,11 +659,12 @@ function appsWidget() {
     drag.els = els;
     drag.from = els.indexOf(drag.el);
     drag.to = drag.from;
-    drag.rects = els.map((x) => x.getBoundingClientRect());
-    drag.slot = drag.rects[1].left - drag.rects[0].left;
-    drag.min = drag.rects[0].left - drag.rects[drag.from].left;
-    drag.max = drag.rects[els.length - 1].left - drag.rects[drag.from].left;
+    // Büyüteç animasyonu sürerken ölçülen konumlar yanıltır: düzen tekdüze (SLOT)
+    drag.slot = SLOT;
+    drag.min = -drag.from * SLOT;
+    drag.max = (els.length - 1 - drag.from) * SLOT;
     try { drag.el.setPointerCapture(drag.id); } catch {}
+    list.classList.remove("mag-on");
     list.classList.add("drag-on");
     drag.el.classList.add("dragging");
   }

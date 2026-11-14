@@ -310,3 +310,10 @@ input[type="range"] { width: 220px; accent-color: var(--accent); flex: 0 0 auto;
 .row select { padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--text); font-size: 13px; min-width: 170px; }
 
 .store .store-hide { display: none !important; }
+
+/* Sürükleyerek sıralama */
+.item.sortable { cursor: grab; touch-action: none; position: relative; background: var(--card); }
+.sorting .item { transition: transform .28s cubic-bezier(.25, 1.2, .45, 1); }
+.sorting .item.lifted { transition: none; z-index: 5; cursor: grabbing; border-radius: 12px; box-shadow: 0 12px 28px rgba(0, 0, 0, .28), 0 0 0 1px var(--accent); }
+.sorting .item.lifted.settling { transition: transform .2s cubic-bezier(.3, 1.35, .5, 1); }
+.sorting .item + .item { border-top-color: transparent; }

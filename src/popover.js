@@ -1149,62 +1149,124 @@ function fileGlyph(e) {
 async function renderStack(st) {
   let sort = st.sort || "date";
   let view = st.view || "grid";
+  const FAN = 9; // yelpazede aynı anda görünen öğe
+  let fanOff = 0; // yelpazede kaydırma (en yeniden kaç öğe geride)
+  let list = [];
   const box = el("div", "stk");
   panel.append(box);
 
+  const save = () => invoke("stack_prefs", { path: st.path, view, sort }).catch(() => {});
+
+  function fanPlace(body, dir) {
+    // En yeni en altta (dock'a yakın); kaydırınca eskiler yukarıdan gelir
+    const shown = list.slice(fanOff, fanOff + FAN).reverse();
+    const nodes = shown.map((e, i, arr) => itemFor(e, arr.length - 1 - i));
+    body.replaceChildren(...nodes);
+    if (dir) {
+      body.classList.remove("up", "down");
+      void body.offsetWidth;
+      body.classList.add(dir);
+    }
+    const more = box.querySelector(".stk-more");
+    if (more) {
+      more.hidden = list.length <= FAN;
+      more.textContent = list.length > FAN ? `${fanOff + 1}–${Math.min(list.length, fanOff + FAN)} / ${list.length} · tekerlek ya da ↑ ↓ ile kaydır` : "";
+    }
+    thumbs(nodes);
+  }
+
+  function fanScroll(d) {
+    const max = Math.max(0, list.length - FAN);
+    const n = Math.max(0, Math.min(max, fanOff + d));
+    if (n === fanOff) return;
+    fanOff = n;
+    fanPlace(box.querySelector(".stk-body"), d > 0 ? "up" : "down");
+  }
+
+  function itemFor(e, k) {
+    const it = el("button", "stk-it");
+    it.title = `${e.name}\n${fileAgo(e.modified)} önce`;
+    it.innerHTML = `<span class="stk-th">${fileGlyph(e)}</span><span class="stk-nm"></span>${view === "grid" ? `<small>${fileAgo(e.modified)}</small>` : ""}`;
+    it.querySelector(".stk-nm").textContent = e.name;
+    it._e = e;
+    if (view === "fan") {
+      it.style.setProperty("--k", k);
+      it.style.animationDelay = `${k * 22}ms`;
+    } else {
+      it.style.animationDelay = `${Math.min(k, 24) * 24 + 40}ms`;
+      it.addEventListener("pointerdown", (ev) => {
+        const r = it.getBoundingClientRect();
+        const w = el("i", "rip");
+        w.style.left = `${ev.clientX - r.left}px`;
+        w.style.top = `${ev.clientY - r.top}px`;
+        it.append(w);
+        setTimeout(() => w.remove(), 600);
+      });
+    }
+    it.onclick = () => { invoke("launch_app", { path: e.path }); invoke("popover_close"); };
+    return it;
+  }
+
+  // Küçük resimler (aynı anda en çok 4 istek)
+  function thumbs(nodes) {
+    const q = nodes.filter((n) => !n._e.dir);
+    const worker = async () => {
+      while (q.length) {
+        const it = q.shift();
+        const u = await invoke("file_thumb", { path: it._e.path, size: view === "fan" ? 64 : 96 }).catch(() => null);
+        if (u && it.isConnected) it.querySelector(".stk-th").innerHTML = `<img src="${u}" alt="">`;
+      }
+    };
+    Promise.all([worker(), worker(), worker(), worker()]);
+  }
+
   async function draw() {
-    const list = (await invoke("stack_list", { path: st.path, sort, limit: view === "fan" ? 9 : 60 }).catch(() => [])) || [];
+    list = (await invoke("stack_list", { path: st.path, sort, limit: 60 }).catch(() => [])) || [];
+    fanOff = 0;
     box.className = `stk ${view}`;
     box.innerHTML = `
       <div class="stk-head"><strong>${esc(st.name)}</strong><span>${list.length ? list.length + (list.length >= 60 ? "+" : "") + " öğe" : ""}</span>
         <div class="stk-seg"><button data-s="date" class="${sort === "date" ? "on" : ""}">Tarih</button><button data-s="name" class="${sort === "name" ? "on" : ""}">Ad</button></div>
         <div class="stk-seg"><button data-v="grid" class="${view === "grid" ? "on" : ""}" title="Izgara">▦</button><button data-v="fan" class="${view === "fan" ? "on" : ""}" title="Yelpaze">◜</button></div>
       </div>
-      <div class="stk-body"></div>
+      <div class="stk-body" tabindex="-1"></div>
+      ${view === "fan" ? '<div class="stk-more" hidden></div>' : ""}
       <div class="stk-foot"><button class="stk-open">Klasörü aç</button></div>`;
     const body = box.querySelector(".stk-body");
     if (!list.length) body.innerHTML = '<div class="stk-empty">Bu klasör boş.</div>';
-    const items = (view === "fan" ? [...list].reverse() : list).map((e, i, arr) => {
-      const it = el("button", "stk-it");
-      it.title = `${e.name}\n${fileAgo(e.modified)} önce`;
-      it.innerHTML = `<span class="stk-th">${fileGlyph(e)}</span><span class="stk-nm"></span>${view === "grid" ? `<small>${fileAgo(e.modified)}</small>` : ""}`;
-      it.querySelector(".stk-nm").textContent = e.name;
-      if (view === "fan") {
-        // Yelpaze: alttan (dock'a yakın) yukarı doğru hafif kavisli
-        const k = arr.length - 1 - i;
-        it.style.setProperty("--k", k);
-        it.style.animationDelay = `${k * 22}ms`;
-      } else {
-        it.style.animationDelay = `${Math.min(i, 24) * 24 + 40}ms`;
-        it.addEventListener("pointerdown", (ev) => {
-          const r = it.getBoundingClientRect();
-          const w = el("i", "rip");
-          w.style.left = `${ev.clientX - r.left}px`;
-          w.style.top = `${ev.clientY - r.top}px`;
-          it.append(w);
-          setTimeout(() => w.remove(), 600);
-        });
-      }
-      it.onclick = () => { invoke("launch_app", { path: e.path }); invoke("popover_close"); };
-      return { it, e };
-    });
-    body.append(...items.map((x) => x.it));
-    // Küçük resimler (aynı anda en çok 4 istek)
-    let q = items.slice();
-    const worker = async () => {
-      while (q.length) {
-        const { it, e } = q.shift();
-        if (e.dir) continue;
-        const u = await invoke("file_thumb", { path: e.path, size: view === "fan" ? 64 : 96 }).catch(() => null);
-        if (u) it.querySelector(".stk-th").innerHTML = `<img src="${u}" alt="">`;
-      }
-    };
-    Promise.all([worker(), worker(), worker(), worker()]);
-    box.querySelectorAll("[data-s]").forEach((b) => (b.onclick = () => { sort = b.dataset.s; draw(); }));
-    box.querySelectorAll("[data-v]").forEach((b) => (b.onclick = () => { view = b.dataset.v; draw(); }));
+    else if (view === "fan") fanPlace(body);
+    else {
+      const nodes = list.map((e, i) => itemFor(e, i));
+      body.append(...nodes);
+      thumbs(nodes);
+    }
+    box.querySelectorAll("[data-s]").forEach((b) => (b.onclick = () => { sort = b.dataset.s; save(); draw(); }));
+    box.querySelectorAll("[data-v]").forEach((b) => (b.onclick = () => { view = b.dataset.v; save(); draw(); }));
     box.querySelector(".stk-open").onclick = () => { invoke("launch_app", { path: "explorer.exe", args: `"${st.path}"` }); invoke("popover_close"); };
     relayout();
+    body.focus({ preventScroll: true });
   }
+
+  // Yelpaze: tekerlek ve ok tuşlarıyla kaydırma
+  let wheelAcc = 0;
+  box.addEventListener("wheel", (e) => {
+    if (view !== "fan") return;
+    e.preventDefault();
+    wheelAcc += e.deltaY;
+    while (Math.abs(wheelAcc) >= 60) {
+      const d = wheelAcc < 0 ? 1 : -1; // yukarı = daha eskiler
+      wheelAcc -= wheelAcc < 0 ? -60 : 60;
+      fanScroll(d);
+    }
+  }, { passive: false });
+  window.addEventListener("keydown", function onKey(e) {
+    if (!box.isConnected) { window.removeEventListener("keydown", onKey); return; }
+    if (view !== "fan") return;
+    if (e.key === "ArrowUp") { e.preventDefault(); fanScroll(1); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); fanScroll(-1); }
+    else if (e.key === "PageUp") { e.preventDefault(); fanScroll(FAN); }
+    else if (e.key === "PageDown") { e.preventDefault(); fanScroll(-FAN); }
+  });
   await draw();
 }
 
