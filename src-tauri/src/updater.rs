@@ -200,24 +200,40 @@ pub fn install(app: &AppHandle) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let script = format!(
-            "timeout /t 2 /nobreak >nul & \"{}\" /S & start \"\" \"{}\"",
-            file.display(),
-            exe.display()
-        );
-        if std::process::Command::new("cmd")
-            .arg("/C")
-            .raw_arg(&script)
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-            .is_err()
-        {
-            set(app, |s| {
-                s.state = "error".into();
-                s.error = "Kurulum başlatılamadı".into();
-            });
-            return false;
+        // Kurulumu yürüten yardımcı, exe'nin geçici klasördeki bir kopyası:
+        // kurulum dosyası, çalışan exe'nin üzerine yazabilsin diye.
+        let helper = std::env::temp_dir().join("camdock-update").join("camdock-updater.exe");
+        let _ = std::fs::create_dir_all(helper.parent().unwrap());
+        let started = std::fs::copy(&exe, &helper).is_ok()
+            && std::process::Command::new(&helper)
+                .arg("--apply-update")
+                .arg(&file)
+                .arg(std::process::id().to_string())
+                .arg(&exe)
+                .creation_flags(0x0000_0008 | 0x0000_0200) // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+                .spawn()
+                .is_ok();
+        if !started {
+            dlog!("güncelleme yardımcısı başlatılamadı, eski yönteme dönülüyor");
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            let script = format!(
+                "timeout /t 3 /nobreak >nul & \"{}\" /S & start \"\" \"{}\"",
+                file.display(),
+                exe.display()
+            );
+            if std::process::Command::new("cmd")
+                .arg("/C")
+                .raw_arg(&script)
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .is_err()
+            {
+                set(app, |s| {
+                    s.state = "error".into();
+                    s.error = "Kurulum başlatılamadı".into();
+                });
+                return false;
+            }
         }
     }
     #[cfg(not(windows))]
@@ -280,4 +296,46 @@ pub async fn update_check(app: AppHandle) {
 #[tauri::command]
 pub async fn update_install(app: AppHandle) -> bool {
     tauri::async_runtime::spawn_blocking(move || install(&app)).await.unwrap_or(false)
+}
+
+/// `--apply-update <kurulum> <pid> <exe>`: geçici klasördeki kopyadan çalışır.
+/// Dock'un (ve bekçisinin) kapanmasını bekler, kurulumu sessizce çalıştırır,
+/// sonucu günlüğe yazar; olmadıysa bir kez daha dener, yine olmazsa kurulumu
+/// görünür açar ki hata ekranda görülsün. Sonunda dock'u yeniden başlatır.
+pub fn apply(setup: &str, pid: u32, exe: &str) {
+    crate::platform::wait_process_exit(pid);
+    // Bekçi süreç ana süreçten ~1 sn sonra çıkar; exe kilitli kalmasın.
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    let mtime = || std::fs::metadata(exe).and_then(|m| m.modified()).ok();
+    let before = mtime();
+    let run = |silent: bool| -> Option<i32> {
+        let mut c = std::process::Command::new(setup);
+        if silent {
+            c.arg("/S");
+        }
+        match c.status() {
+            Ok(st) => st.code(),
+            Err(e) => {
+                dlog!("güncelleme: kurulum çalıştırılamadı: {e}");
+                None
+            }
+        }
+    };
+    let mut ok = false;
+    for attempt in 1..=2 {
+        let code = run(true);
+        let changed = mtime() != before;
+        dlog!("güncelleme: kurulum {attempt}. deneme, çıkış kodu {code:?}, exe {}", if changed { "yenilendi" } else { "DEĞİŞMEDİ" });
+        if code == Some(0) && changed {
+            ok = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_secs(3));
+    }
+    if !ok {
+        dlog!("güncelleme: sessiz kurulum olmadı, kurulum ekranı açılıyor");
+        let _ = run(false);
+        dlog!("güncelleme: görünür kurulum bitti, exe {}", if mtime() != before { "yenilendi" } else { "DEĞİŞMEDİ" });
+    }
+    let _ = std::process::Command::new(exe).spawn();
 }

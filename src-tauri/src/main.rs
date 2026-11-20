@@ -160,6 +160,12 @@ fn main() {
         docks::guard_launch(pid);
         return;
     }
+    if let Some(i) = args.iter().position(|a| a == "--apply-update") {
+        if let (Some(setup), Some(pid), Some(exe)) = (args.get(i + 1), args.get(i + 2).and_then(|p| p.parse::<u32>().ok()), args.get(i + 3)) {
+            updater::apply(setup, pid, exe);
+        }
+        return;
+    }
     if std::env::args().any(|a| a == "--restore-taskbar") {
         docks::emergency_restore();
         return;
