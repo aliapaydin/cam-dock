@@ -1824,6 +1824,8 @@ function render() {
     const w = make();
     w.dataset.wid = name;
     w.dataset.wname = WIDGET_NAMES[name] || name;
+    const ww = cfg.widget_widths?.[name];
+    if (ww && RESIZABLE.has(name)) { w.style.width = `${ww}px`; w.classList.add("sized"); }
     dock.append(w);
   }
   if (editing) decorateEdit();
@@ -1844,8 +1846,51 @@ const WIDGET_NAMES = {
 let editing = false;
 let wdrag = null;
 
+// Genişliği ayarlanabilen widget'lar (düzenleme modunda sağ kenardan sürüklenir)
+const RESIZABLE = new Set(["calendar", "claude", "screentime", "ticker", "currency", "media", "clock", "notes", "todo", "focus", "world", "mail"]);
+function addResizer(w) {
+  if (!RESIZABLE.has(w.dataset.wid) || w.querySelector(":scope > .w-rs")) return;
+  const h = $("span", "w-rs");
+  h.title = "Genişliği ayarla · çift tık: varsayılan";
+  h.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const x0 = e.clientX, w0 = w.getBoundingClientRect().width;
+    h.setPointerCapture(e.pointerId);
+    w.classList.add("sized", "w-resizing");
+    let wNow = w0;
+    const move = (ev) => {
+      wNow = Math.round(Math.max(56, Math.min(640, w0 + ev.clientX - x0)));
+      w.style.width = `${wNow}px`;
+      queueLayout();
+    };
+    const up = () => {
+      h.removeEventListener("pointermove", move);
+      h.removeEventListener("pointerup", up);
+      h.removeEventListener("pointercancel", up);
+      w.classList.remove("w-resizing");
+      cfg.widget_widths = { ...(cfg.widget_widths || {}), [w.dataset.wid]: wNow };
+      invoke("set_widget_width", { id: w.dataset.wid, width: wNow }).catch(() => {});
+    };
+    h.addEventListener("pointermove", move);
+    h.addEventListener("pointerup", up);
+    h.addEventListener("pointercancel", up);
+  });
+  h.addEventListener("dblclick", (e) => {
+    e.stopPropagation();
+    w.style.width = "";
+    w.classList.remove("sized");
+    if (cfg.widget_widths) delete cfg.widget_widths[w.dataset.wid];
+    invoke("set_widget_width", { id: w.dataset.wid, width: null }).catch(() => {});
+    queueLayout();
+  });
+  w.append(h);
+}
+
 function decorateEdit() {
   dock.querySelectorAll("[data-wid]").forEach((w, i) => {
+    addResizer(w);
     w.style.setProperty("--jd", `${(i % 3) * -0.09}s`);
     if (!w.querySelector(":scope > .w-x")) {
       const x = $("button", "w-x", "×");
@@ -1866,7 +1911,7 @@ function setEditing(on) {
     // Titreme ve × düğmeleri dock'un üstüne taşar: o alan da çizilsin
     invoke("dock_region", { expand: [0, document.documentElement.clientWidth] }).catch(() => {});
   } else {
-    dock.querySelectorAll(".w-x").forEach((x) => x.remove());
+    dock.querySelectorAll(".w-x, .w-rs").forEach((x) => x.remove());
     invoke("dock_region", { expand: null }).catch(() => {});
   }
   queueLayout();
@@ -1886,14 +1931,14 @@ function removeWidget(w) {
 // Düzenleme modunda widget'lara tıklama (paneller açılmasın)
 dock.addEventListener("click", (e) => {
   if (!editing) return;
-  if (e.target.closest(".w-x")) return;
+  if (e.target.closest(".w-x, .w-rs")) return;
   if (e.target.closest("[data-wid]")) { e.preventDefault(); e.stopPropagation(); }
 }, true);
 
 dock.addEventListener("pointerdown", (e) => {
   if (!editing || e.button !== 0) return;
   const w = e.target.closest("[data-wid]");
-  if (!w || e.target.closest(".w-x")) return;
+  if (!w || e.target.closest(".w-x, .w-rs")) return;
   e.preventDefault();
   e.stopPropagation();
   wdrag = { el: w, id: e.pointerId, x0: e.clientX, y0: e.clientY, active: false };

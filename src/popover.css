@@ -827,3 +827,14 @@ button.qs-ic:hover { background: var(--hover); }
 .tl-track span:first-child { translate: 0 0; }
 .tl-track i { position: absolute; top: -4px; width: 4px; height: 16px; margin-left: -2px; border-radius: 2px; background: var(--text); box-shadow: 0 0 0 2px var(--bg); }
 .tl-track i em { position: absolute; bottom: 18px; left: 50%; translate: -50% 0; font-style: normal; font-size: 9.5px; font-weight: 700; color: var(--text-2); white-space: nowrap; }
+.seg button.cust { font-style: italic; }
+.seg button.cust.on { font-style: normal; }
+.seg-in { width: 52px; border: 0; outline: 0; border-radius: 7px; padding: 3px 6px; font: inherit; font-size: 11px; background: var(--hover); color: var(--text); box-shadow: 0 0 0 2px var(--mc); -webkit-user-select: text; user-select: text; }
+.seg-in::-webkit-inner-spin-button { opacity: 1; }
+/* Pano: öğeler sıkışmasın, panel daha geniş ve uzun */
+.clp { width: 470px; }
+.clp-list { max-height: 600px; }
+.clp-item { flex: 0 0 auto; }
+.clp-text { -webkit-line-clamp: 3; font-size: 13px; }
+.clp-img { max-height: 120px; }
+.td, .wcs-row { flex: 0 0 auto; }

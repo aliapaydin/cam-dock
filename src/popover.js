@@ -1065,11 +1065,39 @@ async function renderFocus() {
     const f = cfgF();
     box.querySelectorAll(".seg").forEach((sg) => {
       const k = sg.dataset.k;
-      sg.replaceChildren(...OPTS[k].map((v) => {
-        const b = el("button", v === f[k] ? "on" : "", k === "rounds" ? `${v} tur` : `${v} dk`);
-        b.onclick = () => { pcfg.focus = { ...f, [k]: v }; drawSet(); invoke("set_focus_cfg", { focus: pcfg.focus }).catch(() => {}); };
+      const unit = k === "rounds" ? "tur" : "dk";
+      const setV = (v) => { pcfg.focus = { ...cfgF(), [k]: v }; drawSet(); invoke("set_focus_cfg", { focus: pcfg.focus }).catch(() => {}); };
+      const chips = OPTS[k].map((v) => {
+        const b = el("button", v === f[k] ? "on" : "", `${v} ${unit}`);
+        b.onclick = () => setV(v);
         return b;
-      }));
+      });
+      // Özel değer: listede yoksa vurgulu gösterilir; tıklayınca sayı yazılır
+      const custom = !OPTS[k].includes(f[k]);
+      const cb = el("button", "cust" + (custom ? " on" : ""), custom ? `${f[k]} ${unit}` : "Özel");
+      cb.title = k === "rounds" ? "Tur sayısını yaz (1–12)" : "Dakikayı yaz (1–180)";
+      cb.onclick = () => {
+        const inp = el("input", "seg-in");
+        inp.type = "number";
+        inp.min = 1;
+        inp.max = k === "rounds" ? 12 : 180;
+        inp.value = f[k];
+        inp.setAttribute("aria-label", cb.title);
+        cb.replaceWith(inp);
+        inp.focus();
+        inp.select();
+        let done = false;
+        const commit = () => {
+          if (done) return;
+          done = true;
+          const v = Math.round(Number(inp.value));
+          if (v >= 1 && v <= Number(inp.max)) setV(v);
+          else drawSet();
+        };
+        inp.onkeydown = (e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") { done = true; drawSet(); } };
+        inp.onblur = commit;
+      };
+      sg.replaceChildren(...chips, cb);
     });
     box.querySelectorAll("input[data-k]").forEach((i) => {
       i.checked = !!f[i.dataset.k];
@@ -1776,6 +1804,7 @@ async function mockInvoke(cmd, args) {
     { id: 2, kind: "image", preview: MOCK.wallpaper("ocean").image, width: 1920, height: 1080, source: "SnippingTool", source_path: "", time: Date.now() - 300000, pinned: false, text: "" },
     { id: 3, kind: "text", text: "https://github.com/aliapaydin/cam-dock/actions", source: "Chrome", source_path: "", time: Date.now() - 900000, pinned: false },
     { id: 4, kind: "text", text: "Toplantı notları: Q4 hedefleri, yeni dashboard taslağı, veri ambarı geçişi takvimi.", source: "Notepad", source_path: "", time: Date.now() - 3600000, pinned: false },
+    ...Array.from({ length: q.has("many") ? 18 : 0 }, (_, i) => ({ id: 10 + i, kind: "text", text: `Örnek kopyalanan metin ${i + 1}: lorem ipsum dolor sit amet`, source: "Chrome", source_path: "", time: Date.now() - (i + 2) * 3600e3, pinned: false })),
   ];
   if (cmd === "claude_usage") return { state: q.get("cstate") || "ok", plan: "Max", updated: Date.now() - 120000, message: "", limits: q.get("cstate") === "no_claude_code" ? [] : [
     { label: "Oturum", percent: 34, resets_at: new Date(Date.now() + 2.3 * 3600e3).toISOString() },

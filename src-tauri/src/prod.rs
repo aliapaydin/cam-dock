@@ -32,6 +32,8 @@ pub struct Note {
     pub desktop: bool,
     /// Masaüstündeyken diğer pencerelerin üstünde dursun
     pub top: bool,
+    /// Otomatik boyut: pencere yazıyı gösterecek kadar büyür/küçülür
+    pub fit: bool,
     /// Masaüstündeki yeri ve boyutu (fiziksel piksel). w = 0: henüz yerleşmedi
     pub x: i32,
     pub y: i32,
@@ -134,32 +136,36 @@ pub async fn note_new(app: AppHandle, text: Option<String>, color: Option<String
     .await
 }
 
-/// Notun metnini, rengini ya da "üstte tut" ayarını değiştirir.
+/// Notun metnini, rengini, "üstte tut" ya da otomatik boyut ayarını değiştirir.
 #[tauri::command]
-pub async fn note_update(app: AppHandle, id: String, text: Option<String>, color: Option<String>, top: Option<bool>) -> Result<(), String> {
-    run(move || {
-        let changed = with(|s| {
-            let Some(n) = s.notes.iter_mut().find(|n| n.id == id) else { return None };
-            if let Some(t) = text {
-                n.text = t;
-            }
-            if let Some(c) = color {
-                n.color = c;
-            }
-            if let Some(t) = top {
-                n.top = t;
-            }
-            n.updated = now_ms();
-            Some(n.clone())
-        });
-        let Some(n) = changed else { return };
-        save();
-        if let Some(w) = app.get_webview_window(&label(&n.id)) {
-            let _ = w.set_always_on_top(n.top);
+pub async fn note_update(app: AppHandle, id: String, text: Option<String>, color: Option<String>, top: Option<bool>, fit: Option<bool>) -> Result<(), String> {
+    run(move || update(&app, &id, text, color, top, fit)).await
+}
+
+fn update(app: &AppHandle, id: &str, text: Option<String>, color: Option<String>, top: Option<bool>, fit: Option<bool>) {
+    let changed = with(|s| {
+        let n = s.notes.iter_mut().find(|n| n.id == id)?;
+        if let Some(t) = text {
+            n.text = t;
         }
-        emit_notes(&app);
-    })
-    .await
+        if let Some(c) = color {
+            n.color = c;
+        }
+        if let Some(t) = top {
+            n.top = t;
+        }
+        if let Some(f) = fit {
+            n.fit = f;
+        }
+        n.updated = now_ms();
+        Some(n.clone())
+    });
+    let Some(n) = changed else { return };
+    save();
+    if let Some(w) = app.get_webview_window(&label(&n.id)) {
+        let _ = w.set_always_on_top(n.top);
+    }
+    emit_notes(app);
 }
 
 #[tauri::command]
@@ -295,9 +301,11 @@ fn open_window(app: &AppHandle, n: &Note) {
     #[cfg(windows)]
     if let Ok(h) = w.hwnd() {
         let h = h.0 as isize;
-        // Alt+Tab ve dock'un pencere listesinde görünmesin (araç penceresi)
+        // Alt+Tab ve dock'un pencere listesinde görünmesin (araç penceresi);
+        // etkinleşince Windows'un "Not" başlık çubuğunu boyamasını da engelle.
         let _ = app.run_on_main_thread(move || {
             crate::platform::make_popup(h);
+            crate::platform::install_dock_proc(h);
         });
     }
     // Sayfa çizilince note_ready ile animasyonla görünür.
@@ -761,4 +769,80 @@ pub async fn set_world_clocks(app: AppHandle, clocks: Vec<config::WorldClock>) -
         crate::emit_config(&app);
     })
     .await
+}
+
+// ---------------------------------------------------------------------------
+// Notun kenarına sağ tık: Cam Dock menüsü
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn note_menu(window: WebviewWindow) -> Result<(), String> {
+    use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, SubmenuBuilder};
+    let app = window.app_handle();
+    let id = id_of(&window);
+    let Some(n) = notes().into_iter().find(|n| n.id == id) else { return Ok(()) };
+    let e = |e: tauri::Error| e.to_string();
+    let colors = [("yellow", "Sarı"), ("pink", "Pembe"), ("blue", "Mavi"), ("green", "Yeşil"), ("purple", "Mor"), ("orange", "Turuncu"), ("gray", "Gece")];
+    let mut cb = SubmenuBuilder::new(app, "Renk");
+    for (k, name) in colors {
+        cb = cb.item(&CheckMenuItemBuilder::with_id(format!("note:color:{k}:{id}"), name).checked(n.color == k).build(app).map_err(e)?);
+    }
+    let menu = MenuBuilder::new(app)
+        .text(format!("note:new:{id}"), "Yeni not")
+        .separator()
+        .item(&CheckMenuItemBuilder::with_id(format!("note:fit:{id}"), "Otomatik boyut (yazıya göre)").checked(n.fit).build(app).map_err(e)?)
+        .item(&CheckMenuItemBuilder::with_id(format!("note:top:{id}"), "Diğer pencerelerin üstünde tut").checked(n.top).build(app).map_err(e)?)
+        .item(&cb.build().map_err(e)?)
+        .text(format!("note:copy:{id}"), "Tüm metni kopyala")
+        .separator()
+        .text(format!("note:hide:{id}"), "Masaüstünden kaldır")
+        .text(format!("note:hideall:{id}"), "Tüm notları masaüstünden kaldır")
+        .text(format!("note:delete:{id}"), "Notu sil")
+        .build()
+        .map_err(e)?;
+    window.popup_menu(&menu).map_err(e)
+}
+
+/// "note:<eylem>:...:<id>" menü seçimleri
+pub fn menu_action(app: &AppHandle, rest: &str) {
+    let app = app.clone();
+    let rest = rest.to_string();
+    std::thread::spawn(move || {
+        let parts: Vec<&str> = rest.split(':').collect();
+        let id = parts.last().copied().unwrap_or("").to_string();
+        let Some(n) = notes().into_iter().find(|n| n.id == id) else { return };
+        match parts.first().copied().unwrap_or("") {
+            "new" => {
+                let t = now_ms();
+                let m = Note { id: new_id(), color: n.color.clone(), desktop: true, created: t, updated: t, ..Default::default() };
+                with(|s| s.notes.push(m.clone()));
+                save();
+                open_window(&app, &m);
+                emit_notes(&app);
+            }
+            "fit" => update(&app, &id, None, None, None, Some(!n.fit)),
+            "top" => update(&app, &id, None, None, Some(!n.top), None),
+            "color" => update(&app, &id, None, parts.get(1).map(|c| c.to_string()), None, None),
+            "copy" => {
+                if let Some(w) = app.get_webview_window(&label(&id)) {
+                    let _ = w.emit("note-copy", ());
+                }
+            }
+            "hide" => set_desktop(&app, &id, false),
+            "hideall" => {
+                for o in notes() {
+                    if o.desktop {
+                        set_desktop(&app, &o.id, false);
+                    }
+                }
+            }
+            "delete" => {
+                with(|s| s.notes.retain(|o| o.id != id));
+                save();
+                close_window(&app, &id);
+                emit_notes(&app);
+            }
+            _ => {}
+        }
+    });
 }

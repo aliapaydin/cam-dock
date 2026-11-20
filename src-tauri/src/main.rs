@@ -93,6 +93,10 @@ fn cleanup(app: &tauri::AppHandle) {
 }
 
 fn on_menu(app: &tauri::AppHandle, id: &str) {
+    if let Some(rest) = id.strip_prefix("note:") {
+        prod::menu_action(app, rest);
+        return;
+    }
     if id.starts_with("am:") {
         commands::app_menu_action(app, id);
         return;
@@ -235,6 +239,8 @@ fn main() {
             prod::note_drag,
             prod::note_drag_end,
             prod::note_resize,
+            prod::note_menu,
+            commands::set_widget_width,
             prod::todos_list,
             prod::todo_add,
             prod::todo_toggle,

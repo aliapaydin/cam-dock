@@ -87,6 +87,8 @@ $("#fold").addEventListener("pointerdown", (e) => {
   e.preventDefault();
   const r = devicePixelRatio || 1;
   rs = { x: e.screenX, y: e.screenY, w: innerWidth * r, h: innerHeight * r, id: e.pointerId, raf: 0 };
+  // Elle boyutlandırınca otomatik boyut kapanır
+  if (note?.fit) { note.fit = false; invoke("note_update", { id: note.id, fit: false }).catch(() => {}); }
   $("#fold").setPointerCapture(e.pointerId);
 });
 $("#fold").addEventListener("pointermove", (e) => {
@@ -103,6 +105,39 @@ $("#fold").addEventListener("pointerup", (e) => {
   invoke("note_resize", { w, h, done: true }).catch(() => {});
 });
 
+// Sağ tık: yazının üstünde Windows'un kopyala/yapıştır menüsü kalır;
+// kâğıdın kenarında (şerit, alt bilgi, boşluk) Cam Dock'un not menüsü açılır.
+document.addEventListener("contextmenu", (e) => {
+  if (e.target === text && text.value.trim()) return;
+  e.preventDefault();
+  invoke("note_menu").catch(() => {});
+});
+listen("note-copy", () => navigator.clipboard?.writeText(text.value).catch(() => {}));
+
+// Otomatik boyut: en uzun satıra göre genişlik, satır sayısına göre yükseklik.
+const meas = document.createElement("div");
+meas.className = "meas";
+document.body.append(meas);
+let fitT = 0;
+function fit() {
+  if (!note?.fit) return;
+  const cs = getComputedStyle(text);
+  meas.style.font = cs.font;
+  meas.style.whiteSpace = "pre";
+  meas.style.width = "auto";
+  meas.textContent = (text.value || text.placeholder) + "\u200b";
+  const tw = Math.min(460, Math.max(140, Math.ceil(meas.getBoundingClientRect().width) + 4));
+  meas.style.whiteSpace = "pre-wrap";
+  meas.style.width = tw + "px";
+  const th = Math.max(48, Math.ceil(meas.getBoundingClientRect().height));
+  const r = devicePixelRatio || 1;
+  // gövde dolgusu 14*2, yazı alanı yanları 16*2, şerit 34, alt bilgi 26, boşluk 8
+  const w = Math.round((tw + 32 + 28) * r), h = Math.round((th + 34 + 26 + 28 + 8) * r);
+  invoke("note_resize", { w, h, done: true }).catch(() => {});
+}
+const fitSoon = () => { clearTimeout(fitT); fitT = setTimeout(fit, 120); };
+text.addEventListener("input", fitSoon);
+
 listen("note-close", () => paper.classList.add("closing"));
 listen("note-flash", () => { paper.classList.remove("flash"); void paper.offsetWidth; paper.classList.add("flash"); });
 listen("notes-changed", (e) => {
@@ -110,14 +145,17 @@ listen("notes-changed", (e) => {
   if (!n) return;
   // Bu pencerede yazılırken metni ezme
   if (document.activeElement !== text && n.text !== text.value) text.value = n.text;
+  const fitWas = note?.fit;
   note = n;
   paint();
+  if (n.fit && !fitWas) fit();
 });
 
 (async () => {
   note = await invoke("note_self").catch(() => null);
   if (!note) return;
   build();
+  if (note.fit) fit();
   requestAnimationFrame(() => invoke("note_ready").catch(() => {}));
 })();
 

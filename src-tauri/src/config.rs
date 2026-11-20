@@ -368,6 +368,8 @@ pub struct Config {
     /// calendar, screentime, ticker, media, system, clock
     /// Önizleme (örnek veri, Faz 2'de bağlanacak): mail, claude
     pub widgets: Vec<String>,
+    /// Elle ayarlanmış widget genişlikleri (css px); yoksa widget kendi genişliğinde
+    pub widget_widths: std::collections::BTreeMap<String, u32>,
     pub ticker: Ticker,
     pub dynamic: Dynamic,
     pub weather: Weather,
@@ -439,6 +441,7 @@ impl Default for Config {
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
+            widget_widths: Default::default(),
             ticker: Ticker::default(),
             dynamic: Dynamic::default(),
             weather: Weather::default(),

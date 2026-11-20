@@ -1346,6 +1346,25 @@ pub fn set_widgets(app: AppHandle, widgets: Vec<String>) {
 
 /// Widget düzenleme modu (Ayarlar → Widget'lar açıkken dock'taki widget'lar
 /// sürüklenebilir ve kaldırılabilir).
+/// Düzenleme modunda bir widget'ın genişliği; `None` = varsayılana dön.
+#[tauri::command]
+pub fn set_widget_width(app: AppHandle, id: String, width: Option<u32>) {
+    {
+        let state = app.state::<AppState>();
+        let mut cfg = state.cfg.lock().unwrap();
+        match width {
+            Some(w) => {
+                cfg.widget_widths.insert(id, w.clamp(56, 640));
+            }
+            None => {
+                cfg.widget_widths.remove(&id);
+            }
+        }
+        config::save(&cfg);
+    }
+    crate::emit_config(&app);
+}
+
 #[tauri::command]
 pub fn dock_edit(app: AppHandle, on: bool) {
     let _ = tauri::Emitter::emit(&app, "edit-mode", on);

@@ -811,7 +811,7 @@ button.cell.w-calendar { font: inherit; color: inherit; }
 .editing [data-wid] { position: relative; animation: jiggle .32s ease-in-out infinite alternate; animation-delay: var(--jd, 0s); cursor: grab; }
 .editing [data-wid] * { pointer-events: none; }
 .editing .cell[data-wid] { overflow: visible; }
-.editing [data-wid] .w-x { pointer-events: auto; }
+.editing [data-wid] .w-x, .editing [data-wid] .w-rs { pointer-events: auto; }
 /* Boşken gizli duran widget'lar (yığın, canlı etkinlikler) düzenlerken görünsün */
 .editing [data-wid][hidden] { display: flex !important; align-items: center; justify-content: center; min-width: 120px; opacity: .6; border: 1px dashed var(--cell-border); border-radius: 18px; background: var(--cell-bg); }
 .editing [data-wid][hidden]::before { content: attr(data-wname); font-size: 12px; font-weight: 600; color: var(--text-2); padding: 0 14px; }
@@ -881,3 +881,46 @@ button.cell.w-calendar { font: inherit; color: inherit; }
 @keyframes wc-out { to { opacity: 0; transform: translateY(-10px); } }
 @keyframes wc-in { from { opacity: 0; transform: translateY(10px); } }
 .wc-row .t-big { font-variant-numeric: tabular-nums; }
+
+/* ---------- Widget genişliği (düzenleme modunda sağ kenardan) ---------- */
+.w-rs {
+  position: absolute; top: 50%; right: -5px; z-index: 6; width: 10px; height: 34px; translate: 0 -50%; border-radius: 5px; cursor: ew-resize;
+  background: rgba(30, 32, 40, .92); box-shadow: 0 2px 8px rgba(0,0,0,.4), 0 0 0 1px rgba(255,255,255,.22);
+  animation: wx-in .3s cubic-bezier(.3, 1.6, .5, 1) both;
+}
+.w-rs::before { content: ""; position: absolute; inset: 9px 3.5px; border-left: 1.5px solid rgba(255,255,255,.7); border-right: 1.5px solid rgba(255,255,255,.7); }
+.w-rs:hover { background: var(--accent); }
+.editing [data-wid].w-resizing { animation: none; outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Daraltılmış widget'lar: sığmayan yazı … ile kısalır, yer kalmayınca ikincil parçalar gizlenir */
+.sized { container-type: inline-size; min-width: 0; box-sizing: border-box; }
+.sized .stack, .sized .meta, .sized .tk-item > *, .sized .sv-item > .stack { min-width: 0; }
+.sized .t-strong, .sized .t-sub, .sized .t-big, .sized .wx-c { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.sized .tk-item { min-width: 0; }
+.sized .tk-item .stack { flex: 1; }
+.sized .wx-c { max-width: none; }
+@container (max-width: 240px) {
+  .ticker .chg { display: none; }
+}
+@container (max-width: 200px) {
+  .w-screen .bars, .w-screen .spark { display: none; }
+  .w-calendar .t-sub { display: none; }
+  .media .ctrl[data-a="prev"], .media .ctrl[data-a="next"] { display: none; }
+}
+@container (max-width: 150px) {
+  .clock .wx .stack { display: none; }
+  .clock > .stack .t-sub { display: none; }
+  .media .meta { display: none; }
+  .w-world .t-sub, .w-focus .t-sub, .w-todo .t-sub { display: none; }
+}
+@container (max-width: 120px) {
+  .w-calendar .stack, .w-screen .sv-icon, .w-notes .stack, .w-todo .stack, .w-claude .stack { display: none; }
+  .clock .wx { display: none; }
+  .w-world .wc-view { display: none; }
+  .media .art { display: none; }
+  .ticker .stack { display: none; }
+}
+@container (max-width: 90px) {
+  .w-focus .fc-txt { display: none; }
+  .w-screen .stack { display: none; }
+}
