@@ -1082,6 +1082,12 @@ listen("config-changed", async () => {
   }
 });
 window.addEventListener("beforeunload", () => invoke("dock_edit", { on: false }).catch(() => {}));
+// Düzenleme modu yalnızca Widget'lar sayfası açık ve pencere görünürken
+const editSync = () => {
+  const on = !document.hidden && $(".tab.active")?.dataset.tab === "widgets";
+  invoke("dock_edit", { on }).catch(() => {});
+};
+document.addEventListener("visibilitychange", editSync);
 
 init();
 

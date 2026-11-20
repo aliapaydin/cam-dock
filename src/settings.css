@@ -328,7 +328,7 @@ input[type="range"] { width: 220px; accent-color: var(--accent); flex: 0 0 auto;
 }
 .wbar::-webkit-scrollbar { display: none; }
 .wbar.hot { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent), 0 10px 30px rgba(0, 0, 0, .2); }
-.wapps { display: flex; gap: 6px; padding: 8px 10px; border-radius: 16px; background: var(--glass); backdrop-filter: blur(14px); box-shadow: inset 0 0 0 1px var(--glass-line); flex: 0 0 auto; }
+.wapps { display: flex; gap: 6px; padding: 0 10px; height: 46px; align-items: center; border-radius: 14px; background: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.05)), rgba(16,20,34,.42); border: 1px solid rgba(255,255,255,.12); flex: 0 0 auto; }
 .wapps s { width: 22px; height: 22px; border-radius: 8px; background: linear-gradient(135deg, rgba(255,255,255,.55), rgba(255,255,255,.18)); }
 .wsep { width: 1px; height: 30px; background: var(--glass-line); flex: 0 0 auto; }
 .wempty { color: rgba(255, 255, 255, .85); font-size: 12.5px; padding: 0 12px; border: 1.5px dashed rgba(255,255,255,.5); border-radius: 14px; height: 44px; display: flex; align-items: center; }
@@ -345,17 +345,34 @@ input[type="range"] { width: 220px; accent-color: var(--accent); flex: 0 0 auto;
 .wcell:hover .wx { opacity: 1; scale: 1; }
 .wx:hover { background: #ef4444; }
 
-/* Önizleme hücresi (dock'taki cam hücrenin küçüğü) */
+/* Önizleme hücresi: dock'taki widget hücresinin birebir aynısı (62px yükseklik, 18px köşe,
+   cam üstüne açık geçişli dolgu) — sahne de dock zeminini taklit eder. */
 .wp {
-  display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; border-radius: 14px; color: var(--text); white-space: nowrap;
-  background: var(--glass); backdrop-filter: blur(14px); box-shadow: inset 0 0 0 1px var(--glass-line); font-size: 11px;
+  display: flex; align-items: center; gap: 12px; height: 62px; box-sizing: border-box; padding: 0 16px 0 12px; border-radius: 18px;
+  color: #F3F6FC; white-space: nowrap; font-size: 11px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .16), rgba(255, 255, 255, .05)), rgba(16, 20, 34, .42);
+  border: 1px solid rgba(255, 255, 255, .12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), 0 6px 18px rgba(0, 0, 0, .18);
+  backdrop-filter: blur(18px) saturate(1.3);
+  --text: #F3F6FC; --text-2: rgba(243, 246, 252, .7); --glass-cell: rgba(255, 255, 255, .14);
 }
+[data-theme="light"] .wp {
+  color: #0E1525; --text: #0E1525; --text-2: #4A5568; --glass-cell: rgba(14, 21, 37, .1);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .92), rgba(255, 255, 255, .62)), rgba(246, 248, 252, .5);
+  border-color: rgba(14, 21, 37, .07); box-shadow: inset 0 1px 0 #fff, 0 6px 18px rgba(14, 21, 37, .12);
+}
+.wcell { zoom: .74 !important; }
+.wstage .wp { zoom: .9; }
+.wghost .wp { zoom: .82; }
+.wp .t b { font-size: 13px !important; }
+.wp .t small { font-size: 11px !important; }
 .wp i { display: flex; width: 18px; height: 18px; color: var(--text); opacity: .9; }
 .wp i svg { width: 100%; height: 100%; }
 .wp .t { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
 .wp .t b { font-size: 12px; font-weight: 650; }
 .wp .t small { font-size: 10px; color: var(--text-2); }
-.wp-system { gap: 10px; }
+.wp-system { gap: 14px; padding: 0 16px; }
+.wp-system i, .wp-lock i { width: 18px !important; height: 18px !important; }
 .wp-system i { width: 16px; height: 16px; }
 .wp-lock { padding: 0 13px; }
 .wp .spark { display: flex; align-items: flex-end; gap: 2px; height: 22px; }
@@ -412,3 +429,5 @@ input[type="range"] { width: 220px; accent-color: var(--accent); flex: 0 0 auto;
 .wbtn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; font-size: 12px; }
 .wbtn svg { width: 12px; height: 12px; }
 .wbtn.on { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); border-color: transparent; }
+[data-theme="light"] .wapps { background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.62)); border-color: rgba(14,21,37,.07); }
+[data-theme="light"] .wapps s { background: linear-gradient(135deg, #CBD5E1, #94A3B8); }
