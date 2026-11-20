@@ -160,7 +160,33 @@ mod imp {
     pub fn rect_region(hwnd: isize, rects: &[(i32, i32, i32, i32)]) {
         backdrop::rect_region(hwnd, rects)
     }
+    /// Bekleyen bir yönetici izni (consent.exe) var mı? 400 ms'de bir ölçülür.
+    pub fn uac_pending() -> bool {
+        use std::time::{Duration, Instant};
+        static C: std::sync::Mutex<Option<(Instant, bool)>> = std::sync::Mutex::new(None);
+        let mut c = C.lock().unwrap();
+        if let Some((t, v)) = *c {
+            if t.elapsed() < Duration::from_millis(400) {
+                return v;
+            }
+        }
+        let v = !winlist::consent_pids().is_empty();
+        *c = Some((Instant::now(), v));
+        v
+    }
     pub fn list_windows(exclude: &[isize]) -> Vec<AppWindow> {
+        // UAC teşhisi: consent.exe her göründüğünde pencerelerini bir kez günlüğe yaz
+        static LAST_CONSENT: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+        let pids = winlist::consent_pids();
+        {
+            let mut last = LAST_CONSENT.lock().unwrap();
+            if *last != pids {
+                if !pids.is_empty() {
+                    crate::dlog!("UAC: consent.exe {:?}; pencereler: {:?}", pids, winlist::consent_windows());
+                }
+                *last = pids;
+            }
+        }
         winlist::list(exclude)
             .into_iter()
             .map(|w| AppWindow {
@@ -575,6 +601,9 @@ mod imp {
     pub fn apply_backdrop(_hwnd: isize, _mode: &str, _dark: bool) {}
     pub fn round_region(_hwnd: isize, _w: i32, _h: i32, _r: i32, _top: i32) {}
     pub fn rect_region(_hwnd: isize, _rects: &[(i32, i32, i32, i32)]) {}
+    pub fn uac_pending() -> bool {
+        false
+    }
     pub fn list_windows(_exclude: &[isize]) -> Vec<AppWindow> {
         Vec::new()
     }

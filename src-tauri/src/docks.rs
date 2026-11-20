@@ -605,6 +605,9 @@ fn update_visibility(app: &AppHandle, state: &AppState, vis: &Vis, hwnds: &[isiz
     // Başlat menüsü, arama, hızlı ayarlar, tepsi menüsü açıkken gizlenme.
     let flyout = vis.mode != 0 && platform::shell_flyout_open();
     let pop_dock = state.pop.lock().unwrap().open.as_ref().map(|o| o.dock.clone());
+    // Yönetici izni bekliyorsa dock gizli de olsa (tam ekran dahil) açılsın ki
+    // yanıp sönen kalkana tıklanabilsin — Windows taskbar'ı da böyle yapar.
+    let uac = platform::uac_pending();
 
     let mut acts = Vec::new();
     let mut here_changes: Vec<(String, bool)> = Vec::new();
@@ -622,7 +625,7 @@ fn update_visibility(app: &AppHandle, state: &AppState, vis: &Vis, hwnds: &[isiz
                 here_changes.push((d.label.clone(), here));
             }
 
-            if fs_mon.as_deref() == Some(d.monitor.as_str()) {
+            if !uac && fs_mon.as_deref() == Some(d.monitor.as_str()) {
                 if !d.fs_hidden {
                     d.fs_hidden = true;
                     d.shown = false;
@@ -636,7 +639,7 @@ fn update_visibility(app: &AppHandle, state: &AppState, vis: &Vis, hwnds: &[isiz
                 d.last_inside = now;
             }
 
-            let want = if vis.mode == 0 {
+            let want = if vis.mode == 0 || uac {
                 true
             } else {
                 let in_x = cursor.0 >= m.0 && cursor.0 < m.2;
@@ -664,7 +667,7 @@ fn update_visibility(app: &AppHandle, state: &AppState, vis: &Vis, hwnds: &[isiz
 
             if want && !d.shown {
                 d.shown = true;
-                let why = if leaving_fullscreen { "tam ekrandan çıkıldı" } else { "fare/alan boşaldı" };
+                let why = if uac { "yönetici izni bekliyor" } else if leaving_fullscreen { "tam ekrandan çıkıldı" } else { "fare/alan boşaldı" };
                 acts.push(Act::SlideIn(d.clone(), why));
             } else if !want && d.shown {
                 d.shown = false;

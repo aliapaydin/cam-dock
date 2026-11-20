@@ -204,6 +204,108 @@ fn aumid_of(h: HWND) -> String {
 struct ListCtx<'a> {
     exclude: &'a [isize],
     out: Vec<AppWindow>,
+    /// Çalışan consent.exe (UAC) süreçleri
+    consent: Vec<u32>,
+}
+
+/// Çalışan consent.exe süreçlerinin PID'leri. consent.exe SYSTEM olarak çalışır;
+/// pencere sınıf adına güvenmek yerine pencerenin bu süreçlerden birine ait
+/// olmasına bakıyoruz (Windows sürümüne göre sınıf adları değişebiliyor).
+pub fn consent_pids() -> Vec<u32> {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    };
+    let mut out = Vec::new();
+    unsafe {
+        let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else { return out };
+        let mut e = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+        if Process32FirstW(snap, &mut e).is_ok() {
+            loop {
+                let n = e.szExeFile.iter().position(|&c| c == 0).unwrap_or(e.szExeFile.len());
+                if String::from_utf16_lossy(&e.szExeFile[..n]).eq_ignore_ascii_case("consent.exe") {
+                    out.push(e.th32ProcessID);
+                }
+                if Process32NextW(snap, &mut e).is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = CloseHandle(snap);
+    }
+    out
+}
+
+/// consent.exe'ye ait tüm üst düzey pencereler (görünmeyenler dahil):
+/// (hwnd, sınıf, başlık, görünür mü, dikdörtgen). Teşhis ve yedek seçim için.
+pub fn consent_windows() -> Vec<(isize, String, String, bool, (i32, i32, i32, i32))> {
+    let pids = consent_pids();
+    if pids.is_empty() {
+        return Vec::new();
+    }
+    struct C {
+        pids: Vec<u32>,
+        out: Vec<(isize, String, String, bool, (i32, i32, i32, i32))>,
+    }
+    unsafe extern "system" fn cb(h: HWND, lp: LPARAM) -> BOOL {
+        let c = &mut *(lp.0 as *mut C);
+        if c.pids.contains(&pid_of(h)) {
+            let mut r = windows::Win32::Foundation::RECT::default();
+            let _ = windows::Win32::UI::WindowsAndMessaging::GetWindowRect(h, &mut r);
+            c.out.push((
+                raw(h),
+                crate::monitor::class_name(raw(h)),
+                title_of(h),
+                IsWindowVisible(h).as_bool(),
+                (r.left, r.top, r.right - r.left, r.bottom - r.top),
+            ));
+        }
+        BOOL(1)
+    }
+    let mut c = C { pids, out: Vec::new() };
+    unsafe {
+        let _ = EnumWindows(Some(cb), LPARAM(&mut c as *mut _ as isize));
+    }
+    c.out
+}
+
+/// Pencere bir UAC izin penceresi mi (dock'ta kalkan olarak gösterilecek)?
+pub fn is_uac(h: isize) -> bool {
+    let w = hwnd(h);
+    uac_window(w) || {
+        let p = pid_of(w);
+        consent_pids().contains(&p)
+    }
+}
+
+fn uac_item(h: HWND) -> AppWindow {
+    let t = title_of(h);
+    AppWindow {
+        hwnd: raw(h),
+        title: if t.is_empty() { "Kullanıcı Hesabı Denetimi".into() } else { t },
+        exe: UAC_EXE.into(),
+        minimized: false,
+        aumid: String::new(),
+        // Ekran dışındaki sahte pencere bir monitöre düşmeyebilir: boş bırak,
+        // dock bunu her ekranda gösterir.
+        monitor: crate::monitor::monitor_of_window(raw(h)).map(|(n, _)| n).unwrap_or_default(),
+    }
+}
+
+/// UAC izin ekranını öne getirir. Taskbar'daki kalkan düğmesine tıklamakla aynı:
+/// pencereyi etkinleştirince consent.exe güvenli masaüstüne geçip soruyu gösterir.
+pub fn activate_uac(h: isize) {
+    use windows::Win32::UI::WindowsAndMessaging::{SwitchToThisWindow, SW_SHOW};
+    let w = hwnd(h);
+    unsafe {
+        if IsIconic(w).as_bool() {
+            let _ = ShowWindow(w, SW_RESTORE);
+        } else {
+            let _ = ShowWindow(w, SW_SHOW);
+        }
+        let _ = BringWindowToTop(w);
+        let _ = SetForegroundWindow(w);
+        SwitchToThisWindow(w, true);
+    }
 }
 
 /// Yönetici izni (UAC) penceresi. Güvenli masaüstündeki izin penceresi arkada
@@ -226,16 +328,8 @@ unsafe extern "system" fn enum_cb(h: HWND, lp: LPARAM) -> BOOL {
     if ctx.exclude.contains(&raw(h)) {
         return BOOL(1);
     }
-    if uac_window(h) {
-        let t = title_of(h);
-        ctx.out.push(AppWindow {
-            hwnd: raw(h),
-            title: if t.is_empty() { "Kullanıcı Hesabı Denetimi".into() } else { t },
-            exe: UAC_EXE.into(),
-            minimized: false,
-            aumid: String::new(),
-            monitor: crate::monitor::monitor_of_window(raw(h)).map(|(n, _)| n).unwrap_or_default(),
-        });
+    if uac_window(h) || (!ctx.consent.is_empty() && IsWindowVisible(h).as_bool() && ctx.consent.contains(&pid_of(h))) {
+        ctx.out.push(uac_item(h));
         return BOOL(1);
     }
     if !is_app_window(h) {
@@ -262,9 +356,19 @@ pub fn list(exclude: &[isize]) -> Vec<AppWindow> {
     let mut ctx = ListCtx {
         exclude,
         out: Vec::new(),
+        consent: consent_pids(),
     };
     unsafe {
         let _ = EnumWindows(Some(enum_cb), LPARAM(&mut ctx as *mut _ as isize));
+    }
+    // consent.exe çalışıyor ama görünür penceresi yok: yine de tıklanabilir bir
+    // kalkan göster (başlığı olan ilk penceresi; yoksa herhangi biri).
+    if !ctx.consent.is_empty() && !ctx.out.iter().any(|w| w.exe == UAC_EXE) {
+        let all = consent_windows();
+        let pick = all.iter().find(|w| !w.2.is_empty()).or(all.first());
+        if let Some(w) = pick {
+            ctx.out.insert(0, uac_item(hwnd(w.0)));
+        }
     }
     ctx.out
 }
@@ -300,6 +404,9 @@ fn focus(h: HWND) {
 pub fn activate_group(windows: &[isize], last_foreground: isize) {
     if windows.is_empty() {
         return;
+    }
+    if let Some(&u) = windows.iter().find(|w| is_uac(**w)) {
+        return activate_uac(u);
     }
     unsafe {
         let fg_root = raw(GetAncestor(hwnd(last_foreground), GA_ROOTOWNER));
@@ -350,6 +457,9 @@ pub fn bring_front(window: isize) {
 /// Taskbar gibi davranır: küçültülmüşse geri getir, zaten öndeyse küçült,
 /// değilse öne getir. `last_foreground`: dock'a tıklanmadan önceki ön plan penceresi.
 pub fn activate(window: isize, last_foreground: isize) {
+    if is_uac(window) {
+        return activate_uac(window);
+    }
     let h = hwnd(window);
     unsafe {
         if IsIconic(h).as_bool() {

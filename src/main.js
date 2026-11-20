@@ -349,7 +349,7 @@ function appsWidget() {
     firstPoll = false;
     const groups = new Map();
     const own = cfg.display?.apps_per_monitor
-      ? data.windows.filter((w) => !info.monitor || w.monitor === info.monitor)
+      ? data.windows.filter((w) => !info.monitor || w.monitor === info.monitor || /\\consent\.exe$/i.test(w.exe || ""))
       : data.windows;
     for (const w of own) {
       const k = groupKey(w);
