@@ -99,17 +99,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // üstündeyken simgeler hizasında açılır (dock_region).
 const HEAD = 46;
 document.documentElement.style.setProperty("--head", HEAD + "px");
-function sendLayout() {
+function sendLayout(opt = {}) {
   const r = dock.getBoundingClientRect();
   const size = `${Math.ceil(r.width)}x${Math.ceil(r.height)}`;
-  if (size === lastSize) return;
+  if (size === lastSize && !opt.force) return;
   lastSize = size;
-  invoke("layout_dock", { width: Math.ceil(r.width), height: Math.ceil(r.height), head: HEAD }).catch(console.error);
+  invoke("layout_dock", { width: Math.ceil(r.width), height: Math.ceil(r.height), head: HEAD, keepLeft: !!opt.keepLeft, smooth: !!opt.smooth }).catch(console.error);
 }
 // Dock daralacaksa biraz bekle: bir pencere kısa süre kaybolup geri gelince
 // (uygulama yeniden çizerken, açılış ekranı vb.) dock gidip gelmesin.
 function queueLayout() {
-  if (!layoutReady) return;
+  if (!layoutReady || wResizing) return;
   clearTimeout(layoutTimer);
   const w = Math.ceil(dock.getBoundingClientRect().width);
   const last = Number(lastSize.split("x")[0]) || 0;
@@ -1311,7 +1311,7 @@ function mediaWidget() {
   c.onclick = async () => {
     if (sessions.length < 2) return;
     const r = c.getBoundingClientRect();
-    const res = await invoke("popover_open", { kind: "media", key: "media", anchor: r.left + r.width / 2, payload: { exclude: selected } }).catch(() => "");
+    const res = await invoke("popover_open", { kind: "media", key: "media", anchor: r.left + r.width / 2, payload: { exclude: selected, width: r.width } }).catch(() => "");
     markActive(c, res === "opened" || res === "open");
   };
   mediaCell = c;
@@ -1848,6 +1848,7 @@ let wdrag = null;
 
 // Genişliği ayarlanabilen widget'lar (düzenleme modunda sağ kenardan sürüklenir)
 const RESIZABLE = new Set(["calendar", "claude", "screentime", "ticker", "currency", "media", "clock", "notes", "todo", "focus", "world", "mail"]);
+var wResizing = false;
 function addResizer(w) {
   if (!RESIZABLE.has(w.dataset.wid) || w.querySelector(":scope > .w-rs")) return;
   const h = $("span", "w-rs");
@@ -1856,22 +1857,29 @@ function addResizer(w) {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    const x0 = e.clientX, w0 = w.getBoundingClientRect().width;
     h.setPointerCapture(e.pointerId);
+    // Tutamaç imleci birebir izlesin: genişlik = imleç − widget'ın sol kenarı.
+    // Dock bu sırada ortalanmaz, sol kenarı sabit kalır; yalnızca sağdakiler kayar.
+    const grab = w.getBoundingClientRect().right - e.clientX;
+    wResizing = true;
+    clearTimeout(layoutTimer);
     w.classList.add("sized", "w-resizing");
-    let wNow = w0;
+    let wNow = w.getBoundingClientRect().width, raf = 0;
     const move = (ev) => {
-      wNow = Math.round(Math.max(56, Math.min(640, w0 + ev.clientX - x0)));
+      wNow = Math.round(Math.max(56, Math.min(640, ev.clientX + grab - w.getBoundingClientRect().left)));
       w.style.width = `${wNow}px`;
-      queueLayout();
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; sendLayout({ keepLeft: true }); });
     };
     const up = () => {
       h.removeEventListener("pointermove", move);
       h.removeEventListener("pointerup", up);
       h.removeEventListener("pointercancel", up);
       w.classList.remove("w-resizing");
+      wResizing = false;
       cfg.widget_widths = { ...(cfg.widget_widths || {}), [w.dataset.wid]: wNow };
       invoke("set_widget_width", { id: w.dataset.wid, width: wNow }).catch(() => {});
+      // Bitince dock yumuşakça yeniden ortalanır
+      setTimeout(() => sendLayout({ smooth: true, force: true }), 30);
     };
     h.addEventListener("pointermove", move);
     h.addEventListener("pointerup", up);
@@ -1883,7 +1891,7 @@ function addResizer(w) {
     w.classList.remove("sized");
     if (cfg.widget_widths) delete cfg.widget_widths[w.dataset.wid];
     invoke("set_widget_width", { id: w.dataset.wid, width: null }).catch(() => {});
-    queueLayout();
+    setTimeout(() => sendLayout({ smooth: true, force: true }), 30);
   });
   w.append(h);
 }
@@ -1929,11 +1937,16 @@ function removeWidget(w) {
 }
 
 // Düzenleme modunda widget'lara tıklama (paneller açılmasın)
-dock.addEventListener("click", (e) => {
-  if (!editing) return;
-  if (e.target.closest(".w-x, .w-rs")) return;
-  if (e.target.closest("[data-wid]")) { e.preventDefault(); e.stopPropagation(); }
-}, true);
+// Düzenleme modunda widget'lar etkisiz: tıklama, tekerlek, orta tık panel açmasın.
+// Yalnızca × (kaldır) çalışır; genişlik tutamacı kendi işini pointer ile yapar.
+for (const ev of ["click", "dblclick", "auxclick", "wheel", "contextmenu", "mouseup"]) {
+  dock.addEventListener(ev, (e) => {
+    if (!editing) return;
+    if (ev === "click" && e.target.closest(".w-x")) return;
+    if (ev === "dblclick" && e.target.closest(".w-rs")) return;
+    if (e.target.closest("[data-wid]")) { e.preventDefault(); e.stopPropagation(); }
+  }, { capture: true, passive: false });
+}
 
 dock.addEventListener("pointerdown", (e) => {
   if (!editing || e.button !== 0) return;

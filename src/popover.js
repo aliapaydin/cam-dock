@@ -1285,6 +1285,8 @@ const MSVG = {
 const mediaArt = new Map();
 async function renderMedia(p) {
   const box = el("div", "mdl");
+  // Dock'taki müzik widget'ıyla aynı genişlik (panel dolgusu ve kenarlık düşülür)
+  if (p?.width) box.style.width = `${Math.max(200, Math.round(p.width) - 34)}px`;
   panel.append(box);
   const exclude = p?.exclude;
   const cards = new Map();

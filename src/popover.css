@@ -838,3 +838,6 @@ button.qs-ic:hover { background: var(--hover); }
 .clp-text { -webkit-line-clamp: 3; font-size: 13px; }
 .clp-img { max-height: 120px; }
 .td, .wcs-row { flex: 0 0 auto; }
+.mdl { container-type: inline-size; }
+@container (max-width: 270px) { .mdc-ctl button:not(.main) { display: none; } }
+@container (max-width: 190px) { .mdc { grid-template-columns: 1fr auto; } .mdc-art { display: none; } }

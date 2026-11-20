@@ -274,7 +274,7 @@ pub async fn list_monitors(app: AppHandle) -> Vec<MonitorView> {
 /// kendi ekranının alt ortasına yerleştiririz. Kilitler yalnızca durum okunup
 /// yazılırken tutulur; Windows çağrıları kilit dışında yapılır.
 #[tauri::command]
-pub async fn layout_dock(app: AppHandle, window: WebviewWindow, width: f64, height: f64, head: Option<f64>) -> Result<(), String> {
+pub async fn layout_dock(app: AppHandle, window: WebviewWindow, width: f64, height: f64, head: Option<f64>, keep_left: Option<bool>, smooth: Option<bool>) -> Result<(), String> {
     match run(move || {
         let state = app.state::<AppState>();
 
@@ -305,24 +305,44 @@ pub async fn layout_dock(app: AppHandle, window: WebviewWindow, width: f64, heig
         platform::release(hwnd);
         mb
     };
-    let x = mx + (mr - mx - w) / 2;
+    let mut x = mx + (mr - mx - w) / 2;
     let y = bottom - h - margin;
 
-    let (first, snapshot) = {
+    let (first, snapshot, old_x) = {
         let mut docks = state.docks.lock().unwrap();
         let Some(d) = docks.get_mut(&label) else { return Ok(()) };
         let first = d.target.is_none();
+        let old_x = d.target.map(|t| t.0);
+        // Widget genişliği ayarlanırken dock'un sol kenarı sabit kalsın
+        if keep_left == Some(true) {
+            if let Some(ox) = old_x {
+                x = ox;
+            }
+        }
         d.target = Some((x, y, w, h));
         d.head = head_px;
         if first && !d.fs_hidden {
             d.shown = true;
             d.last_inside = Instant::now();
         }
-        (first, d.clone())
+        (first, d.clone(), old_x)
     };
 
     let place_y = if snapshot.shown && !first { y - head_px } else { mb };
-    docks::place(hwnd, x, place_y, w, h + head_px);
+    match old_x {
+        // Yeniden ortalama: kısa bir kayma ile
+        Some(ox) if smooth == Some(true) && ox != x && !first => {
+            let steps = 12;
+            for i in 1..=steps {
+                let t = i as f64 / steps as f64;
+                let e = 1.0 - (1.0 - t).powi(3);
+                let xi = ox + ((x - ox) as f64 * e).round() as i32;
+                docks::place(hwnd, xi, place_y, w, h + head_px);
+                std::thread::sleep(std::time::Duration::from_millis(14));
+            }
+        }
+        _ => docks::place(hwnd, x, place_y, w, h + head_px),
+    }
     if first {
         dlog!("{label}: ilk yerleşim x={x} y={y} w={w} h={h} (alt sınır {bottom}, ölçek {scale})");
     }

@@ -911,7 +911,7 @@ button.cell.w-calendar { font: inherit; color: inherit; }
   .clock .wx .stack { display: none; }
   .clock > .stack .t-sub { display: none; }
   .media .meta { display: none; }
-  .w-world .t-sub, .w-focus .t-sub, .w-todo .t-sub { display: none; }
+  .w-world .t-sub, .w-todo .t-sub { display: none; }
 }
 @container (max-width: 120px) {
   .w-calendar .stack, .w-screen .sv-icon, .w-notes .stack, .w-todo .stack, .w-claude .stack { display: none; }
@@ -920,7 +920,11 @@ button.cell.w-calendar { font: inherit; color: inherit; }
   .media .art { display: none; }
   .ticker .stack { display: none; }
 }
-@container (max-width: 90px) {
+@container (max-width: 60px) {
   .w-focus .fc-txt { display: none; }
   .w-screen .stack { display: none; }
 }
+.sized.w-focus .fc-txt { min-width: 0; flex: 1; }
+.sized.w-focus .t-big, .sized.w-world .t-big, .sized.clock .t-big { overflow: visible; text-overflow: clip; }
+.sized.w-focus { gap: 8px; padding-right: 10px; }
+.sized.w-focus .fc-txt { min-width: 3.4em; }
