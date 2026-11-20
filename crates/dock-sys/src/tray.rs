@@ -26,6 +26,48 @@ pub struct TrayApp {
     #[serde(skip)]
     pub icon: Option<Vec<u8>>,
     pub promoted: bool,
+    /// Yakalanan gerçek tepsi simgesinin kimliği (yoksa boş: menü exe ile aranır)
+    pub id: String,
+    /// Simgenin ipucu yazısı (ör. "Proton VPN – Bağlı")
+    pub tip: String,
+}
+
+/// Exe'nin kendi tanıttığı ad (sürüm bilgisindeki FileDescription).
+pub fn file_description(exe: &str) -> Option<String> {
+    use windows::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW};
+    unsafe {
+        let w = wide(exe);
+        let size = GetFileVersionInfoSizeW(PCWSTR(w.as_ptr()), None);
+        if size == 0 {
+            return None;
+        }
+        let mut buf = vec![0u8; size as usize];
+        GetFileVersionInfoW(PCWSTR(w.as_ptr()), None, size, buf.as_mut_ptr() as *mut _).ok()?;
+        let mut p: *mut core::ffi::c_void = std::ptr::null_mut();
+        let mut len = 0u32;
+        let tr = wide("\\VarFileInfo\\Translation");
+        let mut langs: Vec<(u16, u16)> = Vec::new();
+        if VerQueryValueW(buf.as_ptr() as *const _, PCWSTR(tr.as_ptr()), &mut p, &mut len).as_bool() && len >= 4 {
+            let n = len as usize / 4;
+            let arr = std::slice::from_raw_parts(p as *const u16, n * 2);
+            for k in 0..n {
+                langs.push((arr[k * 2], arr[k * 2 + 1]));
+            }
+        }
+        langs.push((0x0409, 0x04B0));
+        langs.push((0x0409, 0x04E4));
+        for (lang, cp) in langs {
+            let q = wide(&format!("\\StringFileInfo\\{lang:04x}{cp:04x}\\FileDescription"));
+            if VerQueryValueW(buf.as_ptr() as *const _, PCWSTR(q.as_ptr()), &mut p, &mut len).as_bool() && len > 1 {
+                let s = String::from_utf16_lossy(std::slice::from_raw_parts(p as *const u16, len as usize - 1));
+                let s = s.trim().to_string();
+                if !s.is_empty() {
+                    return Some(s);
+                }
+            }
+        }
+        None
+    }
 }
 
 fn running_exes() -> HashSet<String> {
@@ -153,9 +195,54 @@ pub fn running_apps() -> Vec<TrayApp> {
                 exe,
                 icon: reg_binary(key, &sub, "IconSnapshot"),
                 promoted,
+                id: String::new(),
+                tip: String::new(),
             });
         }
         let _ = RegCloseKey(key);
+    }
+    out.sort_by_key(|a| a.name.to_lowercase());
+    out
+}
+
+/// Panel listesi: yakalanan gerçek tepsi simgeleri (her birinin kendi menüsü
+/// var) ve kayıt defterinde olup henüz yakalanmamış çalışan uygulamalar.
+pub fn panel_apps() -> Vec<TrayApp> {
+    let reg = running_apps();
+    let hook = crate::trayhook::snapshot();
+    let mut out: Vec<TrayApp> = Vec::new();
+    let file = |p: &str| p.rsplit('\\').next().unwrap_or("").to_lowercase();
+    for i in &hook {
+        let f = file(&i.exe);
+        if f.is_empty() || f == "explorer.exe" || f == "cam-dock.exe" {
+            continue;
+        }
+        let r = reg.iter().find(|a| file(&a.exe) == f);
+        let tip_first = i.tip.lines().next().unwrap_or("").trim().to_string();
+        let name = file_description(&i.exe)
+            .filter(|d| d.len() <= 40)
+            .or_else(|| r.map(|a| a.name.clone()).filter(|n| !n.to_lowercase().ends_with(".exe") && !n.contains('.')))
+            .or_else(|| (!tip_first.is_empty()).then(|| tip_first.clone()))
+            .unwrap_or_else(|| f.trim_end_matches(".exe").to_string());
+        let icon = crate::icons::hicon_png(i.hicon, 32).or_else(|| r.and_then(|a| a.icon.clone()));
+        out.push(TrayApp {
+            name,
+            exe: i.exe.clone(),
+            icon,
+            promoted: r.is_some_and(|a| a.promoted),
+            id: i.id(),
+            tip: i.tip.trim().to_string(),
+        });
+    }
+    // Yakalanmamış ama çalışan (menüleri yeniden bildirince gelir)
+    for a in reg {
+        if !out.iter().any(|o| file(&o.exe) == file(&a.exe)) {
+            let mut a = a;
+            if let Some(d) = file_description(&a.exe).filter(|d| d.len() <= 40) {
+                a.name = d;
+            }
+            out.push(a);
+        }
     }
     out.sort_by_key(|a| a.name.to_lowercase());
     out

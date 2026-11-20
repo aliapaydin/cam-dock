@@ -140,3 +140,9 @@ pub fn stack_prefs(app: AppHandle, path: String, view: Option<String>, sort: Opt
     config::save(&cfg);
     crate::emit_config(&app);
 }
+
+/// Yığındaki dosya/klasöre sağ tık: Gezgin'deki menünün aynısı.
+#[tauri::command]
+pub fn shell_menu(path: String, extended: Option<bool>) {
+    platform::shell_menu(&path, extended.unwrap_or(false));
+}

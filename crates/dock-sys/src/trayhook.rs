@@ -34,6 +34,15 @@ pub struct TrayIcon {
     pub exe: String,
     pub tip: String,
     pub hidden: bool,
+    /// Simgenin kendisi (HICON; uygulamaya ait, yok edilmez)
+    pub hicon: isize,
+}
+
+impl TrayIcon {
+    /// Paneldeki kimlik: "pencere:kimlik"
+    pub fn id(&self) -> String {
+        format!("{:x}:{}", self.hwnd, self.uid)
+    }
 }
 
 static ICONS: Mutex<Vec<TrayIcon>> = Mutex::new(Vec::new());
@@ -73,6 +82,7 @@ const NIF_MESSAGE: u32 = 0x1;
 const NIF_TIP: u32 = 0x4;
 const NIF_STATE: u32 = 0x8;
 const NIF_GUID: u32 = 0x20;
+const NIF_ICON: u32 = 0x2;
 const NIS_HIDDEN: u32 = 0x1;
 
 fn hwnd(h: isize) -> HWND {
@@ -146,6 +156,7 @@ fn record(data: &TrayData) {
                         exe,
                         tip: String::new(),
                         hidden: false,
+                        hicon: 0,
                     });
                     icons.len() - 1
                 }
@@ -161,6 +172,9 @@ fn record(data: &TrayData) {
             }
             if n.flags & NIF_MESSAGE != 0 {
                 i.callback = n.callback;
+            }
+            if n.flags & NIF_ICON != 0 && n.hicon != 0 {
+                i.hicon = n.hicon as i32 as isize;
             }
             if n.flags & NIF_TIP != 0 {
                 let len = n.tip.iter().position(|&c| c == 0).unwrap_or(n.tip.len());
@@ -325,9 +339,20 @@ pub fn icon_for(exe: &str) -> Option<TrayIcon> {
         .cloned()
 }
 
+/// Geçerli, görünür tepsi simgeleri (panel listesi için).
+pub fn snapshot() -> Vec<TrayIcon> {
+    let mut icons = ICONS.lock().unwrap();
+    icons.retain(|i| unsafe { IsWindow(Some(hwnd(i.hwnd))).as_bool() });
+    icons.iter().filter(|i| i.callback != 0 && !i.hidden).cloned().collect()
+}
+
+fn by_id(id: &str) -> Option<TrayIcon> {
+    let icons = ICONS.lock().unwrap();
+    icons.iter().find(|i| i.id() == id && unsafe { IsWindow(Some(hwnd(i.hwnd))).as_bool() }).cloned()
+}
+
 /// Taskbar'ın yaptığı gibi simgenin sağ tık menüsünü açtırır.
-pub fn context_menu(exe: &str) -> bool {
-    let Some(i) = icon_for(exe) else { return false };
+fn open_menu(i: &TrayIcon) {
     unsafe {
         let mut pt = Default::default();
         let _ = GetCursorPos(&mut pt);
@@ -350,5 +375,43 @@ pub fn context_menu(exe: &str) -> bool {
             }
         }
     }
-    true
+}
+
+/// Taskbar'daki gibi sol tık (çoğu uygulama penceresini açar).
+fn click(i: &TrayIcon) {
+    const WM_LBUTTONDOWN: u32 = 0x0201;
+    const WM_LBUTTONUP: u32 = 0x0202;
+    const NIN_SELECT: u32 = 0x0400;
+    unsafe {
+        let mut pt = Default::default();
+        let _ = GetCursorPos(&mut pt);
+        let _ = AllowSetForegroundWindow(i.pid);
+        let target = Some(hwnd(i.hwnd));
+        let post = |w: usize, l: isize| {
+            let _ = PostMessageW(target, i.callback, WPARAM(w), LPARAM(l));
+        };
+        if i.version >= 4 {
+            let xy = ((pt.y as u32 & 0xffff) << 16 | (pt.x as u32 & 0xffff)) as usize;
+            let ev = |e: u32| ((i.uid & 0xffff) << 16 | e) as isize;
+            post(xy, ev(WM_LBUTTONDOWN));
+            post(xy, ev(WM_LBUTTONUP));
+            post(xy, ev(NIN_SELECT));
+        } else {
+            post(i.uid as usize, WM_LBUTTONDOWN as isize);
+            post(i.uid as usize, WM_LBUTTONUP as isize);
+        }
+    }
+}
+
+pub fn context_menu_id(id: &str) -> bool {
+    by_id(id).map(|i| open_menu(&i)).is_some()
+}
+
+pub fn click_id(id: &str) -> bool {
+    by_id(id).map(|i| click(&i)).is_some()
+}
+
+/// Exe'ye göre (simge kimliği bilinmiyorsa).
+pub fn context_menu(exe: &str) -> bool {
+    icon_for(exe).map(|i| open_menu(&i)).is_some()
 }

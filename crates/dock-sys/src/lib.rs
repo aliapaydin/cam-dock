@@ -14,6 +14,7 @@ pub mod input;
 pub mod jumplist;
 pub mod net;
 pub mod package;
+pub mod shellmenu;
 pub mod media;
 pub mod monitor;
 pub mod privacy;

@@ -44,7 +44,7 @@ pub fn foreground() -> isize {
     unsafe { raw(GetForegroundWindow()) }
 }
 
-fn class_name(h: isize) -> String {
+pub fn class_name(h: isize) -> String {
     let mut buf = [0u16; 128];
     let n = unsafe { GetClassNameW(hwnd(h), &mut buf) };
     String::from_utf16_lossy(&buf[..n.max(0) as usize])

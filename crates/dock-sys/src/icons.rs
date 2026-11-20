@@ -107,6 +107,17 @@ pub fn window_icon_png(window: isize, size: i32) -> Option<Vec<u8>> {
     }
 }
 
+/// Başka bir sürece ait simge tutamacından PNG (yok etmez).
+pub fn hicon_png(icon: isize, size: i32) -> Option<Vec<u8>> {
+    if icon == 0 {
+        return None;
+    }
+    unsafe {
+        let px = render(HICON(icon as *mut c_void), size)?;
+        encode_png(&px, size as u32, size as u32)
+    }
+}
+
 unsafe fn bitmap_png(bmp: HBITMAP) -> Option<Vec<u8>> {
     let mut bm = BITMAP::default();
     if GetObjectW(

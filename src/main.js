@@ -445,6 +445,12 @@ function appsWidget() {
         b.append(bd);
         b.title += `\n${badge === "•" ? "Yeni bildirim" : badge + " bildirim"}`;
       }
+      // Yönetici izni (UAC) arkada bekliyor: yanıp sönen kalkan; tıklayınca izin ekranı açılır
+      if (/\\consent\.exe$/i.test(item.path || "") || item.wins.some((w) => /\\consent\.exe$/i.test(w.exe || ""))) {
+        b.classList.add("uac");
+        b.title = "Yönetici izni bekleniyor\nOnay ekranını açmak için tıkla";
+        b.setAttribute("aria-label", "Yönetici izni bekleniyor");
+      }
       const until = bounceUntil.get(item.key) || 0;
       if (until > Date.now()) {
         b.classList.add("bounce");

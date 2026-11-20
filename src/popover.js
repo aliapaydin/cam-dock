@@ -164,7 +164,7 @@ async function renderTray() {
       const t = el("button", "tray-app");
       t.style.setProperty("--i", i);
       a.name = a.name.replace(/\.exe$/i, "");
-      t.title = `${a.name}\n${a.exe}`;
+      t.title = a.tip && a.tip !== a.name ? `${a.name}\n${a.tip}` : `${a.name}\n${a.exe}`;
       t.setAttribute("aria-label", a.name);
       const ic = el("span", "ic");
       // Önce uygulamanın kendi ikonu (tepsi görüntüsü koyu taskbar için beyaz
@@ -185,10 +185,12 @@ async function renderTray() {
         t.append(w);
         setTimeout(() => w.remove(), 600);
       };
-      t.onclick = (e) => {
+      t.onclick = async (e) => {
         ripple(e);
-        // Çoğu tepsi uygulaması tek örnekli: yeniden başlatmak penceresini açar.
-        invoke("launch_app", { path: a.exe });
+        // Taskbar'daki gibi simgeye tıklandığını uygulamaya bildir; simge
+        // bilinmiyorsa uygulamayı yeniden başlat (çoğu tek örnekli: penceresi açılır).
+        const ok = a.id ? await invoke("tray_click", { id: a.id }).catch(() => false) : false;
+        if (!ok) invoke("launch_app", { path: a.exe });
         setTimeout(() => invoke("popover_close"), 140);
       };
       // Sağ tık: taskbar'daki gibi uygulamanın kendi tepsi menüsü. Simgesi
@@ -196,7 +198,7 @@ async function renderTray() {
       t.oncontextmenu = async (e) => {
         e.preventDefault();
         ripple(e);
-        const ok = await invoke("tray_menu", { exe: a.exe }).catch(() => false);
+        const ok = await invoke("tray_menu", { exe: a.exe, id: a.id || null }).catch(() => false);
         if (!ok) invoke("app_menu", { item: { name: a.name, path: a.exe, args: null, aumid: "", windows: [], pinned: false } }).catch(() => {});
       };
       grid.append(t);
@@ -1204,6 +1206,11 @@ async function renderStack(st) {
       });
     }
     it.onclick = () => { invoke("launch_app", { path: e.path }); invoke("popover_close"); };
+    // Sağ tık: Gezgin'deki menünün aynısı (Shift ile genişletilmiş menü)
+    it.oncontextmenu = (ev) => {
+      ev.preventDefault();
+      invoke("shell_menu", { path: e.path, extended: ev.shiftKey });
+    };
     return it;
   }
 

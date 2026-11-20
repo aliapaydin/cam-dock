@@ -72,6 +72,8 @@ pub struct TrayApp {
     #[serde(skip)]
     pub icon: Option<Vec<u8>>,
     pub promoted: bool,
+    pub id: String,
+    pub tip: String,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -284,9 +286,9 @@ mod imp {
         catalog::pick_app(owner)
     }
     pub fn tray_apps() -> Vec<TrayApp> {
-        tray::running_apps()
+        tray::panel_apps()
             .into_iter()
-            .map(|a| TrayApp { name: a.name, exe: a.exe, icon: a.icon, promoted: a.promoted })
+            .map(|a| TrayApp { name: a.name, exe: a.exe, icon: a.icon, promoted: a.promoted, id: a.id, tip: a.tip })
             .collect()
     }
     /// Uygulamanın atlama listesi (COM/STA: kendi iş parçacığında).
@@ -327,6 +329,17 @@ mod imp {
         trayhook::stop()
     }
     /// Tepsi simgesinin kendi sağ tık menüsü; simge bilinmiyorsa false.
+    /// Simge kimliğiyle (panelde yakalanan simgeler) sağ tık / sol tık
+    pub fn tray_menu_id(id: &str) -> bool {
+        trayhook::context_menu_id(id)
+    }
+    /// Dosya/klasörün Gezgin sağ tık menüsü (imlecin olduğu yerde)
+    pub fn shell_menu(path: &str, extended: bool) {
+        dock_sys::shellmenu::open_at_cursor(path, extended)
+    }
+    pub fn tray_click_id(id: &str) -> bool {
+        trayhook::click_id(id)
+    }
     pub fn tray_context_menu(exe: &str) -> bool {
         if trayhook::context_menu(exe) {
             return true;
@@ -648,6 +661,13 @@ mod imp {
     }
     pub fn trayhook_stop() {}
     pub fn tray_context_menu(_exe: &str) -> bool {
+        false
+    }
+    pub fn tray_menu_id(_id: &str) -> bool {
+        false
+    }
+    pub fn shell_menu(_path: &str, _extended: bool) {}
+    pub fn tray_click_id(_id: &str) -> bool {
         false
     }
     pub fn taskbar_hook_current() -> bool {

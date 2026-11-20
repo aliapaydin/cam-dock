@@ -548,6 +548,8 @@ pub struct TrayView {
     pub exe: String,
     pub icon: Option<String>,
     pub promoted: bool,
+    pub id: String,
+    pub tip: String,
 }
 
 /// Tepside simgesi olan ve çalışan uygulamalar (kendi tepsi panelimiz için).
@@ -563,6 +565,8 @@ pub async fn tray_apps(app: AppHandle) -> Vec<TrayView> {
             name: a.name,
             exe: a.exe,
             promoted: a.promoted,
+            id: a.id,
+            tip: a.tip,
         })
         .collect()
 
@@ -1186,8 +1190,24 @@ pub async fn app_menu(window: WebviewWindow, state: State<'_, AppState>, mut ite
 /// Tepsi uygulamasına sağ tık: uygulamanın kendi tepsi menüsünü açtırır.
 /// Simgesi henüz bilinmiyorsa false (arayüz kendi menüsünü gösterir).
 #[tauri::command]
-pub async fn tray_menu(exe: String) -> bool {
-    run(move || platform::tray_context_menu(&exe)).await.unwrap_or(false)
+pub async fn tray_menu(exe: String, id: Option<String>) -> bool {
+    run(move || {
+        if let Some(id) = id.filter(|i| !i.is_empty()) {
+            if platform::tray_menu_id(&id) {
+                return true;
+            }
+        }
+        platform::tray_context_menu(&exe)
+    })
+    .await
+    .unwrap_or(false)
+}
+
+/// Tepsi simgesine sol tık: taskbar'daki gibi uygulamaya bildirilir; simge
+/// bilinmiyorsa false (arayüz uygulamayı yeniden başlatır).
+#[tauri::command]
+pub async fn tray_click(id: String) -> bool {
+    run(move || platform::tray_click_id(&id)).await.unwrap_or(false)
 }
 
 /// Uygulama menüsünden seçim (main.rs'teki menü olayından çağrılır).

@@ -206,9 +206,39 @@ struct ListCtx<'a> {
     out: Vec<AppWindow>,
 }
 
+/// Yönetici izni (UAC) penceresi. Güvenli masaüstündeki izin penceresi arkada
+/// kalınca Windows taskbar'a yanıp sönen bir kalkan düğmesi koyar; o düğmeyi
+/// temsil eden pencereler bunlar. Dock'ta gösterilir, tıklayınca izin ekranı açılır.
+const UAC_CLASSES: [&str; 2] = ["$$$Secure UAP Dummy Window Class For Interim Dialog", "Credential Dialog Xaml Host"];
+pub const UAC_EXE: &str = "C:\\Windows\\System32\\consent.exe";
+
+fn uac_window(h: HWND) -> bool {
+    unsafe {
+        IsWindowVisible(h).as_bool() && {
+            let c = crate::monitor::class_name(raw(h));
+            UAC_CLASSES.iter().any(|u| *u == c)
+        }
+    }
+}
+
 unsafe extern "system" fn enum_cb(h: HWND, lp: LPARAM) -> BOOL {
     let ctx = &mut *(lp.0 as *mut ListCtx<'_>);
-    if ctx.exclude.contains(&raw(h)) || !is_app_window(h) {
+    if ctx.exclude.contains(&raw(h)) {
+        return BOOL(1);
+    }
+    if uac_window(h) {
+        let t = title_of(h);
+        ctx.out.push(AppWindow {
+            hwnd: raw(h),
+            title: if t.is_empty() { "Kullanıcı Hesabı Denetimi".into() } else { t },
+            exe: UAC_EXE.into(),
+            minimized: false,
+            aumid: String::new(),
+            monitor: crate::monitor::monitor_of_window(raw(h)).map(|(n, _)| n).unwrap_or_default(),
+        });
+        return BOOL(1);
+    }
+    if !is_app_window(h) {
         return BOOL(1);
     }
     let Some(exe) = exe_of_pid(pid_of(h)) else {
