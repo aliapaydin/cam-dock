@@ -836,11 +836,18 @@ pub fn open_settings(app: &AppHandle) -> tauri::Result<()> {
         w.set_focus()?;
         return Ok(());
     }
-    WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings.html".into()))
+    let w = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings.html".into()))
         .title("Cam Dock — Ayarlar")
-        .inner_size(900.0, 720.0)
+        .inner_size(980.0, 760.0)
         .min_inner_size(760.0, 560.0)
         .center()
         .build()?;
+    // Ayarlar kapanınca dock'un widget düzenleme modu da biter
+    let a = app.clone();
+    w.on_window_event(move |e| {
+        if matches!(e, tauri::WindowEvent::Destroyed | tauri::WindowEvent::CloseRequested { .. }) {
+            let _ = tauri::Emitter::emit(&a, "edit-mode", false);
+        }
+    });
     Ok(())
 }

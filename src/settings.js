@@ -33,18 +33,18 @@ const FEEDS = [
   ["https://www.ntv.com.tr/gundem.rss", "NTV Gündem"],
 ];
 const WIDGETS = [
-  { id: "calendar", name: "Takvim", desc: "Bugünün tarihi. Etkinlikler Faz 2'de bağlanacak." },
-  { id: "screentime", name: "Ekran süresi ve kaynaklar", desc: "Aktif süre ile CPU, RAM, GPU, disk dönüşümlü; tıklayınca grafikli kullanım paneli." },
-  { id: "ticker", name: "Piyasa ve haberler", desc: "Döviz, altın ve haber başlıkları dönüşümlü; tıklayınca kategorili haber paneli." },
-  { id: "media", name: "Müzik", desc: "Spotify, YouTube ve diğer oynatıcılar; birden çoksa tekerlekle kaydır." },
-  { id: "stacks", name: "Klasör yığınları", desc: "İndirilenler gibi klasörler; tıklayınca son dosyalar ızgara ya da yelpaze halinde." },
-  { id: "live", name: "Canlı etkinlikler", desc: "İndirmeler, zamanlayıcı, mikrofon/kamera kullanımı, şarj; yalnızca bir şey sürerken görünür." },
-  { id: "clipboard", name: "Pano geçmişi", desc: "Son kopyaladığın metin ve görseller; tıkla, tekrar kopyalansın." },
-  { id: "system", name: "Sistem düğmeleri", desc: "Arka plan uygulamaları (tepsi), hızlı ayarlar, bildirimler, görev görünümü." },
-  { id: "clock", name: "Saat ve hava durumu", desc: "Saat, tarih, sıcaklık; tıklayınca saatlik ve 6 günlük tahmin." },
-  { id: "lock", name: "Kilit düğmesi", desc: "Dock'u kilitle (hep görünür) ya da otomatik gizle." },
-  { id: "mail", name: "Mail", desc: "Önizleme — örnek veri.", preview: true },
-  { id: "claude", name: "Claude kullanımı", desc: "5 saatlik ve haftalık limitler; Claude Code'da oturum açık olmalı." },
+  { id: "system", cat: "Sistem", name: "Sistem düğmeleri", desc: "Arka plan uygulamaları (tepsi), hızlı ayarlar, bildirimler, görev görünümü." },
+  { id: "lock", cat: "Sistem", name: "Kilit düğmesi", desc: "Dock'u kilitle (hep görünür) ya da otomatik gizle." },
+  { id: "screentime", cat: "Sistem", name: "Ekran süresi ve kaynaklar", desc: "Aktif süre ile CPU, RAM, GPU, disk dönüşümlü; tıklayınca grafikli panel." },
+  { id: "clock", cat: "Zaman", name: "Saat ve hava durumu", desc: "Saat, tarih, sıcaklık; tıklayınca saatlik ve 6 günlük tahmin." },
+  { id: "calendar", cat: "Zaman", name: "Takvim", desc: "Bugünün tarihi ve ay görünümü." },
+  { id: "ticker", cat: "Bilgi", name: "Piyasa ve haberler", desc: "Döviz, altın ve haber başlıkları dönüşümlü; tıklayınca haber paneli." },
+  { id: "claude", cat: "Bilgi", name: "Claude kullanımı", desc: "5 saatlik ve haftalık limitler; Claude Code'da oturum açık olmalı." },
+  { id: "mail", cat: "Bilgi", name: "Mail", desc: "Önizleme — örnek veri.", preview: true },
+  { id: "media", cat: "Medya", name: "Müzik", desc: "Spotify, YouTube ve diğer oynatıcılar; birden çoksa tekerlekle kaydır." },
+  { id: "stacks", cat: "Verimlilik", name: "Klasör yığınları", desc: "İndirilenler gibi klasörler; son dosyalar ızgara ya da yelpaze halinde." },
+  { id: "live", cat: "Verimlilik", name: "Canlı etkinlikler", desc: "İndirmeler, zamanlayıcı, mikrofon/kamera, şarj; yalnızca bir şey sürerken görünür." },
+  { id: "clipboard", cat: "Verimlilik", name: "Pano geçmişi", desc: "Son kopyaladığın metin ve görseller; tıkla, tekrar kopyalansın." },
 ];
 
 let cfg = null;
@@ -200,6 +200,8 @@ function bind() {
       $$(".page").forEach((p) => p.classList.toggle("active", p.dataset.page === t.dataset.tab));
       if (t.dataset.tab === "apps") loadStartApps();
       if (t.dataset.tab === "displays") loadMonitors();
+      // Widget sayfası açıkken dock düzenleme modunda (titreyen widget'lar)
+      invoke("dock_edit", { on: t.dataset.tab === "widgets" }).catch(() => {});
     };
   }
 
@@ -800,41 +802,247 @@ function renderResults() {
 // ---------------------------------------------------------------------------
 // Widget'lar
 // ---------------------------------------------------------------------------
+// Mini önizlemeler: hem galeri kartlarında hem de bar kopyasında kullanılır.
+const WI = {
+  grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/></svg>',
+  bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 16V11a6 6 0 0112 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 004 0"/></svg>',
+  wifi: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9a14 14 0 0118 0M6 12.5a9 9 0 0112 0M9 16a4 4 0 016 0"/><circle cx="12" cy="19" r="1"/></svg>',
+  up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',
+  lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="9" rx="2.5"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>',
+  mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M4 7l8 6 8-6"/></svg>',
+  clip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="6" y="4" width="12" height="17" rx="2.5"/><path d="M9 4h6v3H9z"/></svg>',
+  dl: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
+  play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" fill="none" stroke="#FBBF24" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4" fill="#FBBF24"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6L19 19M5 19l1.4-1.4M17.6 6.4L19 5"/></svg>',
+};
+function widgetPreview(id) {
+  const now = new Date();
+  const hm = now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+  const box = el("div", `wp wp-${id}`);
+  const H = {
+    system: `<i>${WI.up}</i><i>${WI.wifi}</i><i>${WI.bell}</i><i>${WI.grid}</i>`,
+    lock: `<i>${WI.lock}</i>`,
+    screentime: `<div class="t"><b>3s 12dk</b><small>CPU %18</small></div><div class="spark">${[5, 9, 6, 12, 8, 14, 10].map((h) => `<s style="height:${h + 4}px"></s>`).join("")}</div>`,
+    clock: `<div class="t"><b>${hm}</b><small>${now.toLocaleDateString("tr-TR", { weekday: "short", day: "numeric", month: "short" })}</small></div><i class="sun">${WI.sun}</i><b class="deg">18°</b>`,
+    calendar: `<div class="cal"><small>${now.toLocaleDateString("tr-TR", { month: "short" }).toUpperCase()}</small><b>${now.getDate()}</b></div><div class="t"><b>${now.toLocaleDateString("tr-TR", { weekday: "long" })}</b><small>Etkinlik yok</small></div>`,
+    ticker: `<div class="t"><small>USD/TRY</small><b>41,26 <em class="upc">▲0,3%</em></b></div>`,
+    claude: `<div class="bars"><div><small>5s</small><span><s style="width:42%"></s></span></div><div><small>Hf</small><span><s style="width:68%"></s></span></div></div>`,
+    mail: `<i>${WI.mail}</i><div class="t"><b>Gelen kutusu</b><small>3 okunmamış</small></div>`,
+    media: `<div class="art"></div><div class="t"><b>Şarkı adı</b><small>Sanatçı</small></div><i class="pl">${WI.play}</i>`,
+    stacks: `<div class="stk"><s></s><s></s><s></s></div><div class="t"><b>İndirilenler</b><small>12 öğe</small></div>`,
+    live: `<i>${WI.dl}</i><div class="t"><b>dosya.zip</b><span class="pr"><s></s></span></div>`,
+    clipboard: `<i>${WI.clip}</i><div class="t"><b>Pano</b><small>Son kopyalanan…</small></div>`,
+  };
+  box.innerHTML = H[id] || "";
+  return box;
+}
+
+let wCat = "Tümü";
+let wDrag = null;
+let wLanding = null;
+const wDef = (id) => WIDGETS.find((w) => w.id === id);
+const barIds = () => cfg.widgets.filter((id) => wDef(id));
+
+function setWidgets(list) {
+  // Kaldırılmış/bilinmeyen kimlikleri (eski sürümlerden kalma) koru, bilinenleri yeni sırayla yaz
+  const unknown = cfg.widgets.filter((id) => !wDef(id));
+  cfg.widgets = [...list, ...unknown.filter((id) => !list.includes(id))];
+  renderWidgets();
+  changed();
+}
+
 function renderWidgets() {
-  const list = $("#widgets");
-  list.replaceChildren();
-  const on = cfg.widgets.filter((id) => WIDGETS.some((w) => w.id === id));
-  const ordered = [...on.map((id) => WIDGETS.find((w) => w.id === id)), ...WIDGETS.filter((w) => !on.includes(w.id))];
-  ordered.forEach((w) => {
-    const idx = cfg.widgets.indexOf(w.id);
-    const enabled = idx >= 0;
-    const row = el("div", "item");
-    const sw = el("label", "switch", `<input type="checkbox" ${enabled ? "checked" : ""} aria-label="${esc(w.name)}"><span></span>`);
-    sw.querySelector("input").onchange = (e) => {
-      if (e.target.checked) cfg.widgets.push(w.id);
-      else cfg.widgets = cfg.widgets.filter((x) => x !== w.id);
-      changed();
+  const bar = $("#wbar");
+  if (!bar || wDrag) return;
+  // FLIP: eski konumları al, yeniden çiz, aradaki farkı yumuşakça kapat
+  const old = new Map($$(".wcell", bar).map((c) => [c.dataset.id, c.getBoundingClientRect().left]));
+  bar.replaceChildren();
+  const apps = el("div", "wapps", "<s></s><s></s><s></s>");
+  apps.title = "Uygulamalar (sabit)";
+  bar.append(apps, el("div", "wsep"));
+  const ids = barIds();
+  if (!ids.length) bar.append(el("div", "wempty", "Widget'ları buraya sürükle"));
+  for (const id of ids) {
+    const w = wDef(id);
+    const c = el("div", "wcell");
+    c.dataset.id = id;
+    c.title = w.name;
+    c.append(widgetPreview(id));
+    const x = el("button", "wx", "×");
+    x.setAttribute("aria-label", `${w.name} kaldır`);
+    x.onpointerdown = (e) => e.stopPropagation();
+    x.onclick = () => poofOut(c);
+    c.append(x);
+    c.onpointerdown = (e) => startDrag(e, id, c, "bar");
+    bar.append(c);
+  }
+  const land = wLanding;
+  wLanding = null;
+  for (const c of $$(".wcell", bar)) {
+    if (land && land.id === c.dataset.id) {
+      const r = c.getBoundingClientRect();
+      c.animate([{ transform: `translate(${land.x - r.left}px, ${land.y - r.top}px)` }, { transform: "none" }], { duration: 260, easing: "cubic-bezier(.3,1.3,.5,1)" });
+      continue;
+    }
+    const was = old.get(c.dataset.id);
+    if (was == null) {
+      if (old.size) c.animate([{ transform: "scale(.6)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 320, easing: "cubic-bezier(.3,1.5,.5,1)" });
+      continue;
+    }
+    const d = was - c.getBoundingClientRect().left;
+    if (d) c.animate([{ transform: `translateX(${d}px)` }, { transform: "none" }], { duration: 300, easing: "cubic-bezier(.25,1.2,.45,1)" });
+  }
+  renderGallery();
+}
+
+function renderGallery() {
+  const cats = ["Tümü", ...new Set(WIDGETS.map((w) => w.cat))];
+  const cb = $("#wcats");
+  cb.replaceChildren(...cats.map((c) => {
+    const b = el("button", c === wCat ? "on" : "", esc(c));
+    b.onclick = () => { wCat = c; renderGallery(); };
+    return b;
+  }));
+  const g = $("#wgallery");
+  g.replaceChildren();
+  const ids = barIds();
+  // Henüz eklenmemişler önce
+  const list = [...WIDGETS.filter((w) => !ids.includes(w.id)), ...WIDGETS.filter((w) => ids.includes(w.id))];
+  for (const w of list) {
+    if (wCat !== "Tümü" && w.cat !== wCat) continue;
+    const on = ids.includes(w.id);
+    const card = el("div", `wcard${on ? " added" : ""}`);
+    const stage = el("div", "wstage");
+    stage.append(widgetPreview(w.id));
+    card.append(stage);
+    const body = el("div", "wbody", `<div class="wtitle"><strong>${esc(w.name)}</strong>${w.preview ? '<span class="tag">Önizleme</span>' : ""}</div><small>${esc(w.desc)}</small>`);
+    const foot = el("div", "wfoot", `<span class="wcat">${esc(w.cat)}</span>`);
+    const btn = el("button", on ? "btn wbtn on" : "btn wbtn", on ? "✓ Dock'ta" : `${SVG.plus} Ekle`);
+    btn.onpointerdown = (e) => e.stopPropagation();
+    btn.onclick = () => {
+      if (on) setWidgets(ids.filter((x) => x !== w.id));
+      else setWidgets([...ids, w.id]);
     };
-    row.append(sw);
-    row.append(el("div", "grow", `<strong>${esc(w.name)}</strong><small>${esc(w.desc)}</small>`));
-    if (w.preview) row.append(el("span", "tag", "Önizleme"));
-    const btn = (svg, label, d, disabled) => {
-      const b = el("button", "icon-btn", svg);
-      b.setAttribute("aria-label", label);
-      b.disabled = disabled;
-      b.onclick = () => {
-        const j = idx + d;
-        [cfg.widgets[idx], cfg.widgets[j]] = [cfg.widgets[j], cfg.widgets[idx]];
-        changed();
-      };
-      return b;
-    };
-    row.append(
-      btn(SVG.up, "Yukarı taşı", -1, !enabled || idx === 0),
-      btn(SVG.down, "Aşağı taşı", 1, !enabled || idx === cfg.widgets.length - 1),
-    );
-    list.append(row);
+    if (on) btn.title = "Kaldırmak için tıkla";
+    foot.append(btn);
+    body.append(foot);
+    card.append(body);
+    if (!on) card.onpointerdown = (e) => startDrag(e, w.id, card, "gallery");
+    g.append(card);
+  }
+}
+
+function poofOut(cell) {
+  cell.classList.add("poof");
+  const id = cell.dataset.id;
+  setTimeout(() => setWidgets(barIds().filter((x) => x !== id)), 260);
+}
+
+// Sürükle-bırak: hem bar içinde sıralama hem galeriden bara ekleme.
+function startDrag(e, id, src, from) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  wDrag = { id, src, from, x0: e.clientX, y0: e.clientY, active: false, pid: e.pointerId };
+  const move = (ev) => dragMove(ev);
+  const up = (ev) => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up); dragEnd(ev); };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+  window.addEventListener("pointercancel", up);
+}
+
+function dragMove(e) {
+  const d = wDrag;
+  if (!d) return;
+  const dx = e.clientX - d.x0, dy = e.clientY - d.y0;
+  if (!d.active) {
+    if (Math.hypot(dx, dy) < 6) return;
+    d.active = true;
+    const bar = $("#wbar");
+    d.cells = $$(".wcell", bar);
+    d.rects = d.cells.map((c) => c.getBoundingClientRect());
+    d.bar = bar.getBoundingClientRect();
+    // Sürüklenen hayalet: önizlemenin kopyası
+    const g = el("div", "wghost");
+    g.append(widgetPreview(d.id));
+    document.body.append(g);
+    d.ghost = g;
+    const gr = g.getBoundingClientRect();
+    d.gw = gr.width + 8;
+    d.gh = gr.height;
+    if (d.from === "bar") {
+      const r = d.rects[d.cells.indexOf(d.src)];
+      d.offX = d.x0 - r.left;
+      d.offY = d.y0 - r.top;
+      d.fromIdx = d.cells.indexOf(d.src);
+      d.src.classList.add("hole");
+    } else {
+      d.offX = gr.width / 2;
+      d.offY = gr.height / 2;
+      d.src.classList.add("dragging");
+    }
+    $("#wbar").classList.add("dropping");
+  }
+  d.ghost.style.transform = `translate(${e.clientX - d.offX}px, ${e.clientY - d.offY}px)`;
+  const b = d.bar;
+  const over = e.clientX > b.left - 30 && e.clientX < b.right + 30 && e.clientY > b.top - 44 && e.clientY < b.bottom + 44;
+  d.over = over;
+  d.ghost.classList.toggle("out", d.from === "bar" && !over);
+  $("#wbar").classList.toggle("hot", over);
+  // Yeni sıra: imlecin solunda kalan hücre sayısı
+  let to = -1;
+  if (over) {
+    to = 0;
+    d.rects.forEach((r, i) => { if (d.cells[i] !== d.src && r.left + r.width / 2 < e.clientX) to++; });
+  }
+  if (to === d.to) return;
+  d.to = to;
+  d.cells.forEach((c, i) => {
+    if (c === d.src) return;
+    let sh = 0;
+    if (d.from === "bar") {
+      const k = i > d.fromIdx ? i - 1 : i; // sürüklenen çıkarılınca sıra
+      if (to < 0) sh = i > d.fromIdx ? -d.gw : 0;
+      else sh = (i > d.fromIdx ? -d.gw : 0) + (k >= to ? d.gw : 0);
+    } else if (to >= 0 && i >= to) sh = d.gw;
+    c.style.transform = sh ? `translateX(${sh}px)` : "";
   });
+}
+
+function dragEnd() {
+  const d = wDrag;
+  wDrag = null;
+  if (!d || !d.active) return;
+  const bar = $("#wbar");
+  bar.classList.remove("dropping", "hot");
+  d.src.classList.remove("dragging");
+  const ids = barIds();
+  const clear = () => d.cells.forEach((c) => { c.style.transform = ""; c.classList.remove("hole"); });
+  if (d.from === "bar" && !d.over) {
+    d.ghost.classList.add("poof");
+    setTimeout(() => d.ghost.remove(), 260);
+    clear();
+    setWidgets(ids.filter((x) => x !== d.id));
+    return;
+  }
+  if (!d.over || d.to < 0) {
+    // Galeriden gelip bara bırakılmadı: kartına geri uç
+    const r = d.src.getBoundingClientRect();
+    d.ghost.classList.add("back");
+    d.ghost.style.transform = `translate(${r.left + 20}px, ${r.top + 20}px) scale(.5)`;
+    d.ghost.style.opacity = "0";
+    setTimeout(() => d.ghost.remove(), 280);
+    clear();
+    return;
+  }
+  const list = ids.filter((x) => x !== d.id);
+  list.splice(d.to, 0, d.id);
+  // Yeni hücre hayaletin bırakıldığı yerden kendi yerine kaysın (FLIP)
+  const g = d.ghost.getBoundingClientRect();
+  wLanding = { id: d.id, x: g.left, y: g.top };
+  d.ghost.remove();
+  d.cells.forEach((c) => { c.style.transition = "none"; });
+  clear();
+  setWidgets(list);
 }
 
 // ---------------------------------------------------------------------------
@@ -866,7 +1074,14 @@ listen("config-changed", async () => {
     cfg.theme = rest.theme;
     refresh();
   }
+  // Dock'ta düzenlenen widget sırası buraya da yansısın
+  const ws = rest.widgets.map((w) => (w === "currency" ? "ticker" : w));
+  if (JSON.stringify(ws) !== JSON.stringify(cfg.widgets)) {
+    cfg.widgets = ws;
+    renderWidgets();
+  }
 });
+window.addEventListener("beforeunload", () => invoke("dock_edit", { on: false }).catch(() => {}));
 
 init();
 

@@ -251,6 +251,8 @@ fn main() {
             commands::phone_forget,
             commands::dock_alive,
             commands::app_edition,
+            commands::set_widgets,
+            commands::dock_edit,
             commands::fetch_text,
             commands::screen_time,
             commands::usage_data,

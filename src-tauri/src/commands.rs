@@ -1329,3 +1329,24 @@ pub fn dock_alive(window: WebviewWindow, draws: bool) {
 pub fn app_edition() -> serde_json::Value {
     serde_json::json!({ "store": platform::is_store(), "version": env!("CARGO_PKG_VERSION") })
 }
+
+/// Dock'taki widget'lar ve sırası (ayarlar sayfası ve dock'un düzenleme modu).
+#[tauri::command]
+pub fn set_widgets(app: AppHandle, widgets: Vec<String>) {
+    let cfg = {
+        let state = app.state::<AppState>();
+        let mut cfg = state.cfg.lock().unwrap();
+        let mut seen = std::collections::HashSet::new();
+        cfg.widgets = widgets.into_iter().filter(|w| !w.is_empty() && seen.insert(w.clone())).collect();
+        cfg.clone()
+    };
+    config::save(&cfg);
+    crate::emit_config(&app);
+}
+
+/// Widget düzenleme modu (Ayarlar → Widget'lar açıkken dock'taki widget'lar
+/// sürüklenebilir ve kaldırılabilir).
+#[tauri::command]
+pub fn dock_edit(app: AppHandle, on: bool) {
+    let _ = tauri::Emitter::emit(&app, "edit-mode", on);
+}

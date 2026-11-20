@@ -1655,10 +1655,159 @@ function render() {
   dock.replaceChildren(appsWidget(), $("span", "sep"));
   for (const name of cfg.widgets) {
     const make = WIDGETS[name];
-    if (make) dock.append(make());
+    if (!make) continue;
+    const w = make();
+    w.dataset.wid = name;
+    w.dataset.wname = WIDGET_NAMES[name] || name;
+    dock.append(w);
+  }
+  if (editing) decorateEdit();
+  queueLayout();
+}
+
+// ---------------------------------------------------------------------------
+// Widget düzenleme modu (Ayarlar → Widget'lar açıkken)
+// Widget'lar hafifçe titrer; sürükleyerek sıralanır, yukarı (dock'un dışına)
+// sürükleyip bırakınca ya da köşedeki × ile kaldırılır.
+// ---------------------------------------------------------------------------
+const WIDGET_NAMES = {
+  system: "Sistem düğmeleri", lock: "Kilit", calendar: "Takvim", mail: "Mail", claude: "Claude kullanımı",
+  clipboard: "Pano", live: "Canlı etkinlikler", stacks: "Klasör yığınları", screentime: "Ekran süresi",
+  ticker: "Piyasa ve haberler", currency: "Piyasa ve haberler", media: "Müzik", clock: "Saat ve hava",
+};
+let editing = false;
+let wdrag = null;
+
+function decorateEdit() {
+  dock.querySelectorAll("[data-wid]").forEach((w, i) => {
+    w.style.setProperty("--jd", `${(i % 3) * -0.09}s`);
+    if (!w.querySelector(":scope > .w-x")) {
+      const x = $("button", "w-x", "×");
+      x.setAttribute("aria-label", `${w.dataset.wname} kaldır`);
+      x.addEventListener("pointerdown", (e) => e.stopPropagation());
+      x.addEventListener("click", (e) => { e.stopPropagation(); e.preventDefault(); removeWidget(w); });
+      w.append(x);
+    }
+  });
+}
+
+function setEditing(on) {
+  if (on === editing) return;
+  editing = on;
+  document.documentElement.classList.toggle("editing", on);
+  if (on) {
+    decorateEdit();
+    // Titreme ve × düğmeleri dock'un üstüne taşar: o alan da çizilsin
+    invoke("dock_region", { expand: [0, document.documentElement.clientWidth] }).catch(() => {});
+  } else {
+    dock.querySelectorAll(".w-x").forEach((x) => x.remove());
+    invoke("dock_region", { expand: null }).catch(() => {});
   }
   queueLayout();
 }
+listen("edit-mode", (e) => setEditing(!!e.payload));
+
+function saveWidgets(list) {
+  cfg.widgets = list;
+  invoke("set_widgets", { widgets: list }).catch(() => {});
+}
+
+function removeWidget(w) {
+  w.classList.add("w-poof");
+  setTimeout(() => saveWidgets(cfg.widgets.filter((id) => id !== w.dataset.wid)), 280);
+}
+
+// Düzenleme modunda widget'lara tıklama (paneller açılmasın)
+dock.addEventListener("click", (e) => {
+  if (!editing) return;
+  if (e.target.closest(".w-x")) return;
+  if (e.target.closest("[data-wid]")) { e.preventDefault(); e.stopPropagation(); }
+}, true);
+
+dock.addEventListener("pointerdown", (e) => {
+  if (!editing || e.button !== 0) return;
+  const w = e.target.closest("[data-wid]");
+  if (!w || e.target.closest(".w-x")) return;
+  e.preventDefault();
+  e.stopPropagation();
+  wdrag = { el: w, id: e.pointerId, x0: e.clientX, y0: e.clientY, active: false };
+  try { w.setPointerCapture(e.pointerId); } catch {}
+}, true);
+
+dock.addEventListener("pointermove", (e) => {
+  if (!wdrag || e.pointerId !== wdrag.id) return;
+  const dx = e.clientX - wdrag.x0, dy = e.clientY - wdrag.y0;
+  if (!wdrag.active) {
+    if (Math.hypot(dx, dy) < 6) return;
+    const els = [...dock.querySelectorAll("[data-wid]")].filter((x) => x.offsetWidth);
+    wdrag.active = true;
+    wdrag.els = els;
+    wdrag.from = els.indexOf(wdrag.el);
+    wdrag.to = wdrag.from;
+    wdrag.rects = els.map((x) => x.getBoundingClientRect());
+    const r = wdrag.rects[wdrag.from];
+    const next = wdrag.rects[wdrag.from + 1] || wdrag.rects[wdrag.from - 1];
+    const gap = next ? Math.abs(next.left > r.left ? next.left - r.right : r.left - next.right) : 8;
+    wdrag.w = r.width + gap;
+    dock.classList.add("w-dragging");
+    wdrag.el.classList.add("w-lift");
+  }
+  const up = Math.min(0, dy);
+  const out = up < -34;
+  wdrag.out = out;
+  wdrag.el.classList.toggle("w-out", out);
+  wdrag.el.style.transform = `translate(${dx}px, ${Math.max(up, -60)}px) scale(${out ? 0.92 : 1.04})`;
+  // Bırakılacak sıra: sürüklenenin merkezi diğerlerinin merkezlerine göre
+  const r = wdrag.rects[wdrag.from];
+  const cx = r.left + r.width / 2 + dx;
+  let to = 0;
+  wdrag.rects.forEach((q, i) => { if (i !== wdrag.from && q.left + q.width / 2 < cx) to++; });
+  if (out) to = wdrag.from;
+  if (to !== wdrag.to) {
+    wdrag.to = to;
+    wdrag.els.forEach((x, i) => {
+      if (x === wdrag.el) return;
+      let sh = 0;
+      if (wdrag.from < to && i > wdrag.from && i <= to) sh = -wdrag.w;
+      if (wdrag.from > to && i >= to && i < wdrag.from) sh = wdrag.w;
+      x.style.transform = sh ? `translateX(${sh}px)` : "";
+    });
+  }
+}, true);
+
+function endWidgetDrag(e) {
+  if (!wdrag || (e && e.pointerId !== wdrag.id)) return;
+  const d = wdrag;
+  wdrag = null;
+  if (!d.active) return;
+  dock.classList.remove("w-dragging");
+  d.el.classList.remove("w-lift");
+  if (d.out) {
+    d.els.forEach((x) => { if (x !== d.el) x.style.transform = ""; });
+    removeWidget(d.el);
+    return;
+  }
+  // Yerine otur, sonra sırayı kaydet (dock yeniden çizilir)
+  let off = 0;
+  if (d.to > d.from) for (let i = d.from + 1; i <= d.to; i++) off += d.rects[i].width + (d.w - d.rects[d.from].width);
+  if (d.to < d.from) for (let i = d.to; i < d.from; i++) off -= d.rects[i].width + (d.w - d.rects[d.from].width);
+  d.el.classList.add("w-settle");
+  d.el.style.transform = `translateX(${off}px)`;
+  setTimeout(() => {
+    if (d.to === d.from) {
+      d.els.forEach((x) => { x.style.transform = ""; x.classList.remove("w-settle"); });
+      return;
+    }
+    const order = d.els.map((x) => x.dataset.wid);
+    const [m] = order.splice(d.from, 1);
+    order.splice(d.to, 0, m);
+    // Görünmeyen (gizli) widget'lar sıradaki yerlerini korusun
+    const hidden = cfg.widgets.filter((id) => !order.includes(id));
+    saveWidgets([...order, ...hidden]);
+  }, 230);
+}
+dock.addEventListener("pointerup", endWidgetDrag, true);
+dock.addEventListener("pointercancel", endWidgetDrag, true);
 
 async function init() {
   info = (await invoke("dock_info").catch(() => null)) || info;
