@@ -296,7 +296,7 @@ function markActive(el, on, cls = "active") {
 function pressFx(root) {
   root.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
-    const t = e.target.closest(".ctrl, .app.start, .stack-btn, .lp, button.cell, .cell.media, .cell.sys, .cell.clock.has-wx");
+    const t = e.target.closest(".ctrl, .fc-ring, .app.start, .stack-btn, .lp, button.cell, .cell.media, .cell.sys, .cell.clock.has-wx");
     if (!t || !root.contains(t)) return;
     // İçteki düğme (oynat/ileri) basılıyorsa hücrenin kendisi çökmesin
     t.classList.remove("released");
@@ -1645,7 +1645,172 @@ const WIDGETS = {
   currency: tickerWidget, // eski ayar dosyaları için
   media: mediaWidget,
   clock: clockWidget,
+  notes: notesWidget,
+  todo: todoWidget,
+  focus: focusWidget,
+  world: worldWidget,
 };
+
+// ---------------------------------------------------------------------------
+// Verimlilik: yapışkan notlar, yapılacaklar, odak (Pomodoro), dünya saatleri
+// ---------------------------------------------------------------------------
+const NOTE_HEX = { yellow: "#FFD84D", pink: "#FF8FBF", blue: "#7DB8FF", green: "#7FDB8C", purple: "#A98BFF", orange: "#FFA35C", gray: "#5B6273" };
+const openPop = async (c, kind, payload = null) => {
+  const r = c.getBoundingClientRect();
+  const res = await invoke("popover_open", { kind, key: kind, anchor: r.left + r.width / 2, payload }).catch(() => "");
+  markActive(c, res === "opened" || res === "open");
+};
+// Olay dinleyicileri bir kez kurulur; dock yeniden çizilince güncel hücreyi bulur.
+const prodCells = { notes: null, todo: null, focus: null };
+let notesData = [], todosData = [], focusData = null;
+listen("notes-changed", (e) => { notesData = e.payload || []; prodCells.notes?.upd(); });
+listen("todos-changed", (e) => { todosData = e.payload || []; prodCells.todo?.upd(); });
+listen("focus-state", (e) => { focusData = e.payload; prodCells.focus?.upd(); });
+
+function notesWidget() {
+  const c = $("button", "cell w-notes");
+  c.innerHTML = `<span class="nt-stack"><i></i><i></i><i></i></span>
+    <span class="stack"><span class="t-strong"></span><span class="t-sub"></span></span>`;
+  const [title, sub] = [c.querySelector(".t-strong"), c.querySelector(".t-sub")];
+  const papers = [...c.querySelectorAll(".nt-stack i")];
+  c.upd = () => {
+    const list = [...notesData].sort((a, b) => b.updated - a.updated);
+    const first = list[0];
+    title.textContent = first ? (first.text.split("\n").find((l) => l.trim()) || "Boş not").slice(0, 60) : "Yapışkan notlar";
+    const desk = list.filter((n) => n.desktop).length;
+    sub.textContent = list.length ? `${list.length} not${desk ? ` · ${desk} masaüstünde` : ""}` : "Tıkla, ilk notunu yaz";
+    papers.forEach((p, i) => p.style.background = NOTE_HEX[list[i]?.color] || ["#FFD84D", "#FF8FBF", "#7DB8FF"][i]);
+    c.title = "Yapışkan notlar\nTıkla: tüm notlar · Orta tık: yeni not";
+  };
+  invoke("notes_list").then((l) => { notesData = l || []; c.upd(); }).catch(() => c.upd());
+  c.onclick = () => openPop(c, "notes");
+  c.onauxclick = (e) => { if (e.button === 1) invoke("note_new", { desktop: true }).catch(() => {}); };
+  prodCells.notes = c;
+  c.upd();
+  return c;
+}
+
+function todoWidget() {
+  const c = $("button", "cell w-todo");
+  c.innerHTML = `<span class="ring-wrap td-ring"></span>
+    <span class="stack"><span class="t-sub">Yapılacaklar</span><span class="t-strong"></span></span>`;
+  const [rw, title, sub] = [c.querySelector(".td-ring"), c.querySelector(".t-strong"), c.querySelector(".t-sub")];
+  c.upd = () => {
+    const open = todosData.filter((t) => !t.done), done = todosData.length - open.length;
+    const pct = todosData.length ? (done / todosData.length) * 100 : 0;
+    const r = 15, C = 2 * Math.PI * r;
+    rw.innerHTML = `<svg class="ring" viewBox="0 0 40 40" width="40" height="40" aria-hidden="true"><circle cx="20" cy="20" r="${r}" class="ring-track"/><circle cx="20" cy="20" r="${r}" class="ring-val" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - pct / 100)}"/></svg>
+      <b class="ring-num">${open.length ? open.length : "✓"}</b>`;
+    c.classList.toggle("all-done", todosData.length > 0 && !open.length);
+    title.textContent = open[0]?.text || (todosData.length ? "Hepsi tamam 🎉" : "Görev ekle");
+    sub.textContent = todosData.length ? `Yapılacaklar · ${done}/${todosData.length}` : "Yapılacaklar";
+    c.title = open.length ? `${open.length} açık görev\n` + open.slice(0, 5).map((t) => "• " + t.text).join("\n") : "Yapılacaklar";
+  };
+  invoke("todos_list").then((l) => { todosData = l || []; c.upd(); }).catch(() => c.upd());
+  c.onclick = () => openPop(c, "todo");
+  prodCells.todo = c;
+  c.upd();
+  return c;
+}
+
+const FOCUS_NAME = { idle: "Odak", focus: "Odak", short: "Kısa mola", long: "Uzun mola" };
+const mmss = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+const focusLeft = (f) => (f.running ? f.ends_at - Date.now() : f.left_ms);
+function focusWidget() {
+  const c = $("div", "cell w-focus");
+  c.innerHTML = `<button class="fc-ring" aria-label="Başlat / duraklat"></button>
+    <button class="stack fc-txt"><span class="t-sub"></span><span class="t-big"></span></button>`;
+  const [btn, txt, sub, big] = [c.querySelector(".fc-ring"), c.querySelector(".fc-txt"), c.querySelector(".t-sub"), c.querySelector(".t-big")];
+  const r = 15, C = 2 * Math.PI * r;
+  btn.innerHTML = `<svg class="ring" viewBox="0 0 40 40" width="40" height="40" aria-hidden="true"><circle cx="20" cy="20" r="${r}" class="ring-track"/><circle cx="20" cy="20" r="${r}" class="ring-val" stroke-dasharray="${C}" stroke-dashoffset="0"/></svg><i class="fc-ic"></i>`;
+  const val = btn.querySelector(".ring-val"), ic = btn.querySelector(".fc-ic");
+  const PLAY = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>';
+  const PAUSE = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg>';
+  c.upd = () => {
+    const f = focusData;
+    if (!f) return;
+    const left = focusLeft(f);
+    const pct = f.total_ms ? Math.max(0, Math.min(1, left / f.total_ms)) : 1;
+    val.style.strokeDashoffset = C * (1 - pct);
+    c.dataset.phase = f.phase;
+    c.classList.toggle("running", f.running);
+    ic.innerHTML = f.running ? PAUSE : PLAY;
+    big.textContent = mmss(left);
+    const dots = f.phase === "idle" ? (f.today ? `bugün ${f.today} tur` : "hazır") : `${Math.min(f.round + (f.phase === "focus" ? 1 : 0), f.rounds)}/${f.rounds}`;
+    sub.textContent = `${FOCUS_NAME[f.phase]} · ${f.running || f.phase === "idle" ? dots : "duraklatıldı"}`;
+    c.title = `${FOCUS_NAME[f.phase]} ${mmss(left)}\nHalkaya tıkla: başlat/duraklat · Yazıya tıkla: ayarlar ve geçmiş`;
+  };
+  invoke("focus_state").then((f) => { focusData = f; c.upd(); }).catch(() => {});
+  every(1000, () => { if (focusData?.running) c.upd(); });
+  btn.onclick = (e) => { e.stopPropagation(); invoke("focus_cmd", { action: "toggle" }).catch(() => {}); };
+  txt.onclick = () => openPop(c, "focus");
+  prodCells.focus = c;
+  return c;
+}
+listen("focus-done", (e) => {
+  if (!info.primary) return;
+  const p = e.payload || {};
+  if (p.sound !== false) chime();
+  const msg = p.done === "focus"
+    ? { title: "Odak turu bitti 🎯", body: p.next === "long" ? "Uzun molayı hak ettin." : "Kısa bir mola ver, gözlerini dinlendir." }
+    : { title: "Mola bitti", body: "Yeni odak turuna hazır mısın?" };
+  invoke("toast_show", {
+    anchor: prodCells.focus?.isConnected ? (() => { const r = prodCells.focus.getBoundingClientRect(); return r.left + r.width / 2; })() : dock.getBoundingClientRect().width / 2,
+    payload: { id: -Date.now(), key: "__focus", handler: "", name: "Odak", icon: null, ...msg, time: Date.now(), life: 10000 },
+  }).catch(() => {});
+});
+
+// Dünya saatleri: şehirler sırayla döner (fare üstündeyken durur, tekerlekle geçilir).
+function tzOffsetMin(tz, d = new Date()) {
+  d = new Date(d);
+  d.setSeconds(0, 0);
+  try {
+    const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric" }).formatToParts(d).map((x) => [x.type, x.value]));
+    const asUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
+    return Math.round((asUtc - d.getTime()) / 60000);
+  } catch { return null; }
+}
+const relOffset = (tz) => {
+  const o = tzOffsetMin(tz);
+  if (o == null) return "";
+  const diff = o + new Date().getTimezoneOffset();
+  if (!diff) return "aynı saat";
+  const h = Math.trunc(diff / 60), m = Math.abs(diff % 60);
+  return `${diff > 0 ? "+" : "−"}${Math.abs(h)}${m ? ":" + String(m).padStart(2, "0") : ""} sa`;
+};
+const tzTime = (tz) => { try { return new Date().toLocaleTimeString("tr-TR", { timeZone: tz, hour: "2-digit", minute: "2-digit" }); } catch { return "--:--"; } };
+const tzHour = (tz) => { try { return +new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hourCycle: "h23" }).format(new Date()); } catch { return 12; } };
+function worldWidget() {
+  const c = $("button", "cell w-world");
+  c.innerHTML = `<span class="wc-face"><i class="h"></i><i class="m"></i></span>
+    <span class="wc-view"><span class="stack wc-row"><span class="t-sub"></span><span class="t-big"></span></span></span>`;
+  const face = c.querySelector(".wc-face"), row = c.querySelector(".wc-row");
+  let i = 0, hover = false;
+  const show = (anim) => {
+    const list = cfg.world_clocks?.length ? cfg.world_clocks : [{ name: "Londra", tz: "Europe/London" }];
+    i = ((i % list.length) + list.length) % list.length;
+    const w = list[i];
+    const h = tzHour(w.tz), t = tzTime(w.tz), m = +t.slice(3, 5);
+    face.style.setProperty("--h", `${(h % 12) * 30 + m / 2}deg`);
+    face.style.setProperty("--m", `${m * 6}deg`);
+    c.classList.toggle("night", h < 7 || h >= 19);
+    const put = () => {
+      row.querySelector(".t-sub").textContent = `${w.name} · ${relOffset(w.tz)}`;
+      row.querySelector(".t-big").textContent = t;
+    };
+    if (!anim) return put();
+    row.classList.remove("wc-in"); row.classList.add("wc-out");
+    setTimeout(() => { put(); row.classList.remove("wc-out"); void row.offsetWidth; row.classList.add("wc-in"); }, 180);
+  };
+  show(false);
+  every(5000, () => { if (!hover && (cfg.world_clocks?.length || 0) > 1) { i++; show(true); } else show(false); });
+  c.onmouseenter = () => (hover = true);
+  c.onmouseleave = () => (hover = false);
+  c.onwheel = (e) => { e.preventDefault(); i += e.deltaY > 0 ? 1 : -1; show(true); };
+  c.onclick = () => openPop(c, "world");
+  c.title = "Dünya saatleri\nTekerlek: şehir değiştir · Tıkla: hepsi";
+  return c;
+}
 
 // ---------------------------------------------------------------------------
 // Kurulum
@@ -1674,6 +1839,7 @@ const WIDGET_NAMES = {
   system: "Sistem düğmeleri", lock: "Kilit", calendar: "Takvim", mail: "Mail", claude: "Claude kullanımı",
   clipboard: "Pano", live: "Canlı etkinlikler", stacks: "Klasör yığınları", screentime: "Ekran süresi",
   ticker: "Piyasa ve haberler", currency: "Piyasa ve haberler", media: "Müzik", clock: "Saat ve hava",
+  notes: "Yapışkan notlar", todo: "Yapılacaklar", focus: "Odak", world: "Dünya saatleri",
 };
 let editing = false;
 let wdrag = null;
@@ -1865,6 +2031,7 @@ listen("popover-closed", (e) => {
   const cell = { calendar: calendarCell, usage: screenCell, news: tickerCell, weather: clockCell, claude: claudeCell, clipboard: clipCell, media: mediaCell }[e.payload];
   if (e.payload === "stack") stacksCell?.classList.remove("is-active");
   cell?.classList.remove("active");
+  if (["notes", "todo", "focus", "world"].includes(e.payload)) dock.querySelector({ notes: ".w-notes", todo: ".w-todo", focus: ".w-focus", world: ".w-world" }[e.payload])?.classList.remove("active");
 });
 
 listen("config-changed", async () => {
@@ -1886,6 +2053,12 @@ async function mockInvoke(cmd, args) {
   switch (cmd) {
     case "popover_open":
       return "opened";
+    case "notes_list":
+      return [{ id: "a", text: "Cuma 15:00 haftalık toplantı", color: "yellow", desktop: true, updated: Date.now() }, { id: "b", text: "x", color: "pink", updated: 1 }, { id: "c", text: "y", color: "blue", updated: 0 }];
+    case "todos_list":
+      return [{ id: "1", text: "Rapor taslağını gözden geçir", done: false }, { id: "2", text: "Diş randevusu al", done: false }, { id: "3", text: "Faturayı öde", done: true }];
+    case "focus_state":
+      return { phase: "focus", running: true, ends_at: Date.now() + 14 * 60e3 + 32e3, left_ms: 0, total_ms: 25 * 60e3, round: 1, rounds: 4, today: 3, today_min: 75 };
     case "get_config":
       return {
         theme: params.get("theme") || "system",
@@ -1896,6 +2069,7 @@ async function mockInvoke(cmd, args) {
         display: { mode: "primary", selected: [], apps_per_monitor: false },
         widgets: (params.get("widgets") || "stacks,live,calendar,screentime,ticker,media,clipboard,system,clock,lock").split(","),
         notifications: { enabled: true, balloons: true, bounce: true, bounce_sec: 10, show_text: true },
+        world_clocks: [{ name: "Londra", tz: "Europe/London" }, { name: "Kahire", tz: "Africa/Cairo" }, { name: "New York", tz: "America/New_York" }],
         dock_locked: params.get("locked") !== "0",
         stacks: [{ name: "İndirilenler", path: "%USERPROFILE%\\Downloads", view: "grid", sort: "date" }],
         magnify: true, magnify_scale: 1.4,

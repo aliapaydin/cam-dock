@@ -72,6 +72,10 @@ async function show(s) {
   else if (s.kind === "quick") await renderQuick();
   else if (s.kind === "stack") await renderStack(s.payload);
   else if (s.kind === "claude") await renderClaude();
+  else if (s.kind === "notes") await renderNotes();
+  else if (s.kind === "todo") await renderTodo();
+  else if (s.kind === "focus") await renderFocus();
+  else if (s.kind === "world") renderWorld();
   else renderWindows(s.payload);
   relayout();
 }
@@ -796,6 +800,402 @@ async function renderClipboard() {
 }
 
 // ---------------------------------------------------------------------------
+// Yapışkan notlar
+// ---------------------------------------------------------------------------
+const NOTE_COLORS = { yellow: "#FFE36E", pink: "#FF9EC8", blue: "#8EC5FF", green: "#8EE39A", purple: "#B79BFF", orange: "#FFB070", gray: "#3A3F4C" };
+const PI = {
+  desk: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M14 7.5h4v4h-4z" fill="currentColor"/></svg>',
+  del: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+  plus: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  pal: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 100 18c1.1 0 1.6-.9 1.2-1.8-.5-1-.1-2.2 1.2-2.2H17a4 4 0 004-4c0-5.5-4-10-9-10z"/><circle cx="7.5" cy="11" r="1.2" fill="currentColor"/><circle cx="10.5" cy="7" r="1.2" fill="currentColor"/><circle cx="15" cy="7.5" r="1.2" fill="currentColor"/></svg>',
+};
+let notesUnlisten = null;
+async function renderNotes() {
+  const box = el("div", "nts");
+  box.innerHTML = `
+    <div class="clp-head"><strong>Yapışkan notlar</strong><span class="clp-n"></span>
+      <button class="nts-all"></button>
+      <button class="nts-new">${PI.plus} Yeni not</button></div>
+    <div class="nts-grid"></div>
+    <div class="clp-foot">Notu masaüstüne bırak: istediğin köşeye sürükle, kenara yaklaşınca yaslanır. Üst şeritten taşı, sağ alt köşeden büyüt.</div>`;
+  panel.append(box);
+  const grid = box.querySelector(".nts-grid");
+  let editing = null; // düzenlenen notun kimliği
+  let list = [];
+  const saveT = new Map();
+
+  function card(n, i) {
+    const c = el("div", "nt" + (n.desktop ? " desk" : "") + (editing === n.id ? " editing" : ""));
+    c.style.setProperty("--p", NOTE_COLORS[n.color] || NOTE_COLORS.yellow);
+    c.style.setProperty("--i", i);
+    c.dataset.color = n.color;
+    c.innerHTML = `
+      <div class="nt-body"></div>
+      <div class="nt-pal">${Object.entries(NOTE_COLORS).map(([k, v]) => `<button data-c="${k}" style="background:${v}" class="${k === n.color ? "on" : ""}" aria-label="${k}"></button>`).join("")}</div>
+      <div class="nt-acts">
+        <button class="nt-act desk ${n.desktop ? "on" : ""}" title="${n.desktop ? "Masaüstünden kaldır" : "Masaüstüne bırak"}">${PI.desk}</button>
+        <button class="nt-act pal" title="Renk">${PI.pal}</button>
+        <button class="nt-act del" title="Sil">${PI.del}</button>
+      </div>`;
+    const body = c.querySelector(".nt-body");
+    if (editing === n.id) {
+      const ta = el("textarea", "nt-ta");
+      ta.value = n.text;
+      ta.placeholder = "Bir şey yaz…";
+      ta.oninput = () => {
+        clearTimeout(saveT.get(n.id));
+        saveT.set(n.id, setTimeout(() => invoke("note_update", { id: n.id, text: ta.value }).catch(() => {}), 300));
+      };
+      ta.onblur = () => setTimeout(() => { if (editing === n.id && !c.contains(document.activeElement)) { editing = null; draw(); } }, 120);
+      body.append(ta);
+      setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 30);
+    } else {
+      body.textContent = n.text || "Boş not — yazmak için tıkla";
+      body.classList.toggle("empty", !n.text);
+      body.onclick = () => { editing = n.id; draw(); };
+    }
+    c.querySelector(".desk").onclick = () => invoke("note_desktop", { id: n.id, on: !n.desktop }).catch(() => {});
+    c.querySelector(".pal").onclick = () => c.classList.toggle("pal-open");
+    c.querySelectorAll(".nt-pal button").forEach((b) => b.onclick = () => {
+      c.classList.remove("pal-open");
+      invoke("note_update", { id: n.id, color: b.dataset.c }).catch(() => {});
+    });
+    const del = c.querySelector(".del");
+    del.onclick = () => {
+      if (!del.classList.contains("arm")) {
+        del.classList.add("arm");
+        del.title = "Silmek için tekrar tıkla";
+        setTimeout(() => del.classList.remove("arm"), 2500);
+        return;
+      }
+      c.classList.add("bye");
+      setTimeout(() => invoke("note_delete", { id: n.id }).catch(() => {}), 220);
+    };
+    return c;
+  }
+
+  function draw() {
+    box.querySelector(".clp-n").textContent = list.length ? `${list.length} not` : "";
+    const desk = list.filter((n) => n.desktop).length;
+    const all = box.querySelector(".nts-all");
+    all.style.display = list.length ? "" : "none";
+    all.innerHTML = `${PI.desk} ${desk === list.length ? "Masaüstünden kaldır" : "Hepsi masaüstüne"}`;
+    all.onclick = () => invoke("notes_desktop_all", { on: desk !== list.length }).catch(() => {});
+    if (!list.length) {
+      grid.innerHTML = `<div class="clp-empty nts-empty"><span class="nts-ill"><i></i><i></i><i></i></span>Henüz not yok.<br>Yeni bir not yaz, istersen masaüstünün bir köşesine bırak.</div>`;
+    } else grid.replaceChildren(...list.map(card));
+    relayout();
+  }
+  box.querySelector(".nts-new").onclick = async () => {
+    const n = await invoke("note_new", {}).catch(() => null);
+    if (n) { editing = n.id; list = [n, ...list.filter((x) => x.id !== n.id)]; draw(); }
+  };
+  list = (await invoke("notes_list").catch(() => [])) || [];
+  draw();
+  notesUnlisten?.();
+  notesUnlisten = await listen("notes-changed", (e) => {
+    if (spec?.kind !== "notes") return;
+    list = [...(e.payload || [])].sort((a, b) => b.updated - a.updated);
+    // Yazarken kartı yeniden çizme (imleç kaçmasın)
+    if (editing && document.activeElement?.classList.contains("nt-ta")) {
+      const cur = list.find((n) => n.id === editing);
+      const c = document.activeElement.closest(".nt");
+      if (cur && c) { c.style.setProperty("--p", NOTE_COLORS[cur.color]); c.dataset.color = cur.color; }
+      return;
+    }
+    draw();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Yapılacaklar
+// ---------------------------------------------------------------------------
+let todoUnlisten = null;
+async function renderTodo() {
+  const box = el("div", "tdo");
+  box.innerHTML = `
+    <div class="clp-head"><strong>Yapılacaklar</strong><span class="clp-n"></span><button class="clp-clear">Tamamlananları temizle</button></div>
+    <div class="tdo-bar"><i></i></div>
+    <form class="tdo-add"><span class="tdo-plus">${PI.plus}</span><input placeholder="Yeni görev yaz, Enter'a bas" maxlength="200" aria-label="Yeni görev"></form>
+    <div class="tdo-list"></div>`;
+  panel.append(box);
+  const listEl = box.querySelector(".tdo-list");
+  const input = box.querySelector("input");
+  let items = [];
+  let fresh = null; // yeni eklenenin metni: giriş animasyonu için
+  box.querySelector("form").onsubmit = (e) => {
+    e.preventDefault();
+    const t = input.value.trim();
+    if (!t) return;
+    fresh = t;
+    input.value = "";
+    invoke("todo_add", { text: t }).catch(() => {});
+  };
+  box.querySelector(".clp-clear").onclick = () => {
+    listEl.querySelectorAll(".td.done").forEach((r) => r.classList.add("bye"));
+    setTimeout(() => invoke("todo_clear_done").catch(() => {}), 220);
+  };
+
+  function row(t) {
+    const r = el("div", "td" + (t.done ? " done" : ""));
+    r.dataset.id = t.id;
+    r.innerHTML = `<button class="td-check" aria-label="${t.done ? "Geri al" : "Tamamla"}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
+      <span class="td-text"></span><button class="td-x" aria-label="Sil">${SVG.x}</button>`;
+    const tx = r.querySelector(".td-text");
+    tx.textContent = t.text;
+    if (fresh && t.text === fresh && !t.done) { r.classList.add("new"); fresh = null; }
+    r.querySelector(".td-check").onclick = () => {
+      r.classList.toggle("done");
+      if (!t.done) r.classList.add("pop");
+      setTimeout(() => invoke("todo_toggle", { id: t.id }).catch(() => {}), t.done ? 0 : 420);
+    };
+    r.querySelector(".td-x").onclick = () => { r.classList.add("bye"); setTimeout(() => invoke("todo_delete", { id: t.id }).catch(() => {}), 200); };
+    tx.ondblclick = () => {
+      tx.contentEditable = "plaintext-only";
+      tx.focus();
+      document.getSelection()?.selectAllChildren(tx);
+      const end = () => { tx.contentEditable = "false"; invoke("todo_edit", { id: t.id, text: tx.textContent || "" }).catch(() => {}); };
+      tx.onblur = end;
+      tx.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); tx.blur(); } if (e.key === "Escape") { tx.textContent = t.text; tx.blur(); } };
+    };
+    // Basılı tutup sürükleyerek sırala
+    r.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || e.target.closest("button") || tx.isContentEditable) return;
+      const y0 = e.clientY;
+      let drag = null;
+      const hold = setTimeout(() => start(), 220);
+      const start = () => {
+        const rows = [...listEl.querySelectorAll(".td")];
+        drag = { rows, from: rows.indexOf(r), to: rows.indexOf(r), h: r.offsetHeight + 6, mids: rows.map((x) => x.offsetTop + x.offsetHeight / 2) };
+        r.classList.add("lift");
+        listEl.classList.add("sorting");
+      };
+      const move = (ev) => {
+        if (!drag) { if (Math.abs(ev.clientY - y0) > 6) { clearTimeout(hold); start(); } else return; }
+        const dy = ev.clientY - y0;
+        r.style.transform = `translateY(${dy}px) scale(1.02)`;
+        const cy = drag.mids[drag.from] + dy;
+        let to = 0;
+        drag.mids.forEach((m, i) => { if (i !== drag.from && m < cy) to++; });
+        drag.to = to;
+        drag.rows.forEach((x, i) => {
+          if (x === r) return;
+          let sh = 0;
+          if (drag.from < to && i > drag.from && i <= to) sh = -drag.h;
+          if (drag.from > to && i >= to && i < drag.from) sh = drag.h;
+          x.style.transform = sh ? `translateY(${sh}px)` : "";
+        });
+      };
+      const up = () => {
+        clearTimeout(hold);
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        if (!drag) return;
+        listEl.classList.remove("sorting");
+        r.classList.remove("lift");
+        const ids = drag.rows.map((x) => x.dataset.id);
+        const [m] = ids.splice(drag.from, 1);
+        ids.splice(drag.to, 0, m);
+        drag.rows.forEach((x) => (x.style.transform = ""));
+        if (drag.to !== drag.from) invoke("todo_order", { ids }).catch(() => {});
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    });
+    return r;
+  }
+
+  function draw() {
+    const done = items.filter((t) => t.done).length;
+    box.querySelector(".clp-n").textContent = items.length ? `${done}/${items.length}` : "";
+    box.querySelector(".clp-clear").style.visibility = done ? "visible" : "hidden";
+    box.querySelector(".tdo-bar i").style.width = items.length ? `${(done / items.length) * 100}%` : "0";
+    box.querySelector(".tdo-bar").classList.toggle("full", items.length > 0 && done === items.length);
+    if (!items.length) listEl.innerHTML = `<div class="clp-empty">Liste boş. Yukarıya yaz, Enter'a bas.</div>`;
+    else listEl.replaceChildren(...items.map(row));
+    relayout();
+  }
+  items = (await invoke("todos_list").catch(() => [])) || [];
+  draw();
+  setTimeout(() => input.focus(), 60);
+  todoUnlisten?.();
+  todoUnlisten = await listen("todos-changed", (e) => {
+    if (spec?.kind !== "todo") return;
+    items = e.payload || [];
+    if (!document.activeElement?.isContentEditable) draw();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Odak (Pomodoro)
+// ---------------------------------------------------------------------------
+let focusUnlisten = null;
+async function renderFocus() {
+  const NAMES = { idle: "Odaklanmaya hazır", focus: "Odak", short: "Kısa mola", long: "Uzun mola" };
+  const box = el("div", "fcs");
+  const R = 54, C = 2 * Math.PI * R;
+  box.innerHTML = `
+    <div class="fcs-top">
+      <div class="fcs-ring">
+        <svg viewBox="0 0 128 128" width="128" height="128"><circle cx="64" cy="64" r="${R}" class="trk"/><circle cx="64" cy="64" r="${R}" class="val" stroke-dasharray="${C}"/></svg>
+        <div class="fcs-mid"><b class="fcs-time"></b><span class="fcs-phase"></span></div>
+      </div>
+      <div class="fcs-side">
+        <div class="fcs-dots"></div>
+        <div class="fcs-btns">
+          <button class="fcs-main"></button>
+          <button class="fcs-b skip" title="Sıradaki aşamaya geç"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M5 5.5v13l9-6.5zM15 5h3v14h-3z"/></svg></button>
+          <button class="fcs-b reset" title="Sıfırla"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.5-5.8"/><path d="M4 4v4h4"/></svg></button>
+        </div>
+        <div class="fcs-today"></div>
+      </div>
+    </div>
+    <div class="fcs-set">
+      <div class="fcs-row"><span>Odak</span><div class="seg" data-k="work"></div></div>
+      <div class="fcs-row"><span>Kısa mola</span><div class="seg" data-k="short"></div></div>
+      <div class="fcs-row"><span>Uzun mola</span><div class="seg" data-k="long"></div></div>
+      <div class="fcs-row"><span>Uzun moladan önce</span><div class="seg" data-k="rounds"></div></div>
+      <div class="fcs-row"><span>Sıradakini kendiliğinden başlat</span><label class="qs-sw"><input type="checkbox" data-k="auto"><span></span></label></div>
+      <div class="fcs-row"><span>Bitince ses</span><label class="qs-sw"><input type="checkbox" data-k="sound"><span></span></label></div>
+    </div>`;
+  panel.append(box);
+  const OPTS = { work: [15, 25, 30, 45, 50, 60], short: [3, 5, 10], long: [10, 15, 20, 30], rounds: [2, 3, 4, 6] };
+  const cfgF = () => ({ work: 25, short: 5, long: 15, rounds: 4, auto: true, sound: true, ...(pcfg?.focus || {}) });
+  const drawSet = () => {
+    const f = cfgF();
+    box.querySelectorAll(".seg").forEach((sg) => {
+      const k = sg.dataset.k;
+      sg.replaceChildren(...OPTS[k].map((v) => {
+        const b = el("button", v === f[k] ? "on" : "", k === "rounds" ? `${v} tur` : `${v} dk`);
+        b.onclick = () => { pcfg.focus = { ...f, [k]: v }; drawSet(); invoke("set_focus_cfg", { focus: pcfg.focus }).catch(() => {}); };
+        return b;
+      }));
+    });
+    box.querySelectorAll("input[data-k]").forEach((i) => {
+      i.checked = !!f[i.dataset.k];
+      i.onchange = () => { pcfg.focus = { ...cfgF(), [i.dataset.k]: i.checked }; invoke("set_focus_cfg", { focus: pcfg.focus }).catch(() => {}); };
+    });
+  };
+  drawSet();
+  let st = await invoke("focus_state").catch(() => null);
+  const val = box.querySelector(".val");
+  const tick = () => {
+    if (!st) return;
+    const left = st.running ? st.ends_at - Date.now() : st.left_ms;
+    const pct = st.total_ms ? Math.max(0, Math.min(1, left / st.total_ms)) : 1;
+    val.style.strokeDashoffset = C * (1 - pct);
+    const s = Math.max(0, Math.ceil(left / 1000));
+    box.querySelector(".fcs-time").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  };
+  const draw = () => {
+    if (!st) return;
+    box.dataset.phase = st.phase;
+    box.classList.toggle("running", st.running);
+    box.querySelector(".fcs-phase").textContent = st.phase !== "idle" && !st.running ? "Duraklatıldı" : NAMES[st.phase];
+    box.querySelector(".fcs-main").innerHTML = st.running
+      ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg> Duraklat`
+      : `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg> ${st.phase === "idle" ? "Başlat" : "Devam et"}`;
+    const n = st.rounds || 4;
+    const cur = st.phase === "focus" ? st.round : -1;
+    box.querySelector(".fcs-dots").innerHTML = Array.from({ length: n }, (_, i) =>
+      `<i class="${i < st.round ? "done" : ""}${i === cur ? " cur" : ""}"></i>`).join("") + `<span>${st.round}/${n} tur</span>`;
+    box.querySelector(".fcs-today").textContent = st.today ? `Bugün ${st.today} odak turu · ${st.today_min} dk` : "Bugün henüz odak turu yok";
+    tick();
+  };
+  draw();
+  box.querySelector(".fcs-main").onclick = () => invoke("focus_cmd", { action: "toggle" }).catch(() => {});
+  box.querySelector(".skip").onclick = () => invoke("focus_cmd", { action: "skip" }).catch(() => {});
+  box.querySelector(".reset").onclick = () => invoke("focus_cmd", { action: "reset" }).catch(() => {});
+  liveTimer = setInterval(tick, 1000);
+  focusUnlisten?.();
+  focusUnlisten = await listen("focus-state", (e) => { if (spec?.kind === "focus") { st = e.payload; draw(); } });
+  relayout();
+}
+
+// ---------------------------------------------------------------------------
+// Dünya saatleri
+// ---------------------------------------------------------------------------
+const CITIES = [
+  ["Londra", "Europe/London"], ["Paris", "Europe/Paris"], ["Berlin", "Europe/Berlin"], ["Amsterdam", "Europe/Amsterdam"], ["Roma", "Europe/Rome"],
+  ["Madrid", "Europe/Madrid"], ["Atina", "Europe/Athens"], ["Kiev", "Europe/Kyiv"], ["Moskova", "Europe/Moscow"], ["Dublin", "Europe/Dublin"],
+  ["Lizbon", "Europe/Lisbon"], ["Varşova", "Europe/Warsaw"], ["Stockholm", "Europe/Stockholm"], ["Zürih", "Europe/Zurich"], ["Bakü", "Asia/Baku"],
+  ["Tiflis", "Asia/Tbilisi"], ["Kahire", "Africa/Cairo"], ["Lagos", "Africa/Lagos"], ["Johannesburg", "Africa/Johannesburg"], ["Nairobi", "Africa/Nairobi"],
+  ["Dubai", "Asia/Dubai"], ["Riyad", "Asia/Riyadh"], ["Doha", "Asia/Qatar"], ["Tahran", "Asia/Tehran"], ["Karaçi", "Asia/Karachi"],
+  ["Mumbai", "Asia/Kolkata"], ["Yeni Delhi", "Asia/Kolkata"], ["Dakka", "Asia/Dhaka"], ["Bangkok", "Asia/Bangkok"], ["Singapur", "Asia/Singapore"],
+  ["Hong Kong", "Asia/Hong_Kong"], ["Şanghay", "Asia/Shanghai"], ["Pekin", "Asia/Shanghai"], ["Seul", "Asia/Seoul"], ["Tokyo", "Asia/Tokyo"],
+  ["Manila", "Asia/Manila"], ["Cakarta", "Asia/Jakarta"], ["Sidney", "Australia/Sydney"], ["Melbourne", "Australia/Melbourne"], ["Auckland", "Pacific/Auckland"],
+  ["New York", "America/New_York"], ["Toronto", "America/Toronto"], ["Chicago", "America/Chicago"], ["Denver", "America/Denver"], ["Los Angeles", "America/Los_Angeles"],
+  ["San Francisco", "America/Los_Angeles"], ["Meksiko", "America/Mexico_City"], ["Bogota", "America/Bogota"], ["Lima", "America/Lima"], ["São Paulo", "America/Sao_Paulo"],
+  ["Buenos Aires", "America/Argentina/Buenos_Aires"], ["Honolulu", "Pacific/Honolulu"], ["Anchorage", "America/Anchorage"], ["İstanbul", "Europe/Istanbul"], ["Lefkoşa", "Asia/Nicosia"],
+];
+function wcOffset(tz) {
+  try {
+    const d = new Date();
+    d.setSeconds(0, 0);
+    const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric" }).formatToParts(d).map((x) => [x.type, x.value]));
+    return Math.round((Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute) - d.getTime()) / 60000) + d.getTimezoneOffset();
+  } catch { return 0; }
+}
+function renderWorld() {
+  const box = el("div", "wcs");
+  box.innerHTML = `
+    <div class="clp-head"><strong>Dünya saatleri</strong><span class="clp-n"></span></div>
+    <div class="wcs-list"></div>
+    <form class="wcs-add"><span class="tdo-plus">${PI.plus}</span><input placeholder="Şehir ekle (ör. Tokyo)" aria-label="Şehir ekle" list="wcs-cities"><datalist id="wcs-cities">${CITIES.map(([n]) => `<option value="${esc(n)}">`).join("")}</datalist></form>
+    <div class="wcs-tl"></div>`;
+  panel.append(box);
+  const listEl = box.querySelector(".wcs-list");
+  const clocks = () => pcfg?.world_clocks || [];
+  const save = (l) => { pcfg.world_clocks = l; invoke("set_world_clocks", { clocks: l }).catch(() => {}); draw(); };
+  function draw() {
+    const now = new Date();
+    const localDay = now.toLocaleDateString("tr-TR", { day: "numeric" });
+    const l = clocks();
+    box.querySelector(".clp-n").textContent = l.length ? `${l.length} şehir` : "";
+    listEl.replaceChildren(...l.map((w, i) => {
+      const t = now.toLocaleTimeString("tr-TR", { timeZone: w.tz, hour: "2-digit", minute: "2-digit" });
+      const h = +t.slice(0, 2), m = +t.slice(3, 5);
+      const day = now.toLocaleDateString("tr-TR", { timeZone: w.tz, day: "numeric" });
+      const off = wcOffset(w.tz);
+      const offTxt = off ? `${off > 0 ? "+" : "−"}${Math.floor(Math.abs(off) / 60)}${Math.abs(off) % 60 ? ":" + String(Math.abs(off) % 60).padStart(2, "0") : ""} sa` : "aynı saat";
+      const dayTxt = day === localDay ? "Bugün" : off > 0 ? "Yarın" : "Dün";
+      const night = h < 7 || h >= 19;
+      const r = el("div", "wcs-row" + (night ? " night" : ""));
+      r.style.setProperty("--i", i);
+      r.innerHTML = `<span class="wcs-face" style="--h:${(h % 12) * 30 + m / 2}deg;--m:${m * 6}deg"><i class="h"></i><i class="m"></i></span>
+        <span class="wcs-tx"><b>${esc(w.name)}</b><small>${dayTxt} · ${offTxt} · ${night ? "gece" : "gündüz"}</small></span>
+        <b class="wcs-t">${t}</b>
+        <span class="wcs-acts"><button class="up" title="Yukarı" ${i ? "" : "disabled"}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button><button class="rm" title="Kaldır">${SVG.x}</button></span>`;
+      r.querySelector(".rm").onclick = () => { r.classList.add("bye"); setTimeout(() => save(clocks().filter((_, j) => j !== i)), 200); };
+      r.querySelector(".up").onclick = () => { const c = [...clocks()]; [c[i - 1], c[i]] = [c[i], c[i - 1]]; save(c); };
+      return r;
+    }));
+    if (!l.length) listEl.innerHTML = `<div class="clp-empty">Şehir ekle; dock'taki saat aralarında döner.</div>`;
+    // 24 saatlik zaman çizelgesi: her şehrin şu anki saati bir şeritte
+    const tl = box.querySelector(".wcs-tl");
+    tl.innerHTML = `<div class="tl-track">${[0, 6, 12, 18].map((h) => `<span style="left:${(h / 24) * 100}%">${String(h).padStart(2, "0")}</span>`).join("")}${l.map((w) => {
+      const t = now.toLocaleTimeString("tr-TR", { timeZone: w.tz, hour: "2-digit", minute: "2-digit" });
+      const pos = ((+t.slice(0, 2) * 60 + +t.slice(3, 5)) / 1440) * 100;
+      return `<i style="left:${pos}%" title="${esc(w.name)} ${t}"><em>${esc(w.name.slice(0, 3))}</em></i>`;
+    }).join("")}</div>`;
+    tl.style.display = l.length ? "" : "none";
+    relayout();
+  }
+  box.querySelector("form").onsubmit = (e) => {
+    e.preventDefault();
+    const inp = box.querySelector("input");
+    const q = inp.value.trim().toLocaleLowerCase("tr-TR");
+    const hit = CITIES.find(([n]) => n.toLocaleLowerCase("tr-TR") === q) || CITIES.find(([n]) => n.toLocaleLowerCase("tr-TR").startsWith(q));
+    if (!hit) { inp.classList.add("bad"); setTimeout(() => inp.classList.remove("bad"), 500); return; }
+    inp.value = "";
+    if (clocks().length >= 8 || clocks().some((c) => c.name === hit[0])) return;
+    save([...clocks(), { name: hit[0], tz: hit[1] }]);
+  };
+  draw();
+  liveTimer = setInterval(draw, 30_000);
+}
+
+// ---------------------------------------------------------------------------
 // Claude kullanımı paneli
 // ---------------------------------------------------------------------------
 function untilTxt(iso) {
@@ -1288,7 +1688,20 @@ async function renderStack(st) {
 // Tarayıcıda önizleme (popover.html?kind=calendar | windows)
 async function mockInvoke(cmd, args) {
   const q = new URLSearchParams(location.search);
-  if (cmd === "get_config") return { theme: q.get("theme") || "dark", backdrop: "acrylic", accent: "#2F7BFF", dynamic: { enabled: q.has("wall"), tint: 45 }, weather: { enabled: true, auto_location: true, city: "İstanbul", lat: 41, lon: 29 } };
+  if (cmd === "get_config") return { theme: q.get("theme") || "dark", backdrop: "acrylic", accent: "#2F7BFF", dynamic: { enabled: q.has("wall"), tint: 45 }, weather: { enabled: true, auto_location: true, city: "İstanbul", lat: 41, lon: 29 },
+    focus: { work: 25, short: 5, long: 15, rounds: 4, auto: true, sound: true },
+    world_clocks: [{ name: "Londra", tz: "Europe/London" }, { name: "Kahire", tz: "Africa/Cairo" }, { name: "New York", tz: "America/New_York" }, { name: "Tokyo", tz: "Asia/Tokyo" }] };
+  if (cmd === "notes_list") return [
+    { id: "a", text: "Cuma 15:00 haftalık toplantı\n- Sunumu bitir\n- Faturaları gönder", color: "yellow", desktop: true, updated: Date.now() },
+    { id: "b", text: "Wi-Fi şifresi misafir: kahve2026", color: "pink", desktop: false, updated: Date.now() - 6e5 },
+    { id: "c", text: "Kitap: Sapiens bitince Homo Deus", color: "blue", desktop: false, updated: Date.now() - 9e6 },
+    { id: "d", text: "", color: "green", desktop: false, updated: Date.now() - 9e7 },
+  ];
+  if (cmd === "todos_list") return [
+    { id: "1", text: "Rapor taslağını gözden geçir", done: false }, { id: "2", text: "Diş randevusu al", done: false },
+    { id: "3", text: "Market: süt, ekmek, zeytin", done: false }, { id: "4", text: "Faturayı öde", done: true }, { id: "5", text: "Yedekleri kontrol et", done: true },
+  ];
+  if (cmd === "focus_state") return { phase: "focus", running: true, ends_at: Date.now() + 14 * 60e3 + 32e3, left_ms: 0, total_ms: 25 * 60e3, round: 1, rounds: 4, today: 3, today_min: 75 };
   if (cmd === "popover_pending") {
     setTimeout(() => panel.classList.add("in"), 50);
     if (q.get("kind") === "windows")
@@ -1312,6 +1725,10 @@ async function mockInvoke(cmd, args) {
     if (q.get("kind") === "weather") return { kind: "weather", serial: 1, key: "weather", payload: null };
     if (q.get("kind") === "usage") return { kind: "usage", serial: 1, key: "usage", payload: null };
     if (q.get("kind") === "news") return { kind: "news", serial: 1, key: "news", payload: { markets: ["USD", "EUR", "gram-altin"], feeds: [], focus: null } };
+    if (q.get("kind") === "notes") return { kind: "notes", serial: 1, key: "notes", payload: null };
+    if (q.get("kind") === "todo") return { kind: "todo", serial: 1, key: "todo", payload: null };
+    if (q.get("kind") === "focus") return { kind: "focus", serial: 1, key: "focus", payload: null };
+    if (q.get("kind") === "world") return { kind: "world", serial: 1, key: "world", payload: null };
     return { kind: "calendar", serial: 1, key: "cal", payload: null };
   }
   if (cmd === "usage_data") {

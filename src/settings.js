@@ -45,6 +45,10 @@ const WIDGETS = [
   { id: "stacks", cat: "Verimlilik", name: "Klasör yığınları", desc: "İndirilenler gibi klasörler; son dosyalar ızgara ya da yelpaze halinde." },
   { id: "live", cat: "Verimlilik", name: "Canlı etkinlikler", desc: "İndirmeler, zamanlayıcı, mikrofon/kamera, şarj; yalnızca bir şey sürerken görünür." },
   { id: "clipboard", cat: "Verimlilik", name: "Pano geçmişi", desc: "Son kopyaladığın metin ve görseller; tıkla, tekrar kopyalansın." },
+  { id: "notes", fresh: true, cat: "Verimlilik", name: "Yapışkan notlar", desc: "Renkli notlar; istediğini masaüstünün bir köşesine bırak, kenara yaslansın." },
+  { id: "todo", fresh: true, cat: "Verimlilik", name: "Yapılacaklar", desc: "Kısa görev listesi; tıkla tamamla, sürükleyerek sırala." },
+  { id: "focus", fresh: true, cat: "Verimlilik", name: "Odak (Pomodoro)", desc: "25 dk odak, 5 dk mola; halkaya tıkla başlat, bitince balon ve ses." },
+  { id: "world", fresh: true, cat: "Zaman", name: "Dünya saatleri", desc: "Seçtiğin şehirlerin saati sırayla döner; gece/gündüz ve saat farkı." },
 ];
 
 let cfg = null;
@@ -832,6 +836,10 @@ function widgetPreview(id) {
     stacks: `<div class="stk"><s></s><s></s><s></s></div><div class="t"><b>İndirilenler</b><small>12 öğe</small></div>`,
     live: `<i>${WI.dl}</i><div class="t"><b>dosya.zip</b><span class="pr"><s></s></span></div>`,
     clipboard: `<i>${WI.clip}</i><div class="t"><b>Pano</b><small>Son kopyalanan…</small></div>`,
+    notes: `<div class="nst"><s></s><s></s><s></s></div><div class="t"><b>Cuma toplantısı</b><small>3 not · 1 masaüstünde</small></div>`,
+    todo: `<div class="rg" style="--v:.4;--c:#22C55E"><span>3</span></div><div class="t"><small>Yapılacaklar · 2/5</small><b>Raporu gözden geçir</b></div>`,
+    focus: `<div class="rg" style="--v:.58;--c:#F97316"><span>❚❚</span></div><div class="t"><small>Odak · 2/4</small><b>14:32</b></div>`,
+    world: `<div class="clk"></div><div class="t"><small>Londra · −3 sa</small><b>${new Date(Date.now() - 3 * 3600e3).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</b></div>`,
   };
   box.innerHTML = H[id] || "";
   return box;
@@ -907,7 +915,8 @@ function renderGallery() {
   g.replaceChildren();
   const ids = barIds();
   // Henüz eklenmemişler önce
-  const list = [...WIDGETS.filter((w) => !ids.includes(w.id)), ...WIDGETS.filter((w) => ids.includes(w.id))];
+  const off = WIDGETS.filter((w) => !ids.includes(w.id));
+  const list = [...off.filter((w) => w.fresh), ...off.filter((w) => !w.fresh), ...WIDGETS.filter((w) => ids.includes(w.id))];
   for (const w of list) {
     if (wCat !== "Tümü" && w.cat !== wCat) continue;
     const on = ids.includes(w.id);
@@ -915,7 +924,7 @@ function renderGallery() {
     const stage = el("div", "wstage");
     stage.append(widgetPreview(w.id));
     card.append(stage);
-    const body = el("div", "wbody", `<div class="wtitle"><strong>${esc(w.name)}</strong>${w.preview ? '<span class="tag">Önizleme</span>' : ""}</div><small>${esc(w.desc)}</small>`);
+    const body = el("div", "wbody", `<div class="wtitle"><strong>${esc(w.name)}</strong>${w.preview ? '<span class="tag">Önizleme</span>' : ""}${w.fresh ? '<span class="tag new">Yeni</span>' : ""}</div><small>${esc(w.desc)}</small>`);
     const foot = el("div", "wfoot", `<span class="wcat">${esc(w.cat)}</span>`);
     const btn = el("button", on ? "btn wbtn on" : "btn wbtn", on ? "✓ Dock'ta" : `${SVG.plus} Ekle`);
     btn.onpointerdown = (e) => e.stopPropagation();

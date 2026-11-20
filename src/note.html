@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Not</title>
+  <link rel="stylesheet" href="note.css">
+</head>
+<body>
+  <article id="paper" class="paper">
+    <header id="bar" class="bar">
+      <span class="grip" aria-hidden="true"><i></i><i></i><i></i></span>
+      <div class="colors" id="colors" role="radiogroup" aria-label="Renk"></div>
+      <button class="ic" id="top" title="Diğer pencerelerin üstünde tut" aria-label="Üstte tut"></button>
+      <button class="ic" id="hide" title="Masaüstünden kaldır (not silinmez)" aria-label="Masaüstünden kaldır"></button>
+    </header>
+    <textarea id="text" spellcheck="false" placeholder="Bir şey yaz…" aria-label="Not"></textarea>
+    <footer class="foot"><span id="when"></span></footer>
+    <span class="fold" id="fold" title="Boyutlandır" aria-label="Boyutlandır"></span>
+  </article>
+  <script src="note.js"></script>
+</body>
+</html>

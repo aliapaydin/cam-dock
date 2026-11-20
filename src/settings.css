@@ -431,3 +431,20 @@ input[type="range"] { width: 220px; accent-color: var(--accent); flex: 0 0 auto;
 .wbtn.on { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); border-color: transparent; }
 [data-theme="light"] .wapps { background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.62)); border-color: rgba(14,21,37,.07); }
 [data-theme="light"] .wapps s { background: linear-gradient(135deg, #CBD5E1, #94A3B8); }
+
+.wp .nst { position: relative; width: 30px; height: 30px; }
+.wp .nst s { position: absolute; inset: 2px; border-radius: 3px 3px 7px 3px; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.wp .nst s:nth-child(1) { background: #FF8FBF; rotate: 12deg; translate: 3px 0; }
+.wp .nst s:nth-child(2) { background: #7DB8FF; rotate: -9deg; translate: -2px 0; }
+.wp .nst s:nth-child(3) { background: #FFD84D; }
+.wp .rg { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;
+  background: radial-gradient(closest-side, transparent 72%, transparent 73%), conic-gradient(var(--c) calc(var(--v) * 360deg), rgba(255,255,255,.15) 0);
+  position: relative; }
+.wp .rg::before { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: rgba(16,20,34,.85); }
+[data-theme="light"] .wp .rg::before { background: #fff; }
+.wp .rg span { position: relative; font-size: 10px; color: var(--c); }
+.wp .clk { position: relative; width: 30px; height: 30px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, #E6ECF5); box-shadow: inset 0 0 0 1.5px rgba(0,0,0,.12); }
+.wp .clk::before, .wp .clk::after { content: ""; position: absolute; left: 50%; bottom: 50%; width: 2px; margin-left: -1px; border-radius: 2px; transform-origin: 50% 100%; }
+.wp .clk::before { height: 8px; background: #1B2233; rotate: 100deg; }
+.wp .clk::after { height: 11px; background: #F97316; rotate: 300deg; }
+.wtitle .tag.new { color: #fff; background: linear-gradient(90deg, #F97316, #EC4899); border-color: transparent; }

@@ -372,7 +372,7 @@ pub async fn list_windows(app: AppHandle) -> WindowsView {
         let state = app.state::<AppState>();
 
     WindowsView {
-        windows: platform::list_windows(&dock_hwnds(&state)),
+        windows: platform::list_windows(&[dock_hwnds(&state), crate::prod::note_hwnds(&app)].concat()),
         active: state.last_fg.load(Ordering::SeqCst),
     }
 

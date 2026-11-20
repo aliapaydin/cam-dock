@@ -19,6 +19,7 @@ mod clip;
 mod claude;
 mod updater;
 mod phone;
+mod prod;
 
 use config::Config;
 use std::collections::HashMap;
@@ -216,6 +217,29 @@ fn main() {
             commands::layout_dock,
             commands::set_theme,
             commands::list_windows,
+            prod::notes_list,
+            prod::note_new,
+            prod::note_update,
+            prod::note_delete,
+            prod::note_desktop,
+            prod::notes_desktop_all,
+            prod::note_self,
+            prod::note_ready,
+            prod::note_drag_start,
+            prod::note_drag,
+            prod::note_drag_end,
+            prod::note_resize,
+            prod::todos_list,
+            prod::todo_add,
+            prod::todo_toggle,
+            prod::todo_edit,
+            prod::todo_delete,
+            prod::todo_clear_done,
+            prod::todo_order,
+            prod::focus_state,
+            prod::focus_cmd,
+            prod::set_focus_cfg,
+            prod::set_world_clocks,
             commands::activate_window,
             commands::activate_app,
             commands::toggle_lock,
@@ -348,6 +372,7 @@ fn main() {
             docks::spawn_watchdog(handle.clone());
             notify::spawn(handle.clone());
             live::spawn(handle.clone());
+            prod::restore(&handle);
             clip::spawn(handle.clone());
             claude::spawn(handle.clone());
             // Sistem kaynakları: saniyede bir örnekle.

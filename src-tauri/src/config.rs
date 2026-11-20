@@ -131,6 +131,41 @@ impl Default for Clipboard {
     }
 }
 
+/// Odak (Pomodoro) zamanlayıcısı süreleri (dakika)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Focus {
+    pub work: u32,
+    pub short: u32,
+    pub long: u32,
+    /// Uzun moladan önceki odak turu sayısı
+    pub rounds: u32,
+    /// Bir aşama bitince sıradakini kendiliğinden başlat
+    pub auto: bool,
+    pub sound: bool,
+}
+
+impl Default for Focus {
+    fn default() -> Self {
+        Self { work: 25, short: 5, long: 15, rounds: 4, auto: true, sound: true }
+    }
+}
+
+/// Dünya saati: görünen ad ve IANA saat dilimi ("Europe/London")
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct WorldClock {
+    pub name: String,
+    pub tz: String,
+}
+
+pub fn default_world_clocks() -> Vec<WorldClock> {
+    [("Londra", "Europe/London"), ("Kahire", "Africa/Cairo"), ("New York", "America/New_York")]
+        .iter()
+        .map(|(n, t)| WorldClock { name: n.to_string(), tz: t.to_string() })
+        .collect()
+}
+
 /// Klasör yığını: dock'ta klasör simgesi, tıklayınca son dosyalar.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -341,6 +376,8 @@ pub struct Config {
     pub clipboard: Clipboard,
     pub telemetry: Telemetry,
     pub phone: Phone,
+    pub focus: Focus,
+    pub world_clocks: Vec<WorldClock>,
     /// Windows açılınca başlat
     pub autostart: bool,
     /// Gezgin'de .exe ve kısayollara sağ tıklayınca "Cam Dock'a sabitle"
@@ -410,6 +447,8 @@ impl Default for Config {
             clipboard: Clipboard::default(),
             telemetry: Telemetry::default(),
             phone: Phone::default(),
+            focus: Focus::default(),
+            world_clocks: default_world_clocks(),
             autostart: true,
             explorer_menu: true,
             migrations: 9,
