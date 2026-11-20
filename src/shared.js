@@ -357,6 +357,16 @@ const MOCK = {
   },
   fetch(url) {
     if (url.includes("geojs")) return JSON.stringify({ latitude: "38.42", longitude: "27.14", city: "İzmir" });
+    if (url.includes("coingecko")) {
+      const sp = (b, a) => Array.from({ length: 168 }, (_, i) => b * (1 + Math.sin(i / 17 + a) * 0.04 + i / 4000));
+      return JSON.stringify([
+        { id: "bitcoin", symbol: "btc", name: "Bitcoin", image: "", current_price: 4012345, price_change_percentage_24h: 2.31, sparkline_in_7d: { price: sp(3900000, 1) } },
+        { id: "ethereum", symbol: "eth", name: "Ethereum", image: "", current_price: 152430.5, price_change_percentage_24h: -1.12, sparkline_in_7d: { price: sp(150000, 3) } },
+        { id: "solana", symbol: "sol", name: "Solana", image: "", current_price: 8620.4, price_change_percentage_24h: 4.8, sparkline_in_7d: { price: sp(8000, 5) } },
+      ]);
+    }
+    if (url.includes("aladhan")) return JSON.stringify({ data: { timings: { Fajr: "05:58", Sunrise: "07:27", Dhuhr: "12:31", Asr: "15:09", Maghrib: "17:25", Isha: "18:49" } } });
+    if (url.includes("translate.googleapis")) return JSON.stringify([[["Merhaba dünya, bu bir denemedir.", "Hello world, this is a test.", null, null, 10]], null, "en"]);
     const now = new Date();
     const pad = (n) => String(n).padStart(2, "0");
     const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`;
@@ -384,4 +394,99 @@ const MOCK = {
       hourly, daily,
     });
   },
+};
+
+// ---------------------------------------------------------------------------
+// Kripto (CoinGecko), namaz vakitleri (Aladhan, Diyanet yöntemi), çeviri
+// Hepsi Rust üzerinden (fetch_text) indirilir; CORS'a takılmaz.
+// ---------------------------------------------------------------------------
+const COINS = {
+  bitcoin: ["BTC", "Bitcoin"], ethereum: ["ETH", "Ethereum"], solana: ["SOL", "Solana"], ripple: ["XRP", "XRP"],
+  binancecoin: ["BNB", "BNB"], cardano: ["ADA", "Cardano"], dogecoin: ["DOGE", "Dogecoin"], "avalanche-2": ["AVAX", "Avalanche"],
+  tron: ["TRX", "TRON"], "the-open-network": ["TON", "Toncoin"], polkadot: ["DOT", "Polkadot"], chainlink: ["LINK", "Chainlink"],
+  litecoin: ["LTC", "Litecoin"], "shiba-inu": ["SHIB", "Shiba Inu"], pepe: ["PEPE", "Pepe"], tether: ["USDT", "Tether"],
+};
+const Crypto = (() => {
+  let cache = null;
+  async function get(cfg, force) {
+    const c = cfg?.crypto || { coins: ["bitcoin", "ethereum", "solana"], currency: "try" };
+    const key = c.coins.join(",") + "|" + c.currency;
+    if (!force && cache && cache.key === key && Date.now() - cache.at < 120_000) return cache.data;
+    if (!c.coins.length) return [];
+    const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=${c.currency}&ids=${encodeURIComponent(c.coins.join(","))}&sparkline=true&price_change_percentage=24h`;
+    const list = JSON.parse(await invoke("fetch_text", { url }));
+    const data = c.coins.map((id) => list.find((x) => x.id === id)).filter(Boolean).map((x) => ({
+      id: x.id, sym: (x.symbol || "").toUpperCase(), name: x.name, image: x.image, price: x.current_price,
+      change: x.price_change_percentage_24h ?? 0, spark: (x.sparkline_in_7d?.price || []).filter((_, i, a) => i % 4 === 0 || i === a.length - 1),
+      cur: c.currency,
+    }));
+    cache = { key, at: Date.now(), data };
+    return data;
+  }
+  const fmt = (v, cur) => {
+    const sym = cur === "usd" ? "$" : cur === "eur" ? "€" : "₺";
+    const d = v >= 1000 ? 0 : v >= 1 ? 2 : v >= 0.01 ? 4 : 8;
+    return `${v.toLocaleString("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d })} ${sym}`;
+  };
+  return { get, fmt };
+})();
+
+const PRAYER_NAMES = [["Fajr", "İmsak"], ["Sunrise", "Güneş"], ["Dhuhr", "Öğle"], ["Asr", "İkindi"], ["Maghrib", "Akşam"], ["Isha", "Yatsı"]];
+const Prayer = (() => {
+  const cache = new Map();
+  const ymd = (d) => `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}`;
+  async function day(loc, d) {
+    const key = `${ymd(d)}|${loc.lat.toFixed(2)},${loc.lon.toFixed(2)}`;
+    if (cache.has(key)) return cache.get(key);
+    const url = `https://api.aladhan.com/v1/timings/${ymd(d)}?latitude=${loc.lat}&longitude=${loc.lon}&method=13`;
+    const j = JSON.parse(await invoke("fetch_text", { url }));
+    const t = j?.data?.timings;
+    if (!t) throw new Error("vakit yok");
+    const out = PRAYER_NAMES.map(([k, name]) => {
+      const [h, m] = String(t[k]).slice(0, 5).split(":").map(Number);
+      const at = new Date(d); at.setHours(h, m, 0, 0);
+      return { key: k, name, at: at.getTime(), hm: String(t[k]).slice(0, 5) };
+    });
+    cache.set(key, out);
+    return out;
+  }
+  // { city, today: [...], next: {name, at}, prev: {...} }
+  async function get(cfg) {
+    const w = cfg?.weather || {};
+    const loc = { lat: Number(w.lat) || 41.01, lon: Number(w.lon) || 28.97, city: w.city || "İstanbul" };
+    const now = new Date();
+    const today = await day(loc, now);
+    let next = today.find((p) => p.at > Date.now());
+    let prev = [...today].reverse().find((p) => p.at <= Date.now());
+    if (!next) {
+      const t = new Date(now); t.setDate(t.getDate() + 1);
+      next = (await day(loc, t))[0];
+    }
+    if (!prev) {
+      const y = new Date(now); y.setDate(y.getDate() - 1);
+      prev = (await day(loc, y)).at(-1);
+    }
+    return { city: loc.city, today, next, prev };
+  }
+  return { get };
+})();
+
+async function translateText(text, to = "tr", from = "auto") {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
+  const j = JSON.parse(await invoke("fetch_text", { url }));
+  return { text: (j?.[0] || []).map((x) => x?.[0] || "").join(""), from: j?.[2] || from };
+}
+
+const fmtBytes = (b) => {
+  if (!b || b < 0) return "0 B";
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(u.length - 1, Math.floor(Math.log(b) / Math.log(1024)));
+  const v = b / 1024 ** i;
+  return `${v.toLocaleString("tr-TR", { maximumFractionDigits: v < 10 && i > 0 ? 1 : 0 })} ${u[i]}`;
+};
+const fmtRate = (bps) => `${fmtBytes(bps)}/sn`;
+const fmtLeft = (ms) => {
+  const m = Math.max(0, Math.round(ms / 60000));
+  const h = Math.floor(m / 60);
+  return h ? `${h} sa ${m % 60} dk` : `${m} dk`;
 };

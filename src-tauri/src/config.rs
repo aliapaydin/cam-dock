@@ -151,6 +151,28 @@ impl Default for Focus {
     }
 }
 
+/// Kripto widget'ı: CoinGecko kimlikleri ve para birimi
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Crypto {
+    pub coins: Vec<String>,
+    pub currency: String,
+}
+
+impl Default for Crypto {
+    fn default() -> Self {
+        Self { coins: vec!["bitcoin".into(), "ethereum".into(), "solana".into()], currency: "try".into() }
+    }
+}
+
+/// Geri sayım: ad ve hedef tarih ("2027-01-01" ya da "2027-01-01T09:00")
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct Countdown {
+    pub name: String,
+    pub date: String,
+}
+
 /// Dünya saati: görünen ad ve IANA saat dilimi ("Europe/London")
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -380,6 +402,8 @@ pub struct Config {
     pub phone: Phone,
     pub focus: Focus,
     pub world_clocks: Vec<WorldClock>,
+    pub crypto: Crypto,
+    pub countdowns: Vec<Countdown>,
     /// Windows açılınca başlat
     pub autostart: bool,
     /// Gezgin'de .exe ve kısayollara sağ tıklayınca "Cam Dock'a sabitle"
@@ -452,6 +476,8 @@ impl Default for Config {
             phone: Phone::default(),
             focus: Focus::default(),
             world_clocks: default_world_clocks(),
+            crypto: Crypto::default(),
+            countdowns: Vec::new(),
             autostart: true,
             explorer_menu: true,
             migrations: 9,

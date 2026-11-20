@@ -1045,6 +1045,41 @@ pub fn dock_region(app: AppHandle, window: WebviewWindow, expand: Option<(f64, f
     platform::rect_region(d.hwnd, &rects);
 }
 
+/// Widget panellerinden tek bir ayarı değiştirir (ör. "crypto", "countdowns").
+/// Yalnızca widget'lara ait anahtarlara izin verilir.
+#[tauri::command]
+pub fn set_cfg_value(app: AppHandle, key: String, value: serde_json::Value) -> Result<(), String> {
+    const OK: [&str; 3] = ["crypto", "countdowns", "world_clocks"];
+    if !OK.contains(&key.as_str()) {
+        return Err("bu ayar buradan değiştirilemez".into());
+    }
+    {
+        let state = app.state::<AppState>();
+        let mut cfg = state.cfg.lock().unwrap();
+        let mut v = serde_json::to_value(&*cfg).map_err(err)?;
+        v[key.as_str()] = value;
+        *cfg = serde_json::from_value(v).map_err(err)?;
+        config::save(&cfg);
+    }
+    crate::emit_config(&app);
+    Ok(())
+}
+
+/// Widget genişliği ayarlanırken: dock'un yerleşimi (konum, cam, hedef) hiç
+/// değişmez; yalnızca pencere sağa doğru `extra` kadar uzar ki büyüyen widget
+/// kesilmesin. Bırakınca normal yerleşim (layout_dock) her şeyi düzeltir.
+#[tauri::command]
+pub fn dock_stretch(app: AppHandle, window: WebviewWindow, extra: f64) {
+    let Some(d) = app.state::<AppState>().docks.lock().unwrap().get(window.label()).cloned() else { return };
+    let Some((x, y, w, h)) = d.target else { return };
+    if !d.shown {
+        return;
+    }
+    let ex = (extra.clamp(0.0, 1200.0) * d.scale).round() as i32;
+    docks::place(d.hwnd, x, y - d.head, w + ex, h + d.head);
+    platform::rect_region(d.hwnd, &[(0, 0, w + ex, d.head + h)]);
+}
+
 /// Sürükle-bırak sonrası simge sırası.
 #[tauri::command]
 pub fn set_app_order(app: AppHandle, order: Vec<String>) {

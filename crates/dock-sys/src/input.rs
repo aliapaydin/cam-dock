@@ -15,6 +15,11 @@ pub fn mouse_down() -> bool {
     }
 }
 
+/// Sanal tuş kodu şu an basılı mı?
+pub fn key_down(vk: i32) -> bool {
+    unsafe { (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 }
+}
+
 /// SetForegroundWindow reddedilirse kullanılan bilinen yöntem: Alt'a bas-bırak.
 pub fn tap_alt() {
     let inputs = [key(VK_MENU, false), key(VK_MENU, true)];

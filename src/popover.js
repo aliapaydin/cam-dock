@@ -76,6 +76,14 @@ async function show(s) {
   else if (s.kind === "todo") await renderTodo();
   else if (s.kind === "focus") await renderFocus();
   else if (s.kind === "world") renderWorld();
+  else if (s.kind === "net") renderNet();
+  else if (s.kind === "disk") await renderDisk();
+  else if (s.kind === "crypto") await renderCrypto();
+  else if (s.kind === "prayer") await renderPrayer();
+  else if (s.kind === "countdown") renderCountdown();
+  else if (s.kind === "calc") renderCalc();
+  else if (s.kind === "color") await renderColor();
+  else if (s.kind === "translate") await renderTranslate();
   else renderWindows(s.payload);
   relayout();
 }
@@ -1224,6 +1232,421 @@ function renderWorld() {
 }
 
 // ---------------------------------------------------------------------------
+// Ağ hızı
+// ---------------------------------------------------------------------------
+function chartSvg(series, w, h) {
+  const all = series.flatMap((x) => x.vals);
+  const mx = Math.max(1, ...all);
+  const step = w / Math.max(1, (series[0]?.vals.length || 2) - 1);
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" class="nchart">${[0.25, 0.5, 0.75].map((f) => `<line x1="0" x2="${w}" y1="${h * f}" y2="${h * f}"/>`).join("")}${series.map((sr) => {
+    const pts = sr.vals.map((v, i) => `${(i * step).toFixed(1)},${(h - 2 - (v / mx) * (h - 6)).toFixed(1)}`);
+    return `<path d="M${pts.join("L")}L${w},${h}L0,${h}Z" fill="${sr.color}" opacity=".14"/><path d="M${pts.join("L")}" fill="none" stroke="${sr.color}" stroke-width="2" stroke-linejoin="round"/>`;
+  }).join("")}</svg>`;
+}
+function renderNet() {
+  const box = el("div", "nets");
+  box.innerHTML = `
+    <div class="clp-head"><strong>Ağ hızı</strong><span class="clp-n">son 2 dakika</span></div>
+    <div class="nets-now">
+      <div class="nn dn"><small>İndirme</small><b>–</b><span></span></div>
+      <div class="nn up"><small>Yükleme</small><b>–</b><span></span></div>
+    </div>
+    <div class="nets-chart"></div>
+    <div class="clp-foot">Tüm fiziksel ağ bağdaştırıcılarının toplamı. Panel açıkken saniyede bir ölçülür.</div>`;
+  panel.append(box);
+  const rx = [], tx = [];
+  let last = null, tot = [0, 0];
+  const tick = async () => {
+    const [r, t] = (await invoke("net_counters").catch(() => [0, 0])) || [0, 0];
+    const now = Date.now();
+    if (last && r >= last.r) {
+      const dt = (now - last.at) / 1000 || 1;
+      rx.push((r - last.r) / dt); tx.push((t - last.t) / dt);
+      tot[0] += r - last.r; tot[1] += t - last.t;
+      if (rx.length > 120) { rx.shift(); tx.shift(); }
+    }
+    last = { r, t, at: now };
+    const put = (cls, arr, total) => {
+      const n = box.querySelector(`.nn.${cls}`);
+      n.querySelector("b").textContent = fmtRate(arr.at(-1) || 0);
+      n.querySelector("span").textContent = `Tepe ${fmtRate(Math.max(0, ...arr))} · bu panelde ${fmtBytes(total)}`;
+    };
+    put("dn", rx, tot[0]); put("up", tx, tot[1]);
+    const vals = (a) => (a.length > 1 ? a : [0, 0]);
+    box.querySelector(".nets-chart").innerHTML = chartSvg([{ vals: vals(rx), color: "#38BDF8" }, { vals: vals(tx), color: "#A78BFA" }], 340, 120);
+  };
+  tick();
+  liveTimer = setInterval(tick, 1000);
+  relayout();
+}
+
+// ---------------------------------------------------------------------------
+// Disk ve çöp kutusu
+// ---------------------------------------------------------------------------
+async function renderDisk() {
+  const box = el("div", "dsk");
+  box.innerHTML = `<div class="clp-head"><strong>Diskler</strong><span class="clp-n"></span></div><div class="dsk-list"></div>
+    <div class="dsk-bin"><span class="bin-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></span>
+      <span class="bin-tx"><b>Geri Dönüşüm Kutusu</b><small></small></span>
+      <button class="bin-open">Aç</button><button class="bin-empty">Boşalt</button></div>`;
+  panel.append(box);
+  const draw = async () => {
+    const d = await invoke("disk_info").catch(() => null);
+    if (!d) return;
+    box.querySelector(".clp-n").textContent = `${d.drives.length} sürücü`;
+    box.querySelector(".dsk-list").replaceChildren(...d.drives.map((x, i) => {
+      const used = 1 - x.free / x.total;
+      const r = el("div", "dsk-row" + (used > 0.9 ? " warn" : ""));
+      r.style.setProperty("--i", i);
+      r.innerHTML = `<span class="dsk-letter">${esc(x.root.slice(0, 2))}</span>
+        <span class="dsk-main"><span class="dsk-top"><b>${esc(x.label || (x.kind === "removable" ? "Çıkarılabilir disk" : x.kind === "network" ? "Ağ sürücüsü" : "Yerel disk"))}</b><small>${fmtBytes(x.free)} boş / ${fmtBytes(x.total)}</small></span>
+        <span class="dsk-bar"><i style="width:${(used * 100).toFixed(1)}%"></i></span></span>`;
+      r.onclick = () => invoke("launch_app", { path: x.root, args: null }).catch(() => {});
+      r.title = `${x.root} klasörünü aç`;
+      return r;
+    }));
+    box.querySelector(".bin-tx small").textContent = d.bin_items ? `${d.bin_items.toLocaleString("tr-TR")} öğe · ${fmtBytes(d.bin_bytes)}` : "Boş";
+    box.querySelector(".bin-empty").disabled = !d.bin_items;
+    relayout();
+  };
+  box.querySelector(".bin-open").onclick = () => invoke("launch_app", { path: "shell:RecycleBinFolder", args: null }).catch(() => {});
+  const empty = box.querySelector(".bin-empty");
+  empty.onclick = async () => {
+    if (!empty.classList.contains("arm")) {
+      empty.classList.add("arm");
+      empty.textContent = "Emin misin?";
+      setTimeout(() => { empty.classList.remove("arm"); empty.textContent = "Boşalt"; }, 3000);
+      return;
+    }
+    empty.classList.remove("arm");
+    empty.textContent = "Boşaltılıyor…";
+    await invoke("recycle_empty").catch(() => {});
+    empty.textContent = "Boşalt";
+    box.querySelector(".dsk-bin").classList.add("flash");
+    TAURI?.event.emit("disk-changed");
+    draw();
+  };
+  await draw();
+}
+
+// ---------------------------------------------------------------------------
+// Kripto
+// ---------------------------------------------------------------------------
+async function renderCrypto() {
+  const box = el("div", "cry");
+  const cur = () => pcfg?.crypto?.currency || "try";
+  box.innerHTML = `<div class="clp-head"><strong>Kripto</strong><span class="clp-n">7 günlük</span>
+      <div class="seg cur">${["try", "usd", "eur"].map((c) => `<button data-c="${c}">${c.toUpperCase()}</button>`).join("")}</div></div>
+    <div class="cry-list"></div>
+    <div class="cry-add"></div>
+    <div class="clp-foot">Kaynak: CoinGecko · 2 dakikada bir yenilenir. Yatırım tavsiyesi değildir.</div>`;
+  panel.append(box);
+  const save = (c) => { pcfg.crypto = c; invoke("set_cfg_value", { key: "crypto", value: c }).catch(() => {}); draw(true); };
+  async function draw(force) {
+    const c = pcfg?.crypto || { coins: ["bitcoin", "ethereum", "solana"], currency: "try" };
+    box.querySelectorAll(".seg.cur button").forEach((b) => { b.classList.toggle("on", b.dataset.c === c.currency); b.onclick = () => save({ ...c, currency: b.dataset.c }); });
+    let data = [];
+    try { data = await Crypto.get(pcfg, force); } catch { box.querySelector(".cry-list").innerHTML = `<div class="clp-empty">CoinGecko'ya ulaşılamadı.</div>`; }
+    if (data.length) box.querySelector(".cry-list").replaceChildren(...data.map((x, i) => {
+      const r = el("div", "cry-row");
+      r.style.setProperty("--i", i);
+      const up = x.change >= 0;
+      r.innerHTML = `<span class="cr-ic">${x.image ? `<img src="${x.image}" alt="">` : `<b>${esc(x.sym[0])}</b>`}</span>
+        <span class="cry-tx"><b>${esc(x.name)}</b><small>${esc(x.sym)}</small></span>
+        <span class="cry-sp" style="--sc:${up ? "#22C55E" : "#EF4444"}">${spark(x.spark, 90, 30)}</span>
+        <span class="cry-pr"><b>${Crypto.fmt(x.price, x.cur)}</b><small class="${up ? "up" : "down"}">${up ? "▲" : "▼"} %${fmt2(Math.abs(x.change))}</small></span>
+        <button class="cry-x" title="Kaldır">${SVG.x}</button>`;
+      r.querySelector(".cry-x").onclick = () => save({ ...c, coins: c.coins.filter((id) => id !== x.id) });
+      return r;
+    }));
+    const add = box.querySelector(".cry-add");
+    add.replaceChildren(...Object.entries(COINS).filter(([id]) => !c.coins.includes(id)).slice(0, 12).map(([id, [sym]]) => {
+      const b = el("button", "chip", `+ ${sym}`);
+      b.title = COINS[id][1];
+      b.onclick = () => save({ ...c, coins: [...c.coins, id].slice(0, 8) });
+      return b;
+    }));
+    relayout();
+  }
+  function spark(vals, w, h) {
+    if (!vals?.length) return "";
+    const mx = Math.max(...vals), mn = Math.min(...vals), rg = mx - mn || 1, st = w / (vals.length - 1);
+    const pts = vals.map((v, i) => `${(i * st).toFixed(1)},${(h - 1 - ((v - mn) / rg) * (h - 2)).toFixed(1)}`);
+    return `<svg width="${w}" height="${h}" class="mini-spark"><path d="M${pts.join("L")}L${w},${h}L0,${h}Z" class="a"/><path d="M${pts.join("L")}" class="l"/></svg>`;
+  }
+  await draw();
+}
+
+// ---------------------------------------------------------------------------
+// Namaz vakitleri
+// ---------------------------------------------------------------------------
+async function renderPrayer() {
+  const box = el("div", "pry");
+  box.innerHTML = `<div class="clp-head"><strong>Namaz vakitleri</strong><span class="clp-n"></span></div>
+    <div class="pry-next"><small></small><b></b><span class="pry-bar"><i></i></span></div>
+    <div class="pry-list"></div>
+    <div class="clp-foot">Diyanet hesaplama yöntemi (Aladhan). Konum, hava durumu ayarındaki şehirden alınır.</div>`;
+  panel.append(box);
+  let st = null;
+  const draw = () => {
+    if (!st) return;
+    const now = Date.now();
+    box.querySelector(".clp-n").textContent = `${st.city} · ${new Date().toLocaleDateString("tr-TR", { day: "numeric", month: "long", weekday: "long" })}`;
+    box.querySelector(".pry-next small").textContent = `${st.next.name} vaktine`;
+    box.querySelector(".pry-next b").textContent = fmtLeft(st.next.at - now);
+    const pct = Math.min(1, Math.max(0, (now - st.prev.at) / (st.next.at - st.prev.at)));
+    box.querySelector(".pry-bar i").style.width = `${pct * 100}%`;
+    box.querySelector(".pry-list").replaceChildren(...st.today.map((p, i) => {
+      const r = el("div", "pry-row" + (p.key === st.next.key && p.at === st.next.at ? " next" : "") + (p.at <= now ? " past" : ""));
+      r.style.setProperty("--i", i);
+      r.innerHTML = `<b>${p.name}</b><span>${p.hm}</span>`;
+      return r;
+    }));
+    relayout();
+  };
+  try { st = await Prayer.get(pcfg); draw(); }
+  catch { box.querySelector(".pry-list").innerHTML = `<div class="clp-empty">Vakitler alınamadı. İnternet bağlantını kontrol et.</div>`; relayout(); }
+  liveTimer = setInterval(async () => { if (st && st.next.at <= Date.now()) st = await Prayer.get(pcfg).catch(() => st); draw(); }, 30_000);
+}
+
+// ---------------------------------------------------------------------------
+// Geri sayım
+// ---------------------------------------------------------------------------
+function renderCountdown() {
+  const box = el("div", "cdn");
+  box.innerHTML = `<div class="clp-head"><strong>Geri sayım</strong><span class="clp-n"></span></div>
+    <div class="cdn-list"></div>
+    <form class="cdn-add"><input class="nm" placeholder="Ne için? (ör. Tatil)" maxlength="40" aria-label="Ad"><input class="dt" type="date" aria-label="Tarih"><button>Ekle</button></form>`;
+  panel.append(box);
+  const list = () => pcfg?.countdowns || [];
+  const save = (l) => { pcfg.countdowns = l; invoke("set_cfg_value", { key: "countdowns", value: l }).catch(() => {}); draw(); };
+  function draw() {
+    const now = Date.now();
+    const items = list().map((x, idx) => ({ ...x, idx, at: new Date(x.date.length <= 10 ? x.date + "T00:00" : x.date).getTime() })).sort((a, b) => a.at - b.at);
+    box.querySelector(".clp-n").textContent = items.length ? `${items.length} hedef` : "";
+    if (!items.length) {
+      const y = new Date().getFullYear() + 1;
+      items.push({ name: "Yılbaşı (otomatik)", date: `${y}-01-01`, at: new Date(`${y}-01-01T00:00`).getTime(), idx: -1 });
+    }
+    box.querySelector(".cdn-list").replaceChildren(...items.map((x, i) => {
+      const ms = x.at - now, d = Math.floor(Math.abs(ms) / 864e5), h = Math.floor((Math.abs(ms) % 864e5) / 36e5);
+      const r = el("div", "cdn-row" + (ms <= 0 ? " done" : ""));
+      r.style.setProperty("--i", i);
+      r.innerHTML = `<span class="cd-box"><b>${d}</b><small>gün</small></span>
+        <span class="cdn-tx"><b>${esc(x.name)}</b><small>${new Date(x.at).toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric", weekday: "short" })} · ${ms <= 0 ? "geçti" : `${d} gün ${h} saat kaldı`}</small></span>
+        ${x.idx >= 0 ? `<button class="cdn-x" title="Kaldır">${SVG.x}</button>` : ""}`;
+      r.querySelector(".cdn-x")?.addEventListener("click", () => save(list().filter((_, j) => j !== x.idx)));
+      return r;
+    }));
+    relayout();
+  }
+  const dt = box.querySelector(".dt");
+  dt.valueAsDate = new Date(Date.now() + 7 * 864e5);
+  box.querySelector("form").onsubmit = (e) => {
+    e.preventDefault();
+    const nm = box.querySelector(".nm").value.trim();
+    if (!nm || !dt.value) { box.querySelector(nm ? ".dt" : ".nm").classList.add("bad"); setTimeout(() => box.querySelectorAll(".bad").forEach((x) => x.classList.remove("bad")), 500); return; }
+    box.querySelector(".nm").value = "";
+    save([...list(), { name: nm, date: dt.value }].slice(0, 12));
+  };
+  draw();
+  liveTimer = setInterval(draw, 60_000);
+}
+
+// ---------------------------------------------------------------------------
+// Hesap makinesi (kendi ayrıştırıcısı; eval yok)
+// ---------------------------------------------------------------------------
+function calcEval(src) {
+  const s = src.replace(/×/g, "*").replace(/÷/g, "/").replace(/,/g, ".").replace(/\s+/g, "");
+  let i = 0;
+  const peek = () => s[i];
+  const num = () => {
+    const m = /^\d*\.?\d+(e[+-]?\d+)?/i.exec(s.slice(i));
+    if (!m) throw new Error("sayı bekleniyor");
+    i += m[0].length;
+    return parseFloat(m[0]);
+  };
+  const factor = () => {
+    if (peek() === "-") { i++; return -factor(); }
+    if (peek() === "+") { i++; return factor(); }
+    let v;
+    if (peek() === "(") { i++; v = expr(); if (peek() !== ")") throw new Error(")"); i++; }
+    else if (s.startsWith("√", i)) { i++; v = Math.sqrt(factor()); }
+    else if (s.startsWith("π", i)) { i++; v = Math.PI; }
+    else v = num();
+    while (peek() === "%" ) { i++; v = v / 100; }
+    if (peek() === "^") { i++; v = v ** factor(); }
+    return v;
+  };
+  const term = () => {
+    let v = factor();
+    while (peek() === "*" || peek() === "/") { const o = s[i++]; const r = factor(); v = o === "*" ? v * r : v / r; }
+    return v;
+  };
+  const expr = () => {
+    let v = term();
+    while (peek() === "+" || peek() === "-") { const o = s[i++]; const r = term(); v = o === "+" ? v + r : v - r; }
+    return v;
+  };
+  const v = expr();
+  if (i < s.length) throw new Error("beklenmeyen " + s[i]);
+  return v;
+}
+const calcFmt = (v) => (Number.isFinite(v) ? v.toLocaleString("tr-TR", { maximumFractionDigits: 10 }) : "Tanımsız");
+let calcHist = [];
+function renderCalc() {
+  const box = el("div", "clc");
+  box.innerHTML = `<div class="clc-hist"></div>
+    <input class="clc-in" placeholder="0" aria-label="İşlem" inputmode="decimal" spellcheck="false">
+    <div class="clc-res"></div>
+    <div class="clc-keys">${["C", "(", ")", "÷", "7", "8", "9", "×", "4", "5", "6", "-", "1", "2", "3", "+", "%", "0", ",", "="].map((k) => `<button data-k="${k}" class="${/[÷×\-+=]/.test(k) ? "op" : k === "C" ? "fn" : ""}${k === "=" ? " eq" : ""}">${k}</button>`).join("")}</div>`;
+  panel.append(box);
+  const inp = box.querySelector(".clc-in"), res = box.querySelector(".clc-res");
+  const live = () => {
+    try { res.textContent = inp.value.trim() ? "= " + calcFmt(calcEval(inp.value)) : ""; res.classList.remove("err"); }
+    catch { res.textContent = ""; }
+  };
+  const drawHist = () => {
+    box.querySelector(".clc-hist").replaceChildren(...calcHist.slice(-4).map((h) => {
+      const r = el("button", "clc-h", `<span>${esc(h.e)}</span><b>${esc(h.r)}</b>`);
+      r.title = "Tıkla: sonucu kopyala";
+      r.onclick = () => { invoke("copy_text", { text: h.r }).catch(() => {}); r.classList.add("copied"); setTimeout(() => r.classList.remove("copied"), 700); };
+      return r;
+    }));
+    relayout();
+  };
+  const equals = () => {
+    if (!inp.value.trim()) return;
+    try {
+      const v = calcEval(inp.value);
+      const r = calcFmt(v);
+      calcHist.push({ e: inp.value, r });
+      calcHist = calcHist.slice(-20);
+      TAURI?.event.emit("calc-result", r);
+      inp.value = Number.isFinite(v) ? String(v).replace(".", ",") : "";
+      res.textContent = "";
+      box.classList.remove("shake"); void box.offsetWidth;
+      drawHist();
+    } catch { res.textContent = "Hatalı işlem"; res.classList.add("err"); }
+  };
+  box.querySelectorAll(".clc-keys button").forEach((b) => b.onclick = () => {
+    const k = b.dataset.k;
+    if (k === "C") inp.value = "";
+    else if (k === "=") return equals();
+    else inp.value += k;
+    inp.focus();
+    live();
+  });
+  inp.oninput = live;
+  inp.onkeydown = (e) => {
+    if (e.key === "Enter" || e.key === "=") { e.preventDefault(); equals(); }
+    if (e.key === "Escape") { inp.value = ""; live(); }
+  };
+  drawHist();
+  setTimeout(() => inp.focus(), 60);
+}
+
+// ---------------------------------------------------------------------------
+// Renk seçici
+// ---------------------------------------------------------------------------
+const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+function rgbToHsl([r, g, b]) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+  if (mx === mn) return [0, 0, Math.round(l * 100)];
+  const d = mx - mn, s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+  const h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [Math.round(h * 60), Math.round(s * 100), Math.round(l * 100)];
+}
+async function renderColor() {
+  const box = el("div", "clr");
+  box.innerHTML = `<div class="clp-head"><strong>Renk seçici</strong><button class="clr-clear">Geçmişi sil</button></div>
+    <div class="clr-main"><span class="clr-big"></span><div class="clr-fmts"></div></div>
+    <button class="clr-pick">${'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4.5l5 5M8 11l5 5M6.5 12.5l6-6 5 5-6 6H6.5z"/><path d="M6.5 17.5L4 20"/></svg>'} Ekrandan renk al</button>
+    <div class="clr-hist"></div>
+    <div class="clp-foot">Sol tık seçer (tıklama alttaki uygulamaya gitmez), sağ tık ya da Esc iptal eder. Seçilen renk HEX olarak panoya kopyalanır.</div>`;
+  panel.append(box);
+  let hist = (await invoke("color_history").catch(() => [])) || [];
+  let sel = hist[0] || null;
+  const copy = (t, b) => { invoke("copy_text", { text: t }).catch(() => {}); b.classList.add("copied"); setTimeout(() => b.classList.remove("copied"), 700); };
+  const draw = () => {
+    box.classList.toggle("empty", !sel);
+    box.querySelector(".clr-big").style.background = sel || "transparent";
+    if (sel) {
+      const rgb = hexToRgb(sel), hsl = rgbToHsl(rgb);
+      box.querySelector(".clr-fmts").replaceChildren(...[["HEX", sel], ["RGB", `rgb(${rgb.join(", ")})`], ["HSL", `hsl(${hsl[0]}, ${hsl[1]}%, ${hsl[2]}%)`]].map(([k, v]) => {
+        const b = el("button", "clr-f", `<small>${k}</small><b>${v}</b>`);
+        b.title = "Kopyala";
+        b.onclick = () => copy(v, b);
+        return b;
+      }));
+    } else box.querySelector(".clr-fmts").innerHTML = `<div class="clp-empty" style="padding:6px">Henüz renk seçmedin.</div>`;
+    box.querySelector(".clr-hist").replaceChildren(...hist.map((h) => {
+      const b = el("button", "clr-sw" + (h === sel ? " on" : ""));
+      b.style.background = h;
+      b.title = h;
+      b.onclick = () => { sel = h; draw(); };
+      return b;
+    }));
+    box.querySelector(".clr-clear").style.visibility = hist.length ? "visible" : "hidden";
+    relayout();
+  };
+  box.querySelector(".clr-pick").onclick = () => { invoke("popover_close").catch(() => {}); invoke("color_pick").catch(() => {}); };
+  box.querySelector(".clr-clear").onclick = () => { invoke("color_forget").catch(() => {}); hist = []; sel = null; draw(); };
+  draw();
+}
+
+// ---------------------------------------------------------------------------
+// Hızlı çeviri
+// ---------------------------------------------------------------------------
+const LANGS = [["tr", "Türkçe"], ["en", "İngilizce"], ["de", "Almanca"], ["fr", "Fransızca"], ["es", "İspanyolca"], ["ar", "Arapça"], ["ru", "Rusça"], ["it", "İtalyanca"]];
+let trTo = "tr";
+async function renderTranslate() {
+  const box = el("div", "trn");
+  box.innerHTML = `<div class="clp-head"><strong>Çeviri</strong><span class="clp-n trn-det"></span>
+      <select class="trn-to" aria-label="Hedef dil">${LANGS.map(([k, n]) => `<option value="${k}">${n}</option>`).join("")}</select></div>
+    <textarea class="trn-in" placeholder="Çevrilecek metni yaz ya da yapıştır" spellcheck="false"></textarea>
+    <div class="trn-btns"><button class="trn-clip">Panodakini çevir</button><button class="trn-swap" title="Dilleri değiştir">⇅</button><button class="trn-go">Çevir</button></div>
+    <div class="trn-out"><span class="ph">Çeviri burada görünecek</span></div>
+    <div class="trn-acts"><button class="trn-copy">Kopyala</button></div>`;
+  panel.append(box);
+  const inp = box.querySelector(".trn-in"), out = box.querySelector(".trn-out"), to = box.querySelector(".trn-to");
+  to.value = trTo;
+  let t = 0, lastOut = "";
+  const go = async () => {
+    const q = inp.value.trim();
+    if (!q) { out.innerHTML = `<span class="ph">Çeviri burada görünecek</span>`; lastOut = ""; relayout(); return; }
+    out.classList.add("busy");
+    try {
+      const r = await translateText(q.slice(0, 4000), to.value);
+      lastOut = r.text;
+      out.textContent = r.text;
+      const from = LANGS.find(([k]) => k === r.from)?.[1] || r.from;
+      box.querySelector(".trn-det").textContent = from ? `${from} → ${LANGS.find(([k]) => k === to.value)[1]}` : "";
+    } catch { out.innerHTML = `<span class="ph">Çeviri servisine ulaşılamadı.</span>`; }
+    out.classList.remove("busy");
+    relayout();
+  };
+  inp.oninput = () => { clearTimeout(t); t = setTimeout(go, 500); };
+  inp.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); go(); } };
+  to.onchange = () => { trTo = to.value; go(); };
+  box.querySelector(".trn-go").onclick = go;
+  box.querySelector(".trn-swap").onclick = () => {
+    if (lastOut) inp.value = lastOut;
+    trTo = to.value = to.value === "tr" ? "en" : "tr";
+    go();
+  };
+  box.querySelector(".trn-clip").onclick = async () => {
+    const items = (await invoke("clip_list").catch(() => [])) || [];
+    const txt = items.find((x) => x.kind === "text")?.text;
+    if (txt) { inp.value = txt; go(); }
+  };
+  const cp = box.querySelector(".trn-copy");
+  cp.onclick = () => { if (!lastOut) return; invoke("copy_text", { text: lastOut }).catch(() => {}); cp.textContent = "Kopyalandı ✓"; setTimeout(() => (cp.textContent = "Kopyala"), 900); };
+  setTimeout(() => inp.focus(), 60);
+}
+
+// ---------------------------------------------------------------------------
 // Claude kullanımı paneli
 // ---------------------------------------------------------------------------
 function untilTxt(iso) {
@@ -1720,7 +2143,12 @@ async function mockInvoke(cmd, args) {
   const q = new URLSearchParams(location.search);
   if (cmd === "get_config") return { theme: q.get("theme") || "dark", backdrop: "acrylic", accent: "#2F7BFF", dynamic: { enabled: q.has("wall"), tint: 45 }, weather: { enabled: true, auto_location: true, city: "İstanbul", lat: 41, lon: 29 },
     focus: { work: 25, short: 5, long: 15, rounds: 4, auto: true, sound: true },
+    crypto: { coins: ["bitcoin", "ethereum", "solana"], currency: "try" },
+    countdowns: [{ name: "Tatil", date: "2026-12-24" }, { name: "Proje teslimi", date: "2026-12-05" }],
     world_clocks: [{ name: "Londra", tz: "Europe/London" }, { name: "Kahire", tz: "Africa/Cairo" }, { name: "New York", tz: "America/New_York" }, { name: "Tokyo", tz: "Asia/Tokyo" }] };
+  if (cmd === "net_counters") { window.__nb = (window.__nb || 5e9) + 1.5e6 + Math.random() * 3e6; return [window.__nb, window.__nb / 9]; }
+  if (cmd === "disk_info") return { drives: [{ root: "C:\\", label: "Windows", total: 1e12, free: 2.1e11, kind: "fixed" }, { root: "D:\\", label: "Veri", total: 2e12, free: 1.4e11, kind: "fixed" }, { root: "E:\\", label: "", total: 6.4e10, free: 3.2e10, kind: "removable" }], bin_items: 214, bin_bytes: 3.4e9 };
+  if (cmd === "color_history") return ["#2F7BFF", "#F97316", "#22C55E", "#EC4899", "#0EA5E9", "#FACC15", "#111827"];
   if (cmd === "notes_list") return [
     { id: "a", text: "Cuma 15:00 haftalık toplantı\n- Sunumu bitir\n- Faturaları gönder", color: "yellow", desktop: true, updated: Date.now() },
     { id: "b", text: "Wi-Fi şifresi misafir: kahve2026", color: "pink", desktop: false, updated: Date.now() - 6e5 },
@@ -1759,6 +2187,14 @@ async function mockInvoke(cmd, args) {
     if (q.get("kind") === "todo") return { kind: "todo", serial: 1, key: "todo", payload: null };
     if (q.get("kind") === "focus") return { kind: "focus", serial: 1, key: "focus", payload: null };
     if (q.get("kind") === "world") return { kind: "world", serial: 1, key: "world", payload: null };
+    if (q.get("kind") === "net") return { kind: "net", serial: 1, key: "net", payload: null };
+    if (q.get("kind") === "disk") return { kind: "disk", serial: 1, key: "disk", payload: null };
+    if (q.get("kind") === "crypto") return { kind: "crypto", serial: 1, key: "crypto", payload: null };
+    if (q.get("kind") === "prayer") return { kind: "prayer", serial: 1, key: "prayer", payload: null };
+    if (q.get("kind") === "countdown") return { kind: "countdown", serial: 1, key: "countdown", payload: null };
+    if (q.get("kind") === "calc") return { kind: "calc", serial: 1, key: "calc", payload: null };
+    if (q.get("kind") === "color") return { kind: "color", serial: 1, key: "color", payload: null };
+    if (q.get("kind") === "translate") return { kind: "translate", serial: 1, key: "translate", payload: null };
     return { kind: "calendar", serial: 1, key: "cal", payload: null };
   }
   if (cmd === "usage_data") {
@@ -1814,7 +2250,7 @@ async function mockInvoke(cmd, args) {
     { label: "Opus", percent: 87, resets_at: new Date(Date.now() + 3.4 * 86400e3).toISOString() },
   ] };
   if (cmd === "wallpaper") return MOCK.wallpaper(q.get("wall"));
-  if (cmd === "fetch_text") return /open-meteo|geojs/.test(args.url) ? MOCK.fetch(args.url) : mockFetch(args.url);
+  if (cmd === "fetch_text") return /open-meteo|geojs|coingecko|aladhan|translate\.googleapis/.test(args.url) ? MOCK.fetch(args.url) : mockFetch(args.url);
   if (cmd === "tray_apps")
     return ["Steam", "Discord", "OneDrive", "Telegram", "NVIDIA", "Bluetooth", "Docker Desktop", "PowerToys", "Logi Options+", "1Password"].map((n, i) => ({ name: n, exe: `C:\\${n}.exe`, icon: null, promoted: i < 2 }));
   return null;

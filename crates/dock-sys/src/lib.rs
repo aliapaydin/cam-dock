@@ -24,6 +24,7 @@ pub mod subclass;
 pub mod sysinfo;
 pub mod taskbar;
 pub mod thumbs;
+pub mod tools;
 pub mod tray;
 pub mod trayhook;
 pub mod wallpaper;

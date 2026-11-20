@@ -20,6 +20,7 @@ mod claude;
 mod updater;
 mod phone;
 mod prod;
+mod tools;
 
 use config::Config;
 use std::collections::HashMap;
@@ -241,6 +242,17 @@ fn main() {
             prod::note_resize,
             prod::note_menu,
             commands::set_widget_width,
+            commands::dock_stretch,
+            commands::set_cfg_value,
+            tools::disk_info,
+            tools::recycle_empty,
+            tools::net_counters,
+            tools::color_pick,
+            tools::color_history,
+            tools::color_forget,
+            tools::screenshots_dir,
+            tools::screen_clip,
+            tools::copy_text,
             prod::todos_list,
             prod::todo_add,
             prod::todo_toggle,

@@ -296,7 +296,7 @@ function markActive(el, on, cls = "active") {
 function pressFx(root) {
   root.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
-    const t = e.target.closest(".ctrl, .fc-ring, .app.start, .stack-btn, .lp, button.cell, .cell.media, .cell.sys, .cell.clock.has-wx");
+    const t = e.target.closest(".ctrl, .fc-ring, .sh-cut, .cl-pick, .app.start, .stack-btn, .lp, button.cell, .cell.media, .cell.sys, .cell.clock.has-wx");
     if (!t || !root.contains(t)) return;
     // İçteki düğme (oynat/ileri) basılıyorsa hücrenin kendisi çökmesin
     t.classList.remove("released");
@@ -1401,11 +1401,6 @@ function systemWidget() {
 // Canlı etkinlikler: indirme, zamanlayıcı, mikrofon/kamera, şarj
 // Hiçbir şey yokken görünmez; bir etkinlik başlayınca dock'ta belirir.
 // ---------------------------------------------------------------------------
-const fmtBytes = (n) => {
-  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
-  if (n < 1024 ** 3) return `${(n / 1024 / 1024).toLocaleString("tr-TR", { maximumFractionDigits: 1 })} MB`;
-  return `${(n / 1024 ** 3).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} GB`;
-};
 const fmtClock = (ms) => {
   const s = Math.ceil(ms / 1000);
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
@@ -1649,6 +1644,15 @@ const WIDGETS = {
   todo: todoWidget,
   focus: focusWidget,
   world: worldWidget,
+  net: netWidget,
+  disk: diskWidget,
+  crypto: cryptoWidget,
+  prayer: prayerWidget,
+  countdown: countdownWidget,
+  calc: calcWidget,
+  color: colorWidget,
+  shot: shotWidget,
+  translate: translateWidget,
 };
 
 // ---------------------------------------------------------------------------
@@ -1661,7 +1665,7 @@ const openPop = async (c, kind, payload = null) => {
   markActive(c, res === "opened" || res === "open");
 };
 // Olay dinleyicileri bir kez kurulur; dock yeniden çizilince güncel hücreyi bulur.
-const prodCells = { notes: null, todo: null, focus: null };
+const prodCells = { notes: null, todo: null, focus: null, calc: null, color: null };
 let notesData = [], todosData = [], focusData = null;
 listen("notes-changed", (e) => { notesData = e.payload || []; prodCells.notes?.upd(); });
 listen("todos-changed", (e) => { todosData = e.payload || []; prodCells.todo?.upd(); });
@@ -1813,6 +1817,228 @@ function worldWidget() {
 }
 
 // ---------------------------------------------------------------------------
+// Sistem, bilgi ve araç widget'ları (Faz 3)
+// ---------------------------------------------------------------------------
+const TICON = {
+  down: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',
+  up: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+  moon: '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M14.5 3.2a8.8 8.8 0 1 0 6.3 14.9A7.3 7.3 0 0 1 14.5 3.2z"/><path d="M18.2 6.2l.5 1.4 1.5.1-1.2.9.4 1.5-1.2-.9-1.3.9.5-1.5-1.2-.9 1.5-.1z"/></svg>',
+  calc: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="3" width="14" height="18" rx="3"/><path d="M8.5 7.5h7"/><circle cx="9" cy="12" r=".9" fill="currentColor"/><circle cx="12" cy="12" r=".9" fill="currentColor"/><circle cx="15" cy="12" r=".9" fill="currentColor"/><circle cx="9" cy="16" r=".9" fill="currentColor"/><circle cx="12" cy="16" r=".9" fill="currentColor"/><circle cx="15" cy="16" r=".9" fill="currentColor"/></svg>',
+  drop: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4.5l5 5M8 11l5 5M6.5 12.5l6-6 5 5-6 6H6.5z"/><path d="M6.5 17.5L4 20"/></svg>',
+  scissors: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.1 8.1L20 20M8.1 15.9L20 4"/></svg>',
+  shots: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="M21 15l-5-5-9 9"/></svg>',
+  lang: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h9M8.5 3v2M6 5c.6 3 2.6 5.6 5.5 7M11 5c-.8 3.6-3.4 6.6-7 8"/><path d="M13 21l4-9 4 9M14.4 18h5.2"/></svg>',
+};
+const sparkSvg = (vals, w, h, cls = "") => {
+  if (!vals?.length) return "";
+  const mx = Math.max(...vals), mn = Math.min(...vals), rng = mx - mn || 1;
+  const step = w / Math.max(1, vals.length - 1);
+  const pts = vals.map((v, i) => `${(i * step).toFixed(1)},${(h - 1 - ((v - mn) / rng) * (h - 2)).toFixed(1)}`);
+  return `<svg class="mini-spark ${cls}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path d="M${pts.join("L")}L${w},${h}L0,${h}Z" class="a"/><path d="M${pts.join("L")}" class="l"/></svg>`;
+};
+
+// Ağ hızı: saniyede bir sayaç okunur, son 40 sn çizgi grafik.
+const netHist = { rx: [], tx: [], last: null };
+function netWidget() {
+  const c = $("button", "cell w-net");
+  c.innerHTML = `<span class="stack nt-rates"><span class="t-strong dn">${TICON.down}<b>–</b></span><span class="t-sub upr">${TICON.up}<b>–</b></span></span><span class="nt-graph"></span>`;
+  const dn = c.querySelector(".dn b"), up = c.querySelector(".upr b"), g = c.querySelector(".nt-graph");
+  const poll = async () => {
+    const [rx, tx] = (await invoke("net_counters").catch(() => [0, 0])) || [0, 0];
+    const now = Date.now();
+    if (netHist.last && rx >= netHist.last.rx) {
+      const dt = (now - netHist.last.t) / 1000 || 1;
+      netHist.rx.push((rx - netHist.last.rx) / dt);
+      netHist.tx.push((tx - netHist.last.tx) / dt);
+      if (netHist.rx.length > 40) { netHist.rx.shift(); netHist.tx.shift(); }
+    }
+    netHist.last = { rx, tx, t: now };
+    const r = netHist.rx.at(-1) || 0, t = netHist.tx.at(-1) || 0;
+    dn.textContent = fmtRate(r);
+    up.textContent = fmtRate(t);
+    g.innerHTML = sparkSvg(netHist.rx.length > 1 ? netHist.rx : [0, 0], 64, 30, "net");
+    c.title = `İndirme ${fmtRate(r)} · Yükleme ${fmtRate(t)}\nTıkla: son 2 dakikanın grafiği`;
+  };
+  every(1000, whenVisible(poll));
+  c.onclick = () => openPop(c, "net");
+  return c;
+}
+
+// Disk ve çöp kutusu
+function diskWidget() {
+  const c = $("button", "cell w-disk");
+  c.innerHTML = `<span class="ring-wrap dk-ring"></span><span class="stack"><span class="t-strong"></span><span class="t-sub"></span></span>`;
+  const [rw, title, sub] = [c.querySelector(".dk-ring"), c.querySelector(".t-strong"), c.querySelector(".t-sub")];
+  const load = async () => {
+    const d = await invoke("disk_info").catch(() => null);
+    const sys = d?.drives?.find((x) => /^C:/i.test(x.root)) || d?.drives?.[0];
+    if (!sys) { title.textContent = "Disk"; sub.textContent = "Bilgi alınamadı"; return; }
+    const used = (1 - sys.free / sys.total) * 100;
+    rw.innerHTML = ring(used, used > 90 ? "warn" : "");
+    rw.classList.toggle("warn", used > 90);
+    title.textContent = `${sys.root.slice(0, 2)} ${fmtBytes(sys.free)} boş`;
+    sub.textContent = d.bin_items ? `Çöp kutusu: ${fmtBytes(d.bin_bytes)}` : "Çöp kutusu boş";
+    c.title = (d.drives || []).map((x) => `${x.root.slice(0, 2)} ${x.label || ""} — ${fmtBytes(x.free)} boş / ${fmtBytes(x.total)}`).join("\n");
+  };
+  every(60_000, load);
+  listen("disk-changed", load);
+  c.onclick = () => openPop(c, "disk");
+  return c;
+}
+
+// Kripto: coinler sırayla döner (fare üstündeyken durur, tekerlekle geçilir).
+function cryptoWidget() {
+  const c = $("button", "cell w-crypto");
+  c.innerHTML = `<span class="cr-ic"></span><span class="stack"><span class="t-sub"></span><span class="t-big"></span></span><span class="cr-chg"></span>`;
+  const [ic, sub, big, chg] = [".cr-ic", ".t-sub", ".t-big", ".cr-chg"].map((k) => c.querySelector(k));
+  let data = [], i = 0, hover = false;
+  const show = (anim) => {
+    if (!data.length) { sub.textContent = "Kripto"; big.textContent = "…"; return; }
+    i = ((i % data.length) + data.length) % data.length;
+    const x = data[i];
+    const put = () => {
+      ic.innerHTML = x.image ? `<img src="${x.image}" alt="">` : `<b>${x.sym.slice(0, 1)}</b>`;
+      sub.textContent = `${x.name} · ${x.sym}`;
+      big.textContent = Crypto.fmt(x.price, x.cur);
+      chg.textContent = `${x.change >= 0 ? "▲" : "▼"} %${fmt2(Math.abs(x.change))}`;
+      chg.className = "cr-chg " + (x.change >= 0 ? "up" : "down");
+    };
+    if (!anim) return put();
+    c.classList.add("swap");
+    setTimeout(() => { put(); c.classList.remove("swap"); }, 160);
+  };
+  const load = async (force) => {
+    try { data = await Crypto.get(cfg, force); show(false); c.title = data.map((x) => `${x.sym} ${Crypto.fmt(x.price, x.cur)} (%${fmt2(x.change)})`).join("\n") + "\nKaynak: CoinGecko"; }
+    catch { sub.textContent = "Kripto"; big.textContent = "bağlantı yok"; }
+  };
+  load();
+  every(120_000, () => load(true));
+  every(6000, () => { if (!hover && data.length > 1) { i++; show(true); } });
+  c.onmouseenter = () => (hover = true);
+  c.onmouseleave = () => (hover = false);
+  c.onwheel = (e) => { e.preventDefault(); i += e.deltaY > 0 ? 1 : -1; show(true); };
+  c.onclick = () => openPop(c, "crypto");
+  return c;
+}
+
+// Namaz vakitleri: sıradaki vakit ve kalan süre
+function prayerWidget() {
+  const c = $("button", "cell w-prayer");
+  c.innerHTML = `<span class="pr-ic">${TICON.moon}</span><span class="stack"><span class="t-sub"></span><span class="t-big"></span></span>`;
+  const [sub, big] = [c.querySelector(".t-sub"), c.querySelector(".t-big")];
+  let st = null;
+  const draw = () => {
+    if (!st) return;
+    if (st.next.at <= Date.now()) return load();
+    const left = st.next.at - Date.now();
+    sub.textContent = `${st.next.name} · ${st.next.hm}`;
+    big.textContent = fmtLeft(left);
+    c.classList.toggle("soon", left < 15 * 60_000);
+    c.title = `${st.city} namaz vakitleri\n` + st.today.map((p) => `${p.name} ${p.hm}`).join("  ·  ");
+  };
+  const load = async () => {
+    try { st = await Prayer.get(cfg); draw(); }
+    catch { sub.textContent = "Namaz vakitleri"; big.textContent = "bağlantı yok"; }
+  };
+  load();
+  every(30_000, draw);
+  c.onclick = () => openPop(c, "prayer");
+  return c;
+}
+
+// Geri sayım: en yakın hedef
+function countdownTargets() {
+  const list = (cfg.countdowns || []).map((x) => ({ ...x, at: new Date(x.date.length <= 10 ? x.date + "T00:00" : x.date).getTime() })).filter((x) => !isNaN(x.at));
+  if (!list.length) {
+    const y = new Date().getFullYear() + 1;
+    list.push({ name: "Yılbaşı", date: `${y}-01-01`, at: new Date(`${y}-01-01T00:00`).getTime(), auto: true });
+  }
+  return list.sort((a, b) => (a.at < Date.now()) - (b.at < Date.now()) || a.at - b.at);
+}
+function countdownWidget() {
+  const c = $("button", "cell w-count");
+  c.innerHTML = `<span class="cd-box"><b></b><small>gün</small></span><span class="stack"><span class="t-strong"></span><span class="t-sub"></span></span>`;
+  const [num, unit, title, sub] = [".cd-box b", ".cd-box small", ".t-strong", ".t-sub"].map((k) => c.querySelector(k));
+  const draw = () => {
+    const t = countdownTargets()[0];
+    const ms = t.at - Date.now();
+    const d = Math.floor(Math.abs(ms) / 86_400_000), h = Math.floor((Math.abs(ms) % 86_400_000) / 3_600_000);
+    if (ms > 0 && d === 0) { num.textContent = h; unit.textContent = "saat"; }
+    else { num.textContent = d; unit.textContent = "gün"; }
+    title.textContent = t.name;
+    sub.textContent = ms <= 0 ? "Geldi 🎉" : new Date(t.at).toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" }) + (d < 1 ? "" : ` · ${h} sa`);
+    c.classList.toggle("near", ms > 0 && ms < 3 * 86_400_000);
+  };
+  every(60_000, draw);
+  c.onclick = () => openPop(c, "countdown");
+  return c;
+}
+
+// Hesap makinesi: son sonuç dock'ta
+let calcLast = "";
+function calcWidget() {
+  const c = $("button", "cell w-calc");
+  c.innerHTML = `<span class="tl-ic">${TICON.calc}</span><span class="stack"><span class="t-sub">Hesap makinesi</span><span class="t-strong"></span></span>`;
+  const out = c.querySelector(".t-strong");
+  c.upd = () => (out.textContent = calcLast || "Hesapla");
+  c.upd();
+  c.onclick = () => openPop(c, "calc");
+  prodCells.calc = c;
+  return c;
+}
+listen("calc-result", (e) => { calcLast = e.payload || ""; prodCells.calc?.upd(); });
+
+// Renk seçici: tıkla → ekrandan renk al; son renk dock'ta
+let colorLast = null;
+function colorWidget() {
+  const c = $("div", "cell w-color");
+  c.innerHTML = `<button class="cl-pick" title="Ekrandan renk al (sol tık seç, sağ tık iptal)">${TICON.drop}</button>
+    <button class="stack cl-txt"><span class="t-sub">Renk seçici</span><span class="t-strong"></span></button>`;
+  const pick = c.querySelector(".cl-pick"), txt = c.querySelector(".cl-txt"), hex = c.querySelector(".t-strong"), sub = c.querySelector(".t-sub");
+  c.upd = (live) => {
+    const v = live || colorLast;
+    c.style.setProperty("--sw", v || "transparent");
+    c.classList.toggle("has", !!v);
+    c.classList.toggle("picking", !!live);
+    hex.textContent = v || "Seç";
+    sub.textContent = live ? "Tıkla: seç · sağ tık: iptal" : colorLast ? "Son renk" : "Renk seçici";
+  };
+  invoke("color_history").then((h) => { colorLast = h?.[0] || null; c.upd(); }).catch(() => c.upd());
+  pick.onclick = (e) => { e.stopPropagation(); invoke("popover_close").catch(() => {}); invoke("color_pick").catch(() => {}); };
+  txt.onclick = () => openPop(c, "color");
+  prodCells.color = c;
+  return c;
+}
+listen("color-hover", (e) => prodCells.color?.upd(e.payload.hex));
+listen("color-picking", (e) => { if (!e.payload) prodCells.color?.upd(); });
+listen("color-picked", (e) => { colorLast = e.payload; prodCells.color?.upd(); invoke("copy_text", { text: e.payload }).catch(() => {}); });
+
+// Ekran görüntüsü: makas → Ekran Alıntısı Aracı; sağ taraf → son görüntüler
+function shotWidget() {
+  const c = $("div", "cell w-shot");
+  c.innerHTML = `<button class="sh-cut" title="Ekran alıntısı (Win+Shift+S)">${TICON.scissors}</button>
+    <button class="stack sh-list"><span class="t-sub">Ekran görüntüsü</span><span class="t-strong">Son çekilenler</span></button>`;
+  c.querySelector(".sh-cut").onclick = (e) => { e.stopPropagation(); invoke("screen_clip").catch(() => {}); };
+  c.querySelector(".sh-list").onclick = async () => {
+    const dir = await invoke("screenshots_dir").catch(() => null);
+    if (!dir) return;
+    const r = c.getBoundingClientRect();
+    const res = await invoke("popover_open", { kind: "stack", key: "shots", anchor: r.left + r.width / 2, payload: { name: "Ekran görüntüleri", path: dir, view: "grid", sort: "date" } }).catch(() => "");
+    markActive(c, res === "opened" || res === "open");
+  };
+  return c;
+}
+
+// Hızlı çeviri
+function translateWidget() {
+  const c = $("button", "cell w-tr");
+  c.innerHTML = `<span class="tl-ic">${TICON.lang}</span><span class="stack"><span class="t-sub">Çeviri</span><span class="t-strong">Türkçe ⇄ İngilizce</span></span>`;
+  c.title = "Hızlı çeviri\nTıkla: yaz ya da panodakini çevir";
+  c.onclick = () => openPop(c, "translate");
+  return c;
+}
+
+// ---------------------------------------------------------------------------
 // Kurulum
 // ---------------------------------------------------------------------------
 function render() {
@@ -1842,13 +2068,28 @@ const WIDGET_NAMES = {
   clipboard: "Pano", live: "Canlı etkinlikler", stacks: "Klasör yığınları", screentime: "Ekran süresi",
   ticker: "Piyasa ve haberler", currency: "Piyasa ve haberler", media: "Müzik", clock: "Saat ve hava",
   notes: "Yapışkan notlar", todo: "Yapılacaklar", focus: "Odak", world: "Dünya saatleri",
+  net: "Ağ hızı", disk: "Disk ve çöp kutusu", crypto: "Kripto", prayer: "Namaz vakitleri", countdown: "Geri sayım",
+  calc: "Hesap makinesi", color: "Renk seçici", shot: "Ekran görüntüsü", translate: "Çeviri",
 };
 let editing = false;
 let wdrag = null;
 
 // Genişliği ayarlanabilen widget'lar (düzenleme modunda sağ kenardan sürüklenir)
-const RESIZABLE = new Set(["calendar", "claude", "screentime", "ticker", "currency", "media", "clock", "notes", "todo", "focus", "world", "mail"]);
+const RESIZABLE = new Set(["calendar", "claude", "screentime", "ticker", "currency", "media", "clock", "notes", "todo", "focus", "world", "mail",
+  "net", "disk", "crypto", "prayer", "countdown", "calc", "color", "shot", "translate"]);
 var wResizing = false;
+let wSettleT = 0;
+// Genişlik ayarı: sürüklerken dock'un boyutu/konumu hiç değişmez (pencere
+// yalnızca sağa doğru uzar ki büyüyen widget kesilmesin). Bıraktıktan kısa
+// bir süre sonra dock yeni boyutuna yumuşakça yerleşir.
+function settleLayout() {
+  clearTimeout(wSettleT);
+  wSettleT = setTimeout(() => {
+    wResizing = false;
+    sendLayout({ smooth: true, force: true });
+    if (editing) setTimeout(() => invoke("dock_region", { expand: [0, document.documentElement.clientWidth] }).catch(() => {}), 260);
+  }, 700);
+}
 function addResizer(w) {
   if (!RESIZABLE.has(w.dataset.wid) || w.querySelector(":scope > .w-rs")) return;
   const h = $("span", "w-rs");
@@ -1858,28 +2099,25 @@ function addResizer(w) {
     e.preventDefault();
     e.stopPropagation();
     h.setPointerCapture(e.pointerId);
-    // Tutamaç imleci birebir izlesin: genişlik = imleç − widget'ın sol kenarı.
-    // Dock bu sırada ortalanmaz, sol kenarı sabit kalır; yalnızca sağdakiler kayar.
-    const grab = w.getBoundingClientRect().right - e.clientX;
-    wResizing = true;
+    clearTimeout(wSettleT);
     clearTimeout(layoutTimer);
+    const x0 = e.clientX, w0 = w.getBoundingClientRect().width;
+    if (!wResizing) invoke("dock_stretch", { extra: Math.max(0, 640 - w0) + 40 }).catch(() => {});
+    wResizing = true;
     w.classList.add("sized", "w-resizing");
-    let wNow = w.getBoundingClientRect().width, raf = 0;
+    let wNow = w0;
     const move = (ev) => {
-      wNow = Math.round(Math.max(56, Math.min(640, ev.clientX + grab - w.getBoundingClientRect().left)));
+      wNow = Math.round(Math.max(56, Math.min(640, w0 + ev.clientX - x0)));
       w.style.width = `${wNow}px`;
-      if (!raf) raf = requestAnimationFrame(() => { raf = 0; sendLayout({ keepLeft: true }); });
     };
     const up = () => {
       h.removeEventListener("pointermove", move);
       h.removeEventListener("pointerup", up);
       h.removeEventListener("pointercancel", up);
       w.classList.remove("w-resizing");
-      wResizing = false;
       cfg.widget_widths = { ...(cfg.widget_widths || {}), [w.dataset.wid]: wNow };
       invoke("set_widget_width", { id: w.dataset.wid, width: wNow }).catch(() => {});
-      // Bitince dock yumuşakça yeniden ortalanır
-      setTimeout(() => sendLayout({ smooth: true, force: true }), 30);
+      settleLayout();
     };
     h.addEventListener("pointermove", move);
     h.addEventListener("pointerup", up);
@@ -1891,7 +2129,8 @@ function addResizer(w) {
     w.classList.remove("sized");
     if (cfg.widget_widths) delete cfg.widget_widths[w.dataset.wid];
     invoke("set_widget_width", { id: w.dataset.wid, width: null }).catch(() => {});
-    setTimeout(() => sendLayout({ smooth: true, force: true }), 30);
+    wResizing = true;
+    settleLayout();
   });
   w.append(h);
 }
@@ -2089,7 +2328,8 @@ listen("popover-closed", (e) => {
   const cell = { calendar: calendarCell, usage: screenCell, news: tickerCell, weather: clockCell, claude: claudeCell, clipboard: clipCell, media: mediaCell }[e.payload];
   if (e.payload === "stack") stacksCell?.classList.remove("is-active");
   cell?.classList.remove("active");
-  if (["notes", "todo", "focus", "world"].includes(e.payload)) dock.querySelector({ notes: ".w-notes", todo: ".w-todo", focus: ".w-focus", world: ".w-world" }[e.payload])?.classList.remove("active");
+  const PC = { notes: ".w-notes", todo: ".w-todo", focus: ".w-focus", world: ".w-world", net: ".w-net", disk: ".w-disk", crypto: ".w-crypto", prayer: ".w-prayer", countdown: ".w-count", calc: ".w-calc", color: ".w-color", translate: ".w-tr", stack: ".w-shot" };
+  if (PC[e.payload]) dock.querySelector(PC[e.payload])?.classList.remove("active");
 });
 
 listen("config-changed", async () => {
@@ -2111,6 +2351,9 @@ async function mockInvoke(cmd, args) {
   switch (cmd) {
     case "popover_open":
       return "opened";
+    case "net_counters": window.__nb = (window.__nb || 5e9) + 2e6 + Math.random() * 4e6; return [window.__nb, window.__nb / 12];
+    case "disk_info": return { drives: [{ root: "C:\\", label: "Windows", total: 1e12, free: 2.1e11, kind: "fixed" }], bin_items: 214, bin_bytes: 3.4e9 };
+    case "color_history": return ["#EC4899"];
     case "notes_list":
       return [{ id: "a", text: "Cuma 15:00 haftalık toplantı", color: "yellow", desktop: true, updated: Date.now() }, { id: "b", text: "x", color: "pink", updated: 1 }, { id: "c", text: "y", color: "blue", updated: 0 }];
     case "todos_list":
@@ -2189,7 +2432,7 @@ async function mockInvoke(cmd, args) {
     case "media_state":
       return { active: true, title: "Gece Sürüşü", artist: "Örnek Sanatçı", album: "", playing: true, position_ms: 134000, duration_ms: 218000, source: "Spotify.exe", track_key: "x" };
     case "fetch_text":
-      if (args.url.includes("open-meteo") || args.url.includes("geojs")) return MOCK.fetch(args.url);
+      if (/open-meteo|geojs|coingecko|aladhan|translate\.googleapis/.test(args.url)) return MOCK.fetch(args.url);
       if (args.url.includes("truncgil"))
         return JSON.stringify({
           USD: { "Satış": "49,8407", "Değişim": "%0,00" },

@@ -448,3 +448,7 @@ input[type="range"] { width: 220px; accent-color: var(--accent); flex: 0 0 auto;
 .wp .clk::before { height: 8px; background: #1B2233; rotate: 100deg; }
 .wp .clk::after { height: 11px; background: #F97316; rotate: 300deg; }
 .wtitle .tag.new { color: #fff; background: linear-gradient(90deg, #F97316, #EC4899); border-color: transparent; }
+.wp .coin { width: 30px; height: 30px; border-radius: 50%; background: linear-gradient(135deg, #F7931A, #FFB347); color: #fff; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.wp .icb { width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; color: var(--c, var(--text)); background: color-mix(in srgb, var(--c, #fff) 16%, transparent); }
+.wp .cdb { width: 32px; height: 32px; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; color: #fff; background: linear-gradient(160deg, #8B5CF6, #EC4899); }
+.wp .cdb b { font-size: 13px; } .wp .cdb small { font-size: 6.5px; font-weight: 700; }
